@@ -7,7 +7,11 @@
 ### 🎯 **今日目標**:
 
 1. 登入使用者角色歡迎詞
+![alt text](/images/login_welcome.png)
 2. 收入項目建檔作業
+![alt text](/images/config_setting_income_1.png)
+![alt text](/images/config_setting_income_2.png)
+![alt text](/images/config_setting_income_3.png)
 
 ### ✅ 今日完成項目
 1. 收入項目建檔作業

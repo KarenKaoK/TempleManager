@@ -7,7 +7,7 @@ from main import MainWindow  # 🔹 匯入主畫面
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-
+DB_NAME = "temple.db" 
 
 class LoginDialog(QDialog):
     """登入視窗"""
@@ -24,20 +24,27 @@ class LoginDialog(QDialog):
         username = self.ui.lineEditUsername.text()
         password = self.ui.lineEditPassword.text()
 
-        conn = sqlite3.connect("users.db")
+        conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         cursor.execute("SELECT password_hash, role FROM users WHERE username = ?", (username,))
         user = cursor.fetchone()
         conn.close()
 
-        if user and bcrypt.checkpw(password.encode(), user[0]):
-            role = user[1]
-            QMessageBox.information(self, "登入成功", f"登入成功，歡迎 {role} 使用！")
+        if user:
+            stored_hash = user[0]  # 從 DB 取出的密碼哈希
+            if isinstance(stored_hash, str):  # 🔹 如果是 str，要轉成 bytes
+                stored_hash = stored_hash.encode("utf-8")
 
-            self.accept()  # 關閉登入視窗
-            self.open_main_window(username, role)  # 開啟主畫面
-        else:
-            QMessageBox.warning(self, "登入失敗", "帳號或密碼錯誤")
+            if bcrypt.checkpw(password.encode(), stored_hash):
+                role = user[1]
+                QMessageBox.information(self, "登入成功", f"登入成功，歡迎 {role} 使用！")
+
+                self.accept()  # 關閉登入視窗
+                self.open_main_window(username, role)  # 開啟主畫面
+                return
+
+        QMessageBox.warning(self, "登入失敗", "帳號或密碼錯誤")
+
 
     def open_main_window(self, username, role):
         """開啟主畫面，並傳遞登入資訊"""
