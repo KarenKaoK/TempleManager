@@ -39,6 +39,39 @@ def create_income_items_table():
     conn.close()
     print("✅ `income_items` 資料表檢查完成（如不存在則建立）")
 
+def create_expense_items_table():
+    """建立 `expense_items` 表，儲存支出項目"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS expense_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        amount INTEGER DEFAULT 0  -- ✅ 確保金額為整數
+    )
+    """)
+    
+    conn.commit()
+    conn.close()
+    print("✅ `expense_items` 資料表檢查完成（如不存在則建立）")
+
+def create_member_identity_table():
+    """建立 `member_identity` 表，存放信眾身份名稱"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS member_identity (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )
+    """)
+    
+    conn.commit()
+    conn.close()
+    print("✅ `member_identity` 資料表檢查完成（如不存在則建立）")
+
 def add_default_users():
     """新增預設角色帳號（管理員、會計、委員、工作人員）"""
     users = [
@@ -65,9 +98,12 @@ def add_default_users():
     conn.close()
     print("✅ 預設使用者建立完成！")
 
+
 if __name__ == "__main__":
     print("🔄 初始化資料庫...")
     create_users_table()
     create_income_items_table()
+    create_expense_items_table()  # ✅ 新增 `expense_items` 表
+    create_member_identity_table()
     add_default_users()
     print("🎉 資料庫初始化完成！")

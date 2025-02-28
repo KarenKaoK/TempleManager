@@ -1,6 +1,9 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow, QAction
 from income_dialog import IncomeSetupDialog  # 🔹 確保正確載入 IncomeSetupDialog
+from expense_dialog import ExpenseSetupDialog
+from member_identity_dialog import MemberIdentityDialog
+
 
 class MainWindow(QMainWindow):
     """主視窗"""
@@ -19,14 +22,33 @@ class MainWindow(QMainWindow):
 
         # 建立選單項目
         income_action = QAction("收入項目建檔作業", self)
+        expense_action = QAction("支出項目建檔作業", self)
+        identity_action = QAction("信眾身份名稱設定", self)
+
+
+        # 綁定選單項目點擊事件
         income_action.triggered.connect(self.open_income_setup)
+        expense_action.triggered.connect(self.open_expense_setup)
+        identity_action.triggered.connect(self.open_identity_setup) 
 
         category_menu.addAction(income_action)
+        category_menu.addAction(expense_action) 
+        category_menu.addAction(identity_action)
 
     def open_income_setup(self):
         """開啟收入項目建檔作業視窗"""
         self.income_dialog = IncomeSetupDialog()
-        self.income_dialog.exec_()  # 🔹 確保彈出視窗
+        self.income_dialog.exec_()  
+
+    def open_expense_setup(self):
+        """開啟支出項目建檔作業視窗"""
+        self.expense_dialog = ExpenseSetupDialog()  # ✅ 連接到 `expense_dialog.py`
+        self.expense_dialog.exec_()
+
+    def open_identity_setup(self):
+        """開啟信眾身份設定作業視窗"""
+        self.identity_dialog = MemberIdentityDialog()  
+        self.identity_dialog.exec_()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
