@@ -193,7 +193,6 @@ class ExpenseSetupDialog(QDialog):
 
         try:
             current_id = int(self.table.item(selected_row, 0).text())
-
             current_name = self.table.item(selected_row, 1).text()  
         except ValueError:
             QMessageBox.warning(self, "錯誤", "無效的支出項目 ID！")
