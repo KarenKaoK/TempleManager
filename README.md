@@ -10,6 +10,9 @@ pip install --upgrade pip
 pip install PyQt5==5.15.9 PyQt5-sip
 pip install bcrypt
 
+pip install pytest
+
+
 
 ```
 
