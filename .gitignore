@@ -1,3 +1,4 @@
 .qodo
 temple_venv
 __pycache__
+*.db
