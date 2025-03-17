@@ -1,8 +1,9 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QAction
-from income_dialog import IncomeSetupDialog  # 🔹 確保正確載入 IncomeSetupDialog
-from expense_dialog import ExpenseSetupDialog
-from member_identity_dialog import MemberIdentityDialog
+from PyQt5.QtWidgets import QApplication, QMainWindow, QAction, QDialog
+from app.auth.login import LoginDialog
+from app.dialogs.income_dialog import IncomeSetupDialog 
+from app.dialogs.expense_dialog import ExpenseSetupDialog
+from app.dialogs.member_identity_dialog import MemberIdentityDialog
 
 
 class MainWindow(QMainWindow):
@@ -13,7 +14,7 @@ class MainWindow(QMainWindow):
         self.username = username
         self.role = role
 
-        self.setWindowTitle("宮廟管理系統")
+        self.setWindowTitle(f"宮廟管理系統 - {role}")
         self.setGeometry(300, 150, 800, 600)
 
         # 建立選單
@@ -24,7 +25,6 @@ class MainWindow(QMainWindow):
         income_action = QAction("收入項目建檔作業", self)
         expense_action = QAction("支出項目建檔作業", self)
         identity_action = QAction("信眾身份名稱設定", self)
-
 
         # 綁定選單項目點擊事件
         income_action.triggered.connect(self.open_income_setup)
@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
 
     def open_expense_setup(self):
         """開啟支出項目建檔作業視窗"""
-        self.expense_dialog = ExpenseSetupDialog()  # ✅ 連接到 `expense_dialog.py`
+        self.expense_dialog = ExpenseSetupDialog() 
         self.expense_dialog.exec_()
 
     def open_identity_setup(self):
@@ -50,8 +50,20 @@ class MainWindow(QMainWindow):
         self.identity_dialog = MemberIdentityDialog()  
         self.identity_dialog.exec_()
 
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    main_window = MainWindow("測試用戶", "測試角色")
-    main_window.show()
-    sys.exit(app.exec_())
+
+    # 顯示登入視窗
+    login_dialog = LoginDialog()
+    if login_dialog.exec_() == QDialog.Accepted:
+        # 取得登入資訊
+        username = login_dialog.username
+        role = login_dialog.role
+
+        # 啟動主視窗
+        main_window = MainWindow(username, role)
+        main_window.show()
+        sys.exit(app.exec_())
+    else:
+        sys.exit(0)  # 登入失敗則關閉應用程式

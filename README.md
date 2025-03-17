@@ -42,6 +42,26 @@ pip install pytest
 
 ## Usage
 
+### **1. 初始化資料庫**
+如果是第一次使用，請先執行(執行時路徑要在 XXpath/TempleManager 下執行)
+```bash
+python -m app.database.setup_db
+```
+
+這將會：
+
+- 建立 `temple.db` 資料庫
+- 建立 `users`、`income_items`、`expense_items` 等資料表
+- 預設建立 **管理員帳號**
+    - 帳號：`admin`
+    - 密碼：`admin123`
+
+### **2. 執行 main.py**
+
+(執行時路徑要在 XXpath/TempleManager 下執行)
+```bash
+python -m app.main
+```
 
 ## Git Flow
 

@@ -1,19 +1,18 @@
 import sqlite3
 import bcrypt
-
-DB_NAME = "temple.db"  # ✅ 確保統一使用 users.db
+from app.config import DB_NAME, DEFAULT_USERS, USER_ROLES
 
 def create_users_table():
     """建立 `users` 表，儲存使用者帳號與權限"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    cursor.execute("""
+    cursor.execute(f"""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
-        role TEXT CHECK(role IN ('管理員', '會計', '委員', '工作人員')) NOT NULL,
+        role TEXT CHECK(role IN {USER_ROLES}) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -74,17 +73,10 @@ def create_member_identity_table():
 
 def add_default_users():
     """新增預設角色帳號（管理員、會計、委員、工作人員）"""
-    users = [
-        ("admin", "admin123", "管理員"),
-        ("accountant", "acc123", "會計"),
-        ("committee", "com123", "委員"),
-        ("staff", "staff123", "工作人員")
-    ]
-
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    for username, password, role in users:
+    for username, password, role in DEFAULT_USERS:
         cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
         if cursor.fetchone() is None:  # 🔹 確保帳號不存在才建立
             hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode("utf-8")
@@ -97,7 +89,6 @@ def add_default_users():
     conn.commit()
     conn.close()
     print("✅ 預設使用者建立完成！")
-
 
 if __name__ == "__main__":
     print("🔄 初始化資料庫...")
