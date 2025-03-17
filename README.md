@@ -63,6 +63,15 @@ python -m app.database.setup_db
 python -m app.main
 ```
 
+## Testing
+
+本專案使用 `pytest` 進行測試。
+
+### **執行所有測試**
+```bash
+pytest tests/
+```
+
 ## Git Flow
 
 - 開發流程
