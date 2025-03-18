@@ -2,11 +2,12 @@ import sqlite3
 import bcrypt
 from PyQt5.QtWidgets import QDialog, QMessageBox
 from app.dialogs.login_ui import Ui_Dialog  
+from app.config import DB_NAME
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-DB_NAME = "temple.db"
+
 
 class LoginDialog(QDialog):
     """登入視窗"""

@@ -4,7 +4,8 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 資料庫路徑
-DB_NAME = os.path.join(BASE_DIR, "./database/temple.db")
+DB_NAME = os.path.join(BASE_DIR, "database/temple.db")
+
 
 # 預設使用者帳號
 DEFAULT_USERS = [

@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout
 )
 
-DB_NAME = "temple.db"  # ✅ 確保統一使用 temple.db
+from app.config import DB_NAME
 
 class MemberIdentityDialog(QDialog):
     """信眾身份名稱設定 視窗"""

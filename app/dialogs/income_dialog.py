@@ -3,8 +3,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton,
     QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout, QSpinBox, QInputDialog
 )
-
-DB_NAME = "temple.db"  # ✅ 確保統一使用 temple.db
+from app.config import DB_NAME
 
 class IncomeSetupDialog(QDialog):
     """收入項目建檔作業 視窗"""
@@ -190,8 +189,8 @@ class IncomeSetupDialog(QDialog):
             return
 
         try:
-            current_id = int(self.table.item(selected_row, 0).text())  # ✅ 確保 `id` 為 `int`
-            current_name = self.table.item(selected_row, 1).text()  
+            current_id = self.table.item(selected_row, 0).text().strip()  # ✅ ID 可以是文字或數字
+            current_name = self.table.item(selected_row, 1).text().strip()
         except ValueError:
             QMessageBox.warning(self, "錯誤", "無效的收入項目 ID！")
             return

@@ -3,8 +3,8 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton,
     QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout, QSpinBox
 )
+from app.config import DB_NAME
 
-DB_NAME = "temple.db"  # ✅ 使用同一個資料庫
 
 class ExpenseSetupDialog(QDialog):
     """支出項目建檔作業 視窗"""
