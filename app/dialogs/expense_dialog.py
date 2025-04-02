@@ -8,8 +8,10 @@ from app.config import DB_NAME
 
 class ExpenseSetupDialog(QDialog):
     """支出項目建檔作業 視窗"""
-    def __init__(self):
+    def __init__(self,db_path=None):
         super().__init__()
+        from app.config import DB_NAME
+        self.db_path = db_path or DB_NAME
 
         self.setWindowTitle("支出項目建檔作業")
         self.setGeometry(400, 200, 500, 300)
@@ -49,7 +51,7 @@ class ExpenseSetupDialog(QDialog):
 
     def load_data(self):
         """從 SQLite 載入支出項目"""
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM expense_items")
         rows = cursor.fetchall()
@@ -103,7 +105,7 @@ class ExpenseSetupDialog(QDialog):
             QMessageBox.warning(self, "錯誤", "請填寫支出項目名稱！")
             return
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         # 🔍 檢查 ID 是否已存在於 `expense_items`
@@ -175,7 +177,7 @@ class ExpenseSetupDialog(QDialog):
             QMessageBox.warning(self, "錯誤", "請填寫支出項目名稱！")
             return
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("UPDATE expense_items SET name = ?, amount = ? WHERE id = ?", (name, int(amount), id))
         conn.commit()
@@ -208,7 +210,7 @@ class ExpenseSetupDialog(QDialog):
         reply = msg_box.exec_()
 
         if reply == QMessageBox.StandardButton.Yes:  
-            conn = sqlite3.connect(DB_NAME)
+            conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
             cursor.execute("DELETE FROM expense_items WHERE id = ?", (current_id,))
