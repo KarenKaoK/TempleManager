@@ -1,4 +1,5 @@
-
+# tests/test_main_window.py
+import pytest
 from app.main import MainWindow
 
 def test_main_window_init(qtbot):
