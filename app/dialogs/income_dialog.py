@@ -7,8 +7,10 @@ from app.config import DB_NAME
 
 class IncomeSetupDialog(QDialog):
     """收入項目建檔作業 視窗"""
-    def __init__(self):
+    def __init__(self, db_path=None):
         super().__init__()
+        from app.config import DB_NAME
+        self.db_path = db_path or DB_NAME  # ✅ 預設為原本的 DB_NAME
 
         self.setWindowTitle("收入項目建檔作業")
         self.setGeometry(400, 200, 500, 300)
@@ -48,7 +50,7 @@ class IncomeSetupDialog(QDialog):
 
     def load_data(self):
         """從 SQLite 載入收入項目"""
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT id, name, CAST(amount AS INTEGER) FROM income_items")  # ✅ 確保金額顯示整數
         rows = cursor.fetchall()
@@ -101,7 +103,7 @@ class IncomeSetupDialog(QDialog):
             QMessageBox.warning(self, "錯誤", "請填寫收入項目名稱！")
             return
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         # 🔍 檢查 ID 是否已存在
@@ -171,7 +173,7 @@ class IncomeSetupDialog(QDialog):
             QMessageBox.warning(self, "錯誤", "請填寫收入項目名稱！")
             return
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("UPDATE income_items SET name = ?, amount = ? WHERE id = ?", (name, int(amount), id))
         conn.commit()
@@ -204,7 +206,7 @@ class IncomeSetupDialog(QDialog):
         msg_box.exec_()
 
         if msg_box.clickedButton() == btn_yes:  # ✅ 如果按下的是「是」
-            conn = sqlite3.connect(DB_NAME)
+            conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
             # ✅ 刪除前先檢查資料是否存在
