@@ -86,11 +86,11 @@ class MemberIdentityDialog(QDialog):
             conn.commit()
             QMessageBox.information(self, "成功", "身份名稱新增成功！")
             self.load_data()
+            dialog.accept()  # ✅ 僅在成功新增時關閉視窗
         except sqlite3.IntegrityError:
             QMessageBox.warning(self, "錯誤", "身份名稱已存在！")
         finally:
             conn.close()
-        dialog.accept()
 
     def edit_identity(self):
         selected_row = self.table.currentRow()
