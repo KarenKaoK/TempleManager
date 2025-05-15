@@ -20,6 +20,11 @@ pip install PyQt5==5.15.9 PyQt5-sip
 pip install bcrypt
 
 pip install pytest
+pip install pytest-qt
+
+pip install pytest-cov
+pip install pytest-mock
+
 ```
 
 驗證安裝成功
