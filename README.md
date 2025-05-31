@@ -65,3 +65,7 @@ python -m app.database.setup_db
 python -m app.main
 ```
 
+## DB Schema
+
+- notion 連結 : https://skitter-apricot-d73.notion.site/SQLite-204ea3ff5528806d8a33cb0ac886045c?source=copy_link
+
