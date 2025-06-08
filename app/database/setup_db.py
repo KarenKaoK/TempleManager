@@ -75,6 +75,7 @@ def create_member_identity_table(db_name=DB_NAME):
 def add_default_users(db_name=DB_NAME):
     """新增預設角色帳號（管理員、會計、委員、工作人員）"""
     users = [
+        ("t", "", "管理員"),
         ("admin", "admin123", "管理員"),
         ("accountant", "acc123", "會計"),
         ("committee", "com123", "委員"),
