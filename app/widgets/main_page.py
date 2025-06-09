@@ -16,11 +16,10 @@ class MainPageWidget(QWidget):
         self.search_bar = SearchBarWidget()
         top_layout.addWidget(self.search_bar)
 
-        self.query_btn = QPushButton("🔍 資料查詢")
         self.add_btn = QPushButton("➕ 新增戶籍資料")
         self.delete_btn = QPushButton("❌ 刪除戶籍資料")
         self.print_btn = QPushButton("🖨️ 資料列印")
-        for btn in [self.query_btn, self.add_btn, self.delete_btn, self.print_btn]:
+        for btn in [ self.add_btn, self.delete_btn, self.print_btn]:
             btn.setStyleSheet("font-size: 14px;")
             top_layout.addWidget(btn)
 
