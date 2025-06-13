@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QMainWindow, QAction
+from PyQt5.QtWidgets import QMainWindow, QAction, QMessageBox
 from app.dialogs.income_dialog import IncomeSetupDialog
 from app.dialogs.expense_dialog import ExpenseSetupDialog
 from app.dialogs.member_identity_dialog import MemberIdentityDialog
@@ -53,24 +53,51 @@ class MainWindow(QMainWindow):
 
     def perform_search(self, keyword):
         print(f"🔍 正在查詢關鍵字: {keyword}")
-        results = self.controller.search_households(keyword)
-        print(f"查詢結果筆數：{len(results)}")
-        for r in results:
-            print(r)
 
-        self.main_page.update_household_table(results)
+        # 改為新的通用查詢：可能是戶長，也可能是戶員
+        head_result, members = self.controller.search_by_any_name(keyword)
 
-        if results:
-            household_id = results[0]["id"]
-            self.main_page.fill_head_detail(results[0])
+        if head_result:
+            print("✅ 查到戶長或戶員，戶長資訊如下：")
+            print(head_result)
 
-            # 🔥 這裡由 MainWindow 來查 members，結果傳進去
-            members = self.controller.get_household_members(household_id)
+            # 格式化欄位（tuple → dict），假設你已有這個方法
+            head_data = self.controller.format_head_data(head_result)
+
+            # 更新上方戶長表格（只顯示一筆）
+            self.main_page.update_household_table([head_data])
+            self.main_page.fill_head_detail(head_data)
+
+            # 更新下方戶員表格
             self.main_page.update_member_table(members)
-            
-            # ✅ 顯示統計標籤
+
+            # 統計成員身份
             num_adults = sum(1 for m in members if m.get("identity") == "丁")
             num_dependents = sum(1 for m in members if m.get("identity") == "口")
             self.main_page.stats_label.setText(
-                f"戶號：{household_id}　戶長：{results[0]['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
+                f"戶號：{head_data['id']}　戶長：{head_data['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
             )
+        else:
+            print("❌ 查無資料")
+            QMessageBox.information(self, "查無結果", f"找不到關鍵字：{keyword}")
+
+    def format_head_data(self, row):
+        return {
+            "id": row[0],
+            "head_name": row[1],
+            "head_gender": row[2],
+            "head_birthday_ad": row[3],
+            "head_birthday_lunar": row[4],
+            "head_birth_time": row[5],
+            "head_age": row[6],
+            "head_zodiac": row[7],
+            "head_phone_home": row[8],
+            "head_phone_mobile": row[9],
+            "head_email": row[10],
+            "head_address": row[11],
+            "head_zip_code": row[12],
+            "head_identity": row[13],
+            "head_note": row[14],
+            "head_joined_at": row[15],
+            "household_note": row[16],
+        }

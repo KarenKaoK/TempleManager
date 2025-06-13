@@ -26,3 +26,45 @@ class AppController:
         """
         cursor.execute(query, (household_id,))
         return [dict(row) for row in cursor.fetchall()]
+    
+    def search_by_any_name(self, keyword):
+        cursor = self.conn.cursor()
+
+        # 搜尋戶長
+        cursor.execute("""
+            SELECT * FROM households
+            WHERE head_name LIKE ?
+            LIMIT 1
+        """, (f"%{keyword}%",))
+        head_row = cursor.fetchone()
+
+        if head_row:
+            household_id = head_row[0]  # 假設 household.id 在第 0 欄
+        else:
+            # 沒找到戶長 → 查 household_members 對應的 people.name
+            cursor.execute("""
+                SELECT hm.household_id
+                FROM household_members hm
+                JOIN people p ON hm.person_id = p.id
+                WHERE p.name LIKE ?
+                LIMIT 1
+            """, (f"%{keyword}%",))
+            row = cursor.fetchone()
+            if row:
+                household_id = row[0]
+                cursor.execute("SELECT * FROM households WHERE id = ?", (household_id,))
+                head_row = cursor.fetchone()
+            else:
+                return None, []
+
+        # 查 household_id 對應的戶員
+        members = self.get_household_members(household_id)
+        return head_row, members
+
+    def format_head_data(self, row):
+        return dict(row)
+
+
+    
+
+
