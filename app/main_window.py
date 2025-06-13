@@ -55,7 +55,4 @@ class MainWindow(QMainWindow):
         print(f"🔍 正在查詢關鍵字: {keyword}")
         results = self.controller.search_households(keyword)
         print(f"查詢結果筆數：{len(results)}")
-        print("🔎 查詢結果內容：")
-        for r in results:
-            print(r)  # ✅ 印出每筆 dict 結果
         self.main_page.update_household_table(results)

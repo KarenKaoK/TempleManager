@@ -38,6 +38,8 @@ class MainPageWidget(QWidget):
         self.household_table.resizeColumnsToContents()
         self.household_table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.household_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.household_table.cellClicked.connect(self.on_household_row_clicked)
+
 
         household_group = QGroupBox("信眾戶籍戶長資料")
         household_group.setStyleSheet("font-size: 14px;")
@@ -174,3 +176,61 @@ class MainPageWidget(QWidget):
             self.household_table.setItem(row_idx, 12, QTableWidgetItem(row.get("head_email", "")))
             self.household_table.setItem(row_idx, 13, QTableWidgetItem(row.get("head_address", "")))
             self.household_table.setItem(row_idx, 14, QTableWidgetItem(row.get("household_note", "")))
+    def on_household_row_clicked(self, row, col):
+        household_id_item = self.household_table.item(row, 0)  # 假設 id 在第 0 欄
+        if not household_id_item:
+            return
+
+        household_id = household_id_item.text()
+        
+        # 呼叫 controller 拿成員資料
+        members = self.controller.get_household_members(household_id)
+        self.update_member_table(members)
+
+        # 更新右側戶長詳情
+        data = self.current_households[row]  # 你需在 update_household_table() 存這個
+        self.fill_head_detail(data)
+
+        # 更新統計標籤
+        num_adults = sum(1 for m in members if m.get("identity") == "丁")
+        num_dependents = sum(1 for m in members if m.get("identity") == "口")
+        self.stats_label.setText(
+            f"戶號：{household_id}　戶長：{data['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
+        )
+    def update_member_table(self, data):
+        self.member_table.setRowCount(len(data))
+        for row_idx, row in enumerate(data):
+            self.member_table.setItem(row_idx, 0, QTableWidgetItem(str(row_idx + 1)))  # 序
+            self.member_table.setItem(row_idx, 1, QTableWidgetItem(""))  # 標示（可加角色）
+            self.member_table.setItem(row_idx, 2, QTableWidgetItem(row.get("name", "")))
+            self.member_table.setItem(row_idx, 3, QTableWidgetItem(row.get("gender", "")))
+            self.member_table.setItem(row_idx, 4, QTableWidgetItem(row.get("birthday_ad", "")))
+            self.member_table.setItem(row_idx, 5, QTableWidgetItem(row.get("birthday_lunar", "")))
+            self.member_table.setItem(row_idx, 6, QTableWidgetItem(""))  # 年份（可補）
+            self.member_table.setItem(row_idx, 7, QTableWidgetItem(row.get("zodiac", "")))
+            self.member_table.setItem(row_idx, 8, QTableWidgetItem(str(row.get("age", ""))))
+            self.member_table.setItem(row_idx, 9, QTableWidgetItem(row.get("birth_time", "")))
+            self.member_table.setItem(row_idx, 10, QTableWidgetItem(row.get("phone_home", "")))
+            self.member_table.setItem(row_idx, 11, QTableWidgetItem(row.get("phone_mobile", "")))
+            self.member_table.setItem(row_idx, 12, QTableWidgetItem(row.get("identity", "")))
+            self.member_table.setItem(row_idx, 13, QTableWidgetItem(row.get("id", "")))  # ID 當作身份證
+            self.member_table.setItem(row_idx, 14, QTableWidgetItem(row.get("address", "")))
+            self.member_table.setItem(row_idx, 15, QTableWidgetItem(row.get("note", "")))
+    def fill_head_detail(self, data):
+        self.fields["姓名："].setText(data.get("head_name", ""))
+        self.fields["性別："].setText(data.get("head_gender", ""))
+        self.fields["加入日期："].setText(data.get("head_joined_at", ""))
+        self.fields["國曆生日："].setText(data.get("head_birthday_ad", ""))
+        self.fields["農曆生日："].setText(data.get("head_birthday_lunar", ""))
+        self.fields["年份："].setText("")  # 如你有欄位再補
+        self.fields["身份："].setText(data.get("head_identity", ""))
+        self.fields["生肖："].setText(data.get("head_zodiac", ""))
+        self.fields["年齡："].setText(str(data.get("head_age", "")))
+        self.fields["聯絡電話："].setText(data.get("head_phone_home", ""))
+        self.fields["手機號碼："].setText(data.get("head_phone_mobile", ""))
+        self.fields["出生時辰："].setText(data.get("head_birth_time", ""))
+        self.fields["身分證號："].setText("")  # head_id 可以補這裡
+        self.fields["電子郵件："].setText(data.get("head_email", ""))
+        self.fields["信眾地址："].setText(data.get("head_address", ""))
+        self.fields["郵遞區號："].setText(data.get("head_zip_code", ""))
+        self.fields["備註說明："].setPlainText(data.get("household_note", ""))

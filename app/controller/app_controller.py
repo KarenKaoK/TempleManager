@@ -16,3 +16,13 @@ class AppController:
         """
         cursor.execute(query, (like_value, like_value, like_value))
         return [dict(row) for row in cursor.fetchall()]
+    def get_household_members(self, household_id):
+        cursor = self.conn.cursor()
+        query = """
+            SELECT p.*
+            FROM household_members hm
+            JOIN people p ON hm.person_id = p.id
+            WHERE hm.household_id = ?
+        """
+        cursor.execute(query, (household_id,))
+        return [dict(row) for row in cursor.fetchall()]
