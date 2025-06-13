@@ -55,4 +55,22 @@ class MainWindow(QMainWindow):
         print(f"🔍 正在查詢關鍵字: {keyword}")
         results = self.controller.search_households(keyword)
         print(f"查詢結果筆數：{len(results)}")
+        for r in results:
+            print(r)
+
         self.main_page.update_household_table(results)
+
+        if results:
+            household_id = results[0]["id"]
+            self.main_page.fill_head_detail(results[0])
+
+            # 🔥 這裡由 MainWindow 來查 members，結果傳進去
+            members = self.controller.get_household_members(household_id)
+            self.main_page.update_member_table(members)
+            
+            # ✅ 顯示統計標籤
+            num_adults = sum(1 for m in members if m.get("identity") == "丁")
+            num_dependents = sum(1 for m in members if m.get("identity") == "口")
+            self.main_page.stats_label.setText(
+                f"戶號：{household_id}　戶長：{results[0]['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
+            )

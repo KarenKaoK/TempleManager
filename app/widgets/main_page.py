@@ -11,6 +11,7 @@ class MainPageWidget(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout()
+        self.fields = {}  #
 
         # 搜尋欄位與功能按鈕
         top_layout = QHBoxLayout()
@@ -56,9 +57,9 @@ class MainPageWidget(QWidget):
         left_inner = QVBoxLayout()
 
         # 🔴 成員統計標籤（紅色）
-        stats_label = QLabel("戶號：1　戶長：賴阿貓　家庭成員共：1 丁 1 口")
-        stats_label.setStyleSheet("color: red; font-size: 14px; font-weight: bold; padding: 2px 4px;")
-        left_inner.addWidget(stats_label)
+        self.stats_label = QLabel("戶號：1　戶長：賴阿貓　家庭成員共：1 丁 1 口")
+        self.stats_label.setStyleSheet("color: red; font-size: 14px; font-weight: bold; padding: 2px 4px;")
+        left_inner.addWidget(self.stats_label)
 
         self.member_table = QTableWidget()
         self.member_table.setColumnCount(16)
@@ -127,7 +128,7 @@ class MainPageWidget(QWidget):
         for label, row, col in entries:
             base_form.addWidget(QLabel(label), row, col)
 
-        fields = {}
+        self.fields = {}  #
         for label, row, col in entries:
             if label == "備註說明：":
                 widget = QTextEdit()
@@ -139,7 +140,7 @@ class MainPageWidget(QWidget):
                 widget = QLineEdit()
                 base_form.addWidget(widget, row, col + 1)
             widget.setStyleSheet("font-size: 14px;")
-            fields[label] = widget
+            self.fields[label] = widget
 
         base_widget = QWidget()
         base_widget.setLayout(base_form)
@@ -234,3 +235,8 @@ class MainPageWidget(QWidget):
         self.fields["信眾地址："].setText(data.get("head_address", ""))
         self.fields["郵遞區號："].setText(data.get("head_zip_code", ""))
         self.fields["備註說明："].setPlainText(data.get("household_note", ""))
+
+    def show_household_members_by_id(self, household_id):
+        members = self.controller.get_household_members(household_id)
+        self.update_member_table(members)
+        self.update_stats_label(household_id, members)  # 計算丁口數等
