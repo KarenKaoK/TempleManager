@@ -136,11 +136,27 @@ def create_households_table(db_name=DB_NAME):
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS households (
-        id TEXT PRIMARY KEY,
-        head_person_id TEXT NOT NULL,
-        note TEXT,
-        FOREIGN KEY(head_person_id) REFERENCES people(id)
-    )
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- 原本只有 head_person_id，現在展開成戶長個資欄位：
+    head_name TEXT NOT NULL,
+    head_gender TEXT,
+    head_birthday_ad TEXT,
+    head_birthday_lunar TEXT,
+    head_birth_time TEXT,
+    head_age INTEGER,
+    head_zodiac TEXT,
+    head_phone_home TEXT,
+    head_phone_mobile TEXT,
+    head_email TEXT,
+    head_address TEXT,
+    head_zip_code TEXT,
+    head_identity TEXT,
+    head_note TEXT,
+    head_joined_at TEXT,
+    
+    household_note TEXT  -- 這是戶本身的備註
+                   )
     """)
 
     conn.commit()

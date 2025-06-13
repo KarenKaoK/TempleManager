@@ -6,10 +6,11 @@ from app.widgets.main_page import MainPageWidget
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, username, role):
+    def __init__(self, username, role, controller):
         super().__init__()
         self.username = username
         self.role = role
+        self.controller = controller  # ✅ 加上這行
         self.setWindowTitle(f"宮廟管理系統 - {role}")
         self.setGeometry(300, 150, 1000, 700)
         self.setup_menu()
@@ -46,4 +47,15 @@ class MainWindow(QMainWindow):
         self.identity_dialog.exec_()
 
     def open_household_entry(self):
-        self.setCentralWidget(MainPageWidget())
+        self.main_page = MainPageWidget()  # 👈 這裡很關鍵，要存成屬性
+        self.main_page.search_bar.search_triggered.connect(self.perform_search)
+        self.setCentralWidget(self.main_page)
+
+    def perform_search(self, keyword):
+        print(f"🔍 正在查詢關鍵字: {keyword}")
+        results = self.controller.search_households(keyword)
+        print(f"查詢結果筆數：{len(results)}")
+        print("🔎 查詢結果內容：")
+        for r in results:
+            print(r)  # ✅ 印出每筆 dict 結果
+        self.main_page.update_household_table(results)

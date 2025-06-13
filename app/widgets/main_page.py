@@ -1,8 +1,9 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
-    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, QTabWidget
+    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, QTabWidget,QTableWidgetItem
 )
 from PyQt5.QtCore import Qt
+
 from app.widgets.search_bar import SearchBarWidget
 
 
@@ -15,6 +16,7 @@ class MainPageWidget(QWidget):
         top_layout = QHBoxLayout()
         self.search_bar = SearchBarWidget()
         top_layout.addWidget(self.search_bar)
+        
 
         self.add_btn = QPushButton("➕ 新增戶籍資料")
         self.delete_btn = QPushButton("❌ 刪除戶籍資料")
@@ -150,3 +152,25 @@ class MainPageWidget(QWidget):
 
         layout.addWidget(splitter)
         self.setLayout(layout)
+
+    def update_household_table(self, data):
+        self.household_table.setRowCount(len(data))
+
+        for row_idx, row in enumerate(data):
+            self.household_table.setItem(row_idx, 0, QTableWidgetItem("預設標籤"))
+
+            # 以下順序要對齊你表格標題設定的順序
+            self.household_table.setItem(row_idx, 1, QTableWidgetItem(row.get("head_name", "")))
+            self.household_table.setItem(row_idx, 2, QTableWidgetItem(row.get("head_gender", "")))
+            self.household_table.setItem(row_idx, 3, QTableWidgetItem(row.get("head_birthday_ad", "")))
+            self.household_table.setItem(row_idx, 4, QTableWidgetItem(row.get("head_birthday_lunar", "")))
+            self.household_table.setItem(row_idx, 5, QTableWidgetItem(row.get("head_birth_year", "")))
+            self.household_table.setItem(row_idx, 6, QTableWidgetItem(row.get("head_zodiac", "")))
+            self.household_table.setItem(row_idx, 7, QTableWidgetItem(str(row.get("head_age", ""))))
+            self.household_table.setItem(row_idx, 8, QTableWidgetItem(row.get("head_birth_time", "")))
+            self.household_table.setItem(row_idx, 9, QTableWidgetItem(row.get("head_phone_home", "")))
+            self.household_table.setItem(row_idx, 10, QTableWidgetItem(row.get("head_phone_mobile", "")))
+            self.household_table.setItem(row_idx, 11, QTableWidgetItem(row.get("head_identity", "")))
+            self.household_table.setItem(row_idx, 12, QTableWidgetItem(row.get("head_email", "")))
+            self.household_table.setItem(row_idx, 13, QTableWidgetItem(row.get("head_address", "")))
+            self.household_table.setItem(row_idx, 14, QTableWidgetItem(row.get("household_note", "")))
