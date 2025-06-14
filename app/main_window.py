@@ -56,10 +56,10 @@ class MainWindow(QMainWindow):
 
         # 改為新的通用查詢：可能是戶長，也可能是戶員
         head_result, members = self.controller.search_by_any_name(keyword)
-
+        
         if head_result:
             print("✅ 查到戶長或戶員，戶長資訊如下：")
-            print(head_result)
+            print(dict(head_result))
 
             # 格式化欄位（tuple → dict），假設你已有這個方法
             head_data = self.controller.format_head_data(head_result)
@@ -81,23 +81,4 @@ class MainWindow(QMainWindow):
             print("❌ 查無資料")
             QMessageBox.information(self, "查無結果", f"找不到關鍵字：{keyword}")
 
-    def format_head_data(self, row):
-        return {
-            "id": row[0],
-            "head_name": row[1],
-            "head_gender": row[2],
-            "head_birthday_ad": row[3],
-            "head_birthday_lunar": row[4],
-            "head_birth_time": row[5],
-            "head_age": row[6],
-            "head_zodiac": row[7],
-            "head_phone_home": row[8],
-            "head_phone_mobile": row[9],
-            "head_email": row[10],
-            "head_address": row[11],
-            "head_zip_code": row[12],
-            "head_identity": row[13],
-            "head_note": row[14],
-            "head_joined_at": row[15],
-            "household_note": row[16],
-        }
+    
