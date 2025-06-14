@@ -1,13 +1,20 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
-    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, QTabWidget,QTableWidgetItem
+    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, QTabWidget,QTableWidgetItem, QMessageBox,QDialog
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 
 from app.widgets.search_bar import SearchBarWidget
+from app.dialogs.household_dialog import NewHouseholdDialog
+
+
+
 
 
 class MainPageWidget(QWidget):
+
+    new_household_triggered = pyqtSignal()  
+
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout()
@@ -17,9 +24,11 @@ class MainPageWidget(QWidget):
         top_layout = QHBoxLayout()
         self.search_bar = SearchBarWidget()
         top_layout.addWidget(self.search_bar)
-        
+    
 
         self.add_btn = QPushButton("➕ 新增戶籍資料")
+        self.add_btn.clicked.connect(self.new_household_triggered.emit)
+
         self.delete_btn = QPushButton("❌ 刪除戶籍資料")
         self.print_btn = QPushButton("🖨️ 資料列印")
         for btn in [ self.add_btn, self.delete_btn, self.print_btn]:
@@ -240,3 +249,4 @@ class MainPageWidget(QWidget):
         members = self.controller.get_household_members(household_id)
         self.update_member_table(members)
         self.update_stats_label(household_id, members)  # 計算丁口數等
+

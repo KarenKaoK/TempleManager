@@ -2,8 +2,14 @@ from PyQt5.QtWidgets import QMainWindow, QAction, QMessageBox
 from app.dialogs.income_dialog import IncomeSetupDialog
 from app.dialogs.expense_dialog import ExpenseSetupDialog
 from app.dialogs.member_identity_dialog import MemberIdentityDialog
+from app.dialogs.household_dialog import NewHouseholdDialog
 from app.widgets.main_page import MainPageWidget
 
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
+    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, QTabWidget, QTableWidgetItem,
+    QDialog, QMessageBox, QComboBox, QDateEdit, QCheckBox  # ✅ 加上這行
+)
 
 class MainWindow(QMainWindow):
     def __init__(self, username, role, controller):
@@ -49,6 +55,7 @@ class MainWindow(QMainWindow):
     def open_household_entry(self):
         self.main_page = MainPageWidget()  # 👈 這裡很關鍵，要存成屬性
         self.main_page.search_bar.search_triggered.connect(self.perform_search)
+        self.main_page.new_household_triggered.connect(self.open_new_household_dialog)
         self.setCentralWidget(self.main_page)
 
     def perform_search(self, keyword):
@@ -80,5 +87,16 @@ class MainWindow(QMainWindow):
         else:
             print("❌ 查無資料")
             QMessageBox.information(self, "查無結果", f"找不到關鍵字：{keyword}")
+
+    def open_new_household_dialog(self):
+        dialog = NewHouseholdDialog()
+        if dialog.exec_() == QDialog.Accepted:
+            data = dialog.get_data()
+            self.controller.insert_household(data)
+            QMessageBox.information(self, "新增成功", f"已新增戶長：{data['head_name']}")
+            self.perform_search(data["head_name"])
+
+
+
 
     

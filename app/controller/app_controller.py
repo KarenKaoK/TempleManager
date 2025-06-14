@@ -81,6 +81,53 @@ class AppController:
         # 查 household_id 對應的戶員
         members = self.get_household_members(household_id)
         return head_row, members
+    def add_new_household(self, data):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO households (
+                head_name, head_gender, head_birthday_ad, head_birthday_lunar,
+                head_birth_time, head_age, head_zodiac, head_phone_home,
+                head_phone_mobile, head_email, head_address, head_zip_code,
+                head_identity, head_note, head_joined_at, household_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get("head_name"), data.get("head_gender"), data.get("head_birthday_ad"),
+            data.get("head_birthday_lunar"), data.get("head_birth_time"), data.get("head_age"),
+            data.get("head_zodiac"), data.get("head_phone_home"), data.get("head_phone_mobile"),
+            data.get("head_email"), data.get("head_address"), data.get("head_zip_code"),
+            data.get("head_identity"), data.get("head_note"), data.get("head_joined_at"),
+            data.get("household_note")
+        ))
+        self.conn.commit()
+
+    def insert_household(self, data):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO households (
+                head_name, head_gender, head_birthday_ad, head_birthday_lunar, head_birth_time,
+                head_age, head_zodiac, head_phone_home, head_phone_mobile, head_email,
+                head_address, head_zip_code, head_identity, head_note, head_joined_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["head_name"],
+            data["head_gender"],
+            data["head_birthday_ad"],
+            data["head_birthday_lunar"],
+            data["head_birth_time"],
+            data["head_age"],
+            data["head_zodiac"],
+            data["head_phone_home"],
+            data["head_phone_mobile"],
+            data["head_email"],
+            data["head_address"],
+            data["head_zip_code"],
+            data["head_identity"],
+            data["head_note"],
+            data["head_joined_at"]
+        ))
+        self.conn.commit()
+
+
 
 
     
