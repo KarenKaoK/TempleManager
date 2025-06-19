@@ -1,12 +1,13 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
-    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, QTabWidget,QTableWidgetItem, QMessageBox,QDialog
+    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, 
+    QTabWidget, QTableWidgetItem, QMessageBox, QDialog
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from app.widgets.search_bar import SearchBarWidget
 from app.dialogs.household_dialog import NewHouseholdDialog
-
+from app.widgets.auto_resizing_table import AutoResizingTableWidget
 
 
 
@@ -39,6 +40,7 @@ class MainPageWidget(QWidget):
 
         # 戶長表格
         self.household_table = QTableWidget()
+        self.household_table = AutoResizingTableWidget()
         self.household_table.setColumnCount(15)
         self.household_table.setHorizontalHeaderLabels([
             "標籤", "戶長姓名", "性別", "國曆生日", "農曆生日", "年份", "生肖", "年齡", "生辰",
@@ -186,6 +188,10 @@ class MainPageWidget(QWidget):
             self.household_table.setItem(row_idx, 12, QTableWidgetItem(row.get("head_email", "")))
             self.household_table.setItem(row_idx, 13, QTableWidgetItem(row.get("head_address", "")))
             self.household_table.setItem(row_idx, 14, QTableWidgetItem(row.get("household_note", "")))
+        
+        # 調整表格大小
+        self.household_table.adjust_to_contents()
+
     def on_household_row_clicked(self, row, col):
         household_id_item = self.household_table.item(row, 0)  # 假設 id 在第 0 欄
         if not household_id_item:
