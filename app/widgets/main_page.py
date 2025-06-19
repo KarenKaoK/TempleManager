@@ -16,8 +16,9 @@ class MainPageWidget(QWidget):
 
     new_household_triggered = pyqtSignal()  
 
-    def __init__(self):
+    def __init__(self, controller):
         super().__init__()
+        self.controller = controller
         layout = QVBoxLayout()
         self.fields = {}  #
 

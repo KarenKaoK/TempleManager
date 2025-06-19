@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
         self.identity_dialog.exec_()
 
     def open_household_entry(self):
-        self.main_page = MainPageWidget()  # 👈 這裡很關鍵，要存成屬性
+        self.main_page = MainPageWidget(self.controller)  # 👈 這裡很關鍵，要存成屬性
         self.main_page.search_bar.search_triggered.connect(self.perform_search)
         self.main_page.new_household_triggered.connect(self.open_new_household_dialog)
         self.setCentralWidget(self.main_page)
