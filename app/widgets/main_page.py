@@ -39,7 +39,7 @@ class MainPageWidget(QWidget):
         layout.addLayout(top_layout)
 
         # 戶長表格
-        self.household_table = QTableWidget()
+        # self.household_table = QTableWidget() # AutoResizingTableWidget 代替，已經繼承 QTableWidget
         self.household_table = AutoResizingTableWidget()
         self.household_table.setColumnCount(15)
         self.household_table.setHorizontalHeaderLabels([
@@ -47,9 +47,9 @@ class MainPageWidget(QWidget):
             "聯絡電話", "手機號碼", "身份", "身分證字號", "聯絡地址", "備註說明"
         ])
         self.household_table.setStyleSheet("font-size: 14px;")
-        self.household_table.resizeColumnsToContents()
-        self.household_table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
-        self.household_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # self.household_table.resizeColumnsToContents()
+        # self.household_table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
+        # self.household_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
 
 
@@ -72,16 +72,17 @@ class MainPageWidget(QWidget):
         self.stats_label.setStyleSheet("color: red; font-size: 14px; font-weight: bold; padding: 2px 4px;")
         left_inner.addWidget(self.stats_label)
 
-        self.member_table = QTableWidget()
+        # self.member_table = QTableWidget()
+        self.member_table = AutoResizingTableWidget()
         self.member_table.setColumnCount(16)
         self.member_table.setHorizontalHeaderLabels([
             "序", "標示", "姓名", "性別", "國曆生日", "農曆生日", "年份", "生肖", "年齡", "生辰",
             "聯絡電話", "手機號碼", "身份", "身分證字號", "聯絡地址", "備註說明"
         ])
         self.member_table.setStyleSheet("font-size: 14px;")
-        self.member_table.resizeColumnsToContents()
-        self.member_table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
-        self.member_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # self.member_table.resizeColumnsToContents()
+        # self.member_table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
+        # self.member_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         left_inner.addWidget(self.member_table)
 
         left_table_box = QWidget()
@@ -232,6 +233,8 @@ class MainPageWidget(QWidget):
             self.member_table.setItem(row_idx, 13, QTableWidgetItem(row.get("id", "")))  # ID 當作身份證
             self.member_table.setItem(row_idx, 14, QTableWidgetItem(row.get("address", "")))
             self.member_table.setItem(row_idx, 15, QTableWidgetItem(row.get("note", "")))
+        # 調整表格大小
+        self.member_table.adjust_to_contents()
     def fill_head_detail(self, data):
         self.fields["姓名："].setText(data.get("head_name", ""))
         self.fields["性別："].setText(data.get("head_gender", ""))
@@ -254,5 +257,5 @@ class MainPageWidget(QWidget):
     def show_household_members_by_id(self, household_id):
         members = self.controller.get_household_members(household_id)
         self.update_member_table(members)
-        self.update_stats_label(household_id, members)  # 計算丁口數等
+        # self.update_stats_label(household_id, members)  # 計算丁口數等
 
