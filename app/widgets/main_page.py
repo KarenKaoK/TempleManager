@@ -138,15 +138,19 @@ class MainPageWidget(QWidget):
         for label, row, col in entries:
             if label == "備註說明：":
                 widget = QTextEdit()
+                widget.setReadOnly(True)  # 設為唯讀
                 base_form.addWidget(widget, row, col + 1, 1, 5)
             elif label == "信眾地址：":
                 widget = QLineEdit()
+                widget.setReadOnly(True)  # 設為唯讀
                 base_form.addWidget(widget, row, col + 1, 1, 5)
             elif label == "電子郵件：":
                 widget = QLineEdit()
+                widget.setReadOnly(True)  # 設為唯讀
                 base_form.addWidget(widget, row, col + 1, 1, 5)
             else:
                 widget = QLineEdit()
+                widget.setReadOnly(True)  # 設為唯讀
                 base_form.addWidget(widget, row, col + 1)
             widget.setStyleSheet("font-size: 14px;")
             self.fields[label] = widget
