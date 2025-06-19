@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
     QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, 
-    QTabWidget, QTableWidgetItem, QMessageBox, QDialog
+    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -142,6 +142,9 @@ class MainPageWidget(QWidget):
             elif label == "信眾地址：":
                 widget = QLineEdit()
                 base_form.addWidget(widget, row, col + 1, 1, 5)
+            elif label == "電子郵件：":
+                widget = QLineEdit()
+                base_form.addWidget(widget, row, col + 1, 1, 5)
             else:
                 widget = QLineEdit()
                 base_form.addWidget(widget, row, col + 1)
@@ -150,6 +153,12 @@ class MainPageWidget(QWidget):
 
         base_widget = QWidget()
         base_widget.setLayout(base_form)
+        base_widget.setMinimumWidth(600)
+        base_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        for label, widget in self.fields.items():
+            if isinstance(widget, QLineEdit):
+                widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
         tab_widget.addTab(base_widget, "基本資料")
 
         # 👉 可擴充其他分頁（例如：安燈紀錄、拜斗紀錄...）
