@@ -47,9 +47,6 @@ class MainPageWidget(QWidget):
             "聯絡電話", "手機號碼", "身份", "身分證字號", "聯絡地址", "備註說明"
         ])
         self.household_table.setStyleSheet("font-size: 14px;")
-        # self.household_table.resizeColumnsToContents()
-        # self.household_table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
-        # self.household_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
 
 
@@ -80,9 +77,6 @@ class MainPageWidget(QWidget):
             "聯絡電話", "手機號碼", "身份", "身分證字號", "聯絡地址", "備註說明"
         ])
         self.member_table.setStyleSheet("font-size: 14px;")
-        # self.member_table.resizeColumnsToContents()
-        # self.member_table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
-        # self.member_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         left_inner.addWidget(self.member_table)
 
         left_table_box = QWidget()
