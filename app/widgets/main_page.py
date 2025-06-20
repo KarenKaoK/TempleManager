@@ -19,8 +19,9 @@ class MainPageWidget(QWidget):
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
+        self.current_households = []
         layout = QVBoxLayout()
-        self.fields = {}  #
+        self.fields = {}  # 用來存放欄位
 
         # 搜尋欄位與功能按鈕
         top_layout = QHBoxLayout()
@@ -178,6 +179,7 @@ class MainPageWidget(QWidget):
 
     def update_household_table(self, data):
         self.household_table.setRowCount(len(data))
+        self.current_households = data  # ✅ 儲存供其他 function 使用
 
         for row_idx, row in enumerate(data):
             self.household_table.setItem(row_idx, 0, QTableWidgetItem("預設標籤"))

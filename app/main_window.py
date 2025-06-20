@@ -8,7 +8,7 @@ from app.widgets.main_page import MainPageWidget
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
     QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, QTabWidget, QTableWidgetItem,
-    QDialog, QMessageBox, QComboBox, QDateEdit, QCheckBox  # ✅ 加上這行
+    QDialog, QMessageBox, QComboBox, QDateEdit, QCheckBox
 )
 
 class MainWindow(QMainWindow):
