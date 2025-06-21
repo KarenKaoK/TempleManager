@@ -43,9 +43,9 @@ class MainPageWidget(QWidget):
         # 戶長表格
         # self.household_table = QTableWidget() # AutoResizingTableWidget 代替，已經繼承 QTableWidget
         self.household_table = AutoResizingTableWidget()
-        self.household_table.setColumnCount(15)
+        self.household_table.setColumnCount(16)
         self.household_table.setHorizontalHeaderLabels([
-            "標籤", "戶長姓名", "性別", "國曆生日", "農曆生日", "年份", "生肖", "年齡", "生辰",
+            "戶號", "標籤", "戶長姓名", "性別", "國曆生日", "農曆生日", "年份", "生肖", "年齡", "生辰",
             "聯絡電話", "手機號碼", "身份", "身分證字號", "聯絡地址", "備註說明"
         ])
         self.household_table.setStyleSheet("font-size: 14px;")
@@ -182,23 +182,24 @@ class MainPageWidget(QWidget):
         self.current_households = data  # ✅ 儲存供其他 function 使用
 
         for row_idx, row in enumerate(data):
-            self.household_table.setItem(row_idx, 0, QTableWidgetItem("預設標籤"))
+            self.household_table.setItem(row_idx, 0, QTableWidgetItem(str(row.get("id", ""))))
 
             # 以下順序要對齊你表格標題設定的順序
-            self.household_table.setItem(row_idx, 1, QTableWidgetItem(row.get("head_name", "")))
-            self.household_table.setItem(row_idx, 2, QTableWidgetItem(row.get("head_gender", "")))
-            self.household_table.setItem(row_idx, 3, QTableWidgetItem(row.get("head_birthday_ad", "")))
-            self.household_table.setItem(row_idx, 4, QTableWidgetItem(row.get("head_birthday_lunar", "")))
-            self.household_table.setItem(row_idx, 5, QTableWidgetItem(row.get("head_birth_year", "")))
-            self.household_table.setItem(row_idx, 6, QTableWidgetItem(row.get("head_zodiac", "")))
-            self.household_table.setItem(row_idx, 7, QTableWidgetItem(str(row.get("head_age", ""))))
-            self.household_table.setItem(row_idx, 8, QTableWidgetItem(row.get("head_birth_time", "")))
-            self.household_table.setItem(row_idx, 9, QTableWidgetItem(row.get("head_phone_home", "")))
-            self.household_table.setItem(row_idx, 10, QTableWidgetItem(row.get("head_phone_mobile", "")))
-            self.household_table.setItem(row_idx, 11, QTableWidgetItem(row.get("head_identity", "")))
-            self.household_table.setItem(row_idx, 12, QTableWidgetItem(row.get("head_email", "")))
-            self.household_table.setItem(row_idx, 13, QTableWidgetItem(row.get("head_address", "")))
-            self.household_table.setItem(row_idx, 14, QTableWidgetItem(row.get("household_note", "")))
+            self.household_table.setItem(row_idx, 1, QTableWidgetItem("預設標籤"))
+            self.household_table.setItem(row_idx, 2, QTableWidgetItem(row.get("head_name", "")))
+            self.household_table.setItem(row_idx, 3, QTableWidgetItem(row.get("head_gender", "")))
+            self.household_table.setItem(row_idx, 4, QTableWidgetItem(row.get("head_birthday_ad", "")))
+            self.household_table.setItem(row_idx, 5, QTableWidgetItem(row.get("head_birthday_lunar", "")))
+            self.household_table.setItem(row_idx, 6, QTableWidgetItem(row.get("head_birth_year", "")))
+            self.household_table.setItem(row_idx, 7, QTableWidgetItem(row.get("head_zodiac", "")))
+            self.household_table.setItem(row_idx, 8, QTableWidgetItem(str(row.get("head_age", ""))))
+            self.household_table.setItem(row_idx, 9, QTableWidgetItem(row.get("head_birth_time", "")))
+            self.household_table.setItem(row_idx, 10, QTableWidgetItem(row.get("head_phone_home", "")))
+            self.household_table.setItem(row_idx, 11, QTableWidgetItem(row.get("head_phone_mobile", "")))
+            self.household_table.setItem(row_idx, 12, QTableWidgetItem(row.get("head_identity", "")))
+            self.household_table.setItem(row_idx, 13, QTableWidgetItem(row.get("head_email", "")))
+            self.household_table.setItem(row_idx, 14, QTableWidgetItem(row.get("head_address", "")))
+            self.household_table.setItem(row_idx, 15, QTableWidgetItem(row.get("household_note", "")))
         
         # 調整表格大小
         self.household_table.adjust_to_contents()
