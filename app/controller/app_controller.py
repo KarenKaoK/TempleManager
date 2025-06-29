@@ -1,4 +1,5 @@
 # app/controller/app_controller.py
+import locale
 import sqlite3
 from app.config import DB_NAME
 
@@ -126,6 +127,19 @@ class AppController:
             data["head_joined_at"]
         ))
         self.conn.commit()
+    
+    def get_all_households_ordered(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM households")
+        rows = [dict(row) for row in cursor.fetchall()]
+
+        # 設定locale（注意: 要在支援中文排序的系統）
+        locale.setlocale(locale.LC_COLLATE, "zh_TW.UTF-8")
+
+        # 排序
+        rows.sort(key=lambda x: locale.strxfrm(x["head_name"]))
+
+        return rows
 
 
 

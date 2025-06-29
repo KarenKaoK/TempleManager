@@ -46,7 +46,7 @@ class MainPageWidget(QWidget):
         self.household_table.setColumnCount(16)
         self.household_table.setHorizontalHeaderLabels([
             "戶號", "標籤", "戶長姓名", "性別", "國曆生日", "農曆生日", "年份", "生肖", "年齡", "生辰",
-            "聯絡電話", "手機號碼", "身份", "身分證字號", "聯絡地址", "備註說明"
+            "聯絡電話", "手機號碼", "身份", "電子郵件", "聯絡地址", "備註說明"
         ])
         self.household_table.setStyleSheet("font-size: 14px;")
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
@@ -79,6 +79,7 @@ class MainPageWidget(QWidget):
             "聯絡電話", "手機號碼", "身份", "身分證字號", "聯絡地址", "備註說明"
         ])
         self.member_table.setStyleSheet("font-size: 14px;")
+        self.member_table.cellClicked.connect(self.on_member_row_clicked)
         left_inner.addWidget(self.member_table)
 
         left_table_box = QWidget()
@@ -177,6 +178,22 @@ class MainPageWidget(QWidget):
         layout.addWidget(splitter)
         self.setLayout(layout)
 
+        # 讀取所有戶長並排序（controller 需提供這個方法）
+        all_heads = self.controller.get_all_households_ordered()
+        self.update_household_table(all_heads)
+        # 預設載入第一筆戶長的成員與詳情
+        if all_heads:
+            first_head = all_heads[0]
+            household_id = first_head['id']
+            members = self.controller.get_household_members(household_id)
+            self.update_member_table(members)
+            self.fill_head_detail(first_head)
+            num_adults = sum(1 for m in members if m.get("identity") == "丁")
+            num_dependents = sum(1 for m in members if m.get("identity") == "口")
+            self.stats_label.setText(
+                f"戶號：{household_id}　戶長：{first_head['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
+            )
+
     def update_household_table(self, data):
         self.household_table.setRowCount(len(data))
         self.current_households = data  # ✅ 儲存供其他 function 使用
@@ -244,8 +261,42 @@ class MainPageWidget(QWidget):
             self.member_table.setItem(row_idx, 13, QTableWidgetItem(row.get("id", "")))  # ID 當作身份證
             self.member_table.setItem(row_idx, 14, QTableWidgetItem(row.get("address", "")))
             self.member_table.setItem(row_idx, 15, QTableWidgetItem(row.get("note", "")))
+            
+            # 在任一 cell 上存放 "email", "zip_code", "joined_at" 等隱藏資料
+            hidden_data = {
+                "head_email": row.get("email", ""),
+                "head_zip_code": row.get("zip_code", ""),
+                "head_joined_at": row.get("joined_at", ""),
+            }
+            item = self.member_table.item(row_idx, 2)  # 用姓名那欄當作隱藏資料載體
+            item.setData(Qt.UserRole, hidden_data)
         # 調整表格大小
         self.member_table.adjust_to_contents()
+    def on_member_row_clicked(self, row, col):
+        name_item = self.member_table.item(row, 2)
+        hidden = name_item.data(Qt.UserRole) or {}
+        # 取出該列的所有欄位資料
+        data = {
+            "head_name": name_item.text(),
+            "head_gender": self.member_table.item(row, 3).text(),
+            "head_birthday_ad": self.member_table.item(row, 4).text(),
+            "head_birthday_lunar": self.member_table.item(row, 5).text(),
+            "head_birth_year": "",  # 暫不處理
+            "head_zodiac": self.member_table.item(row, 7).text(),
+            "head_age": self.member_table.item(row, 8).text(),
+            "head_birth_time": self.member_table.item(row, 9).text(),
+            "head_phone_home": self.member_table.item(row, 10).text(),
+            "head_phone_mobile": self.member_table.item(row, 11).text(),
+            "head_identity": self.member_table.item(row, 12).text(),
+            "head_email": hidden.get("head_email", ""),
+            "head_address": self.member_table.item(row, 14).text(),
+            "head_zip_code": hidden.get("head_zip_code", ""),
+            "head_joined_at": hidden.get("head_joined_at", ""),
+            "household_note": self.member_table.item(row, 15).text()
+        }
+
+        self.fill_head_detail(data)
+
     def fill_head_detail(self, data):
         self.fields["姓名："].setText(data.get("head_name", ""))
         self.fields["性別："].setText(data.get("head_gender", ""))
