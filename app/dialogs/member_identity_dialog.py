@@ -1,8 +1,10 @@
+import uuid
 import sqlite3
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton,
     QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout
 )
+from PyQt5.QtCore import Qt
 from app.config import DB_NAME
 
 class MemberIdentityDialog(QDialog):
@@ -45,14 +47,15 @@ class MemberIdentityDialog(QDialog):
     def load_data(self):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT id, name FROM member_identity ORDER BY id ASC")
+        cursor.execute("SELECT id, name FROM member_identity ORDER BY name COLLATE NOCASE ASC")
         rows = cursor.fetchall()
         conn.close()
 
         self.table.setRowCount(len(rows))
         for row_idx, row in enumerate(rows):
-            self.table.setItem(row_idx, 0, QTableWidgetItem(row[1]))
-
+            item = QTableWidgetItem(row[1])
+            item.setData(Qt.UserRole, row[0])  # 把 id 存起來
+            self.table.setItem(row_idx, 0, item)
     def add_identity(self):
         dialog = QDialog(self)
         dialog.setWindowTitle("新增身份名稱")
@@ -78,11 +81,12 @@ class MemberIdentityDialog(QDialog):
         if not name.strip():
             QMessageBox.warning(self, "錯誤", "請輸入身份名稱！")
             return
-
+        
+        identity_id = str(uuid.uuid4())
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         try:
-            cursor.execute("INSERT INTO member_identity (name) VALUES (?)", (name,))
+            cursor.execute("INSERT INTO member_identity (id, name) VALUES (?, ?)", (identity_id, name))
             conn.commit()
             QMessageBox.information(self, "成功", "身份名稱新增成功！")
             self.load_data()
@@ -98,7 +102,9 @@ class MemberIdentityDialog(QDialog):
             QMessageBox.warning(self, "錯誤", "請選擇要修改的身份名稱！")
             return
 
-        current_name = self.table.item(selected_row, 0).text()
+        current_item = self.table.item(selected_row, 0)
+        current_name = current_item.text()
+        identity_id = current_item.data(Qt.UserRole)
         dialog = QDialog(self)
         dialog.setWindowTitle("修改身份名稱")
         layout = QFormLayout()
@@ -108,7 +114,7 @@ class MemberIdentityDialog(QDialog):
 
         btn_ok = QPushButton("確定")
         btn_cancel = QPushButton("取消")
-        btn_ok.clicked.connect(lambda: self.confirm_edit_identity(dialog, current_name, name_input.text()))
+        btn_ok.clicked.connect(lambda: self.confirm_edit_identity(dialog, identity_id, name_input.text()))
         btn_cancel.clicked.connect(dialog.reject)
 
         btn_layout = QHBoxLayout()
@@ -119,14 +125,14 @@ class MemberIdentityDialog(QDialog):
         dialog.setLayout(layout)
         dialog.exec_()
 
-    def confirm_edit_identity(self, dialog, old_name, new_name):
+    def confirm_edit_identity(self, dialog, identity_id, new_name):
         if not new_name.strip():
             QMessageBox.warning(self, "錯誤", "請輸入新身份名稱！")
             return
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("UPDATE member_identity SET name = ? WHERE name = ?", (new_name, old_name))
+        cursor.execute("UPDATE member_identity SET name = ? WHERE id = ?", (new_name, identity_id))
         conn.commit()
         conn.close()
 
@@ -140,7 +146,9 @@ class MemberIdentityDialog(QDialog):
             QMessageBox.warning(self, "錯誤", "請選擇要刪除的身份名稱！")
             return
 
-        current_name = self.table.item(selected_row, 0).text()
+        current_item = self.table.item(selected_row, 0)
+        current_name = current_item.text()
+        identity_id = current_item.data(Qt.UserRole)
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("確認刪除")
         msg_box.setText(f"確定要刪除身份名稱 '{current_name}' 嗎？")
@@ -152,7 +160,7 @@ class MemberIdentityDialog(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM member_identity WHERE name = ?", (current_name,))
+            cursor.execute("DELETE FROM member_identity WHERE id = ?", (identity_id,))
             conn.commit()
             conn.close()
             self.load_data()

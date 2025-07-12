@@ -6,8 +6,9 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QDate
 
 class NewHouseholdDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, controller, parent=None):
         super().__init__(parent)
+        self.controller = controller 
         self.setWindowTitle("戶籍戶長新增表單")
         self.setFixedSize(600, 500)
 
@@ -28,7 +29,7 @@ class NewHouseholdDialog(QDialog):
         self.lunar_leap_checkbox = QCheckBox("農曆生日為閏月")
 
         self.identity_input = QComboBox()
-        self.identity_input.addItems(["信徒", "委員", "其他"])
+        self.load_identities()
 
         self.age_input = QLineEdit()
         self.zodiac_input = QLineEdit()
@@ -122,3 +123,8 @@ class NewHouseholdDialog(QDialog):
             "head_note": self.note_input.text(),
             "head_email": self.email_input.text()
         }
+    def load_identities(self):
+        self.identity_input.clear()
+        identities = self.controller.get_all_member_identities()
+        for item in identities:
+            self.identity_input.addItem(item["name"], item["id"])

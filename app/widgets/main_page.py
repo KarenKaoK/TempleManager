@@ -33,6 +33,8 @@ class MainPageWidget(QWidget):
         self.add_btn.clicked.connect(self.new_household_triggered.emit)
 
         self.delete_btn = QPushButton("❌ 刪除戶籍資料")
+        self.delete_btn.clicked.connect(self.delete_selected_household)
+
         self.print_btn = QPushButton("🖨️ 資料列印")
         for btn in [ self.add_btn, self.delete_btn, self.print_btn]:
             btn.setStyleSheet("font-size: 14px;")
@@ -169,7 +171,7 @@ class MainPageWidget(QWidget):
         tab_widget.addTab(base_widget, "基本資料")
 
         # 👉 可擴充其他分頁（例如：安燈紀錄、拜斗紀錄...）
-        for tab_name in ["安燈紀錄", "拜斗紀錄", "收入記錄", "法會記錄", "支出記錄"]:
+        for tab_name in ["安燈紀錄", "活動紀錄", "添油香記錄"]:
             placeholder = QWidget()
             tab_widget.addTab(placeholder, tab_name)
 
@@ -320,4 +322,52 @@ class MainPageWidget(QWidget):
         members = self.controller.get_household_members(household_id)
         self.update_member_table(members)
         # self.update_stats_label(household_id, members)  # 計算丁口數等
+
+    def delete_selected_household(self):
+        selected_ranges = self.household_table.selectedRanges()
+        if not selected_ranges:
+            QMessageBox.warning(self, "刪除失敗", "請先選擇要刪除的戶籍資料。")
+            return
+
+        # 取第一個選取區塊
+        selected_range = selected_ranges[0]
+        row = selected_range.topRow()
+
+        # 從指定 row 抓欄位
+        household_id = self.household_table.item(row, 0).text()
+        head_name = self.household_table.item(row, 2).text()
+
+        # 檢查該戶是否有成員
+        if self.controller.household_has_members(household_id):
+            QMessageBox.information(
+                self,
+                "無法刪除",
+                "此戶籍下尚有成員，請先變更戶長或移除成員後再刪除。"
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "確認刪除",
+            f"確定要刪除戶長：{head_name}（戶號 {household_id}）？\n刪除後無法復原！",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.controller.delete_household(household_id)
+
+            # 重新載入資料
+            all_heads = self.controller.get_all_households_ordered()
+            self.update_household_table(all_heads)
+
+            # 清空下方面板
+            self.update_member_table([])
+            for field in self.fields.values():
+                if isinstance(field, QTextEdit):
+                    field.clear()
+                else:
+                    field.setText("")
+
+            self.stats_label.setText("戶號：　戶長：　家庭成員共：0 丁 0 口")
+
 

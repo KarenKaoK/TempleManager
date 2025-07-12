@@ -140,6 +140,65 @@ class AppController:
         rows.sort(key=lambda x: locale.strxfrm(x["head_name"]))
 
         return rows
+    
+    def household_has_members(self, household_id):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) FROM household_members
+            WHERE household_id = ?
+        """, (household_id,))
+        count = cursor.fetchone()[0]
+        return count > 0
+
+    def delete_household(self, household_id):
+        cursor = self.conn.cursor()
+
+        # 先刪 household_members（避免外鍵違反）
+        cursor.execute("""
+            DELETE FROM household_members
+            WHERE household_id = ?
+        """, (household_id,))
+
+        # 再刪 households
+        cursor.execute("""
+            DELETE FROM households
+            WHERE id = ?
+        """, (household_id,))
+
+        self.conn.commit()
+
+    def get_all_member_identities(self):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, name FROM member_identity
+            ORDER BY name COLLATE NOCASE ASC
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
+    def add_member_identity(self, identity_id, name):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO member_identity (id, name)
+            VALUES (?, ?)
+        """, (identity_id, name))
+        self.conn.commit()
+
+    def update_member_identity(self, identity_id, new_name):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE member_identity
+            SET name = ?
+            WHERE id = ?
+        """, (new_name, identity_id))
+        self.conn.commit()
+    
+    def delete_member_identity(self, identity_id):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            DELETE FROM member_identity
+            WHERE id = ?
+        """, (identity_id,))
+        self.conn.commit()
 
 
 

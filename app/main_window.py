@@ -89,7 +89,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "查無結果", f"找不到關鍵字：{keyword}")
 
     def open_new_household_dialog(self):
-        dialog = NewHouseholdDialog()
+        dialog = NewHouseholdDialog(self.controller)
         if dialog.exec_() == QDialog.Accepted:
             data = dialog.get_data()
             self.controller.insert_household(data)
