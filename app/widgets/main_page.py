@@ -229,26 +229,43 @@ class MainPageWidget(QWidget):
             return
 
         household_id = household_id_item.text()
+
+        # 取得戶長本身資料
+        data = self.current_households[row] # 你需在 update_household_table() 存這個
         
-        # 呼叫 controller 拿成員資料
+        # ➤ 將戶長轉換成 member 格式，判斷丁/口
+        head_as_member = self._convert_head_to_member_format(data)
+            
+        # 呼叫 controller 拿成員資料 (不含戶長)
         members = self.controller.get_household_members(household_id)
-        self.update_member_table(members)
+        # 過濾掉與戶長同 ID 的成員（避免重複）
+        members_filtered = [
+            m for m in members
+            if m.get("name") != data.get("head_name")
+        ]
+        # 插入戶長在成員清單第一位
+        full_member_list = [head_as_member] + members_filtered
+
+        # 更新 member panel
+        self.update_member_table(full_member_list, head_id=data.get("id"))
 
         # 更新右側戶長詳情
-        data = self.current_households[row]  # 你需在 update_household_table() 存這個
         self.fill_head_detail(data)
 
         # 更新統計標籤
-        num_adults = sum(1 for m in members if m.get("identity") == "丁")
-        num_dependents = sum(1 for m in members if m.get("identity") == "口")
+        num_adults = sum(1 for m in full_member_list if m.get("identity") == "丁")
+        num_dependents = sum(1 for m in full_member_list if m.get("identity") == "口")
         self.stats_label.setText(
             f"戶號：{household_id}　戶長：{data['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
         )
-    def update_member_table(self, data):
+    def update_member_table(self, data, head_id=None):
         self.member_table.setRowCount(len(data))
         for row_idx, row in enumerate(data):
             self.member_table.setItem(row_idx, 0, QTableWidgetItem(str(row_idx + 1)))  # 序
             self.member_table.setItem(row_idx, 1, QTableWidgetItem(""))  # 標示（可加角色）
+            # ➤ 標示（若是戶長則顯示）
+            is_head = head_id is not None and row.get("id") == head_id
+            self.member_table.setItem(row_idx, 1, QTableWidgetItem("戶長" if is_head else ""))
             self.member_table.setItem(row_idx, 2, QTableWidgetItem(row.get("name", "")))
             self.member_table.setItem(row_idx, 3, QTableWidgetItem(row.get("gender", "")))
             self.member_table.setItem(row_idx, 4, QTableWidgetItem(row.get("birthday_ad", "")))
@@ -369,5 +386,25 @@ class MainPageWidget(QWidget):
                     field.setText("")
 
             self.stats_label.setText("戶號：　戶長：　家庭成員共：0 丁 0 口")
+    
+    def _convert_head_to_member_format(self, data: dict) -> dict:
+        mapping = {
+            "name": "head_name",
+            "gender": "head_gender",
+            "birthday_ad": "head_birthday_ad",
+            "birthday_lunar": "head_birthday_lunar",
+            "zodiac": "head_zodiac",
+            "age": "head_age",
+            "birth_time": "head_birth_time",
+            "phone_home": "head_phone_home",
+            "phone_mobile": "head_phone_mobile",
+            "id": "id",
+            "address": "head_address",
+            "email": "head_email",
+            "note": "head_note"
+        }
+        result = {k: data.get(v, "") for k, v in mapping.items()}
+        result["identity"] = "丁" if data.get("head_gender") == "男" else "口"
+        return result
 
 
