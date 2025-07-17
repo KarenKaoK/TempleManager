@@ -6,9 +6,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from app.widgets.search_bar import SearchBarWidget
-from app.dialogs.household_dialog import NewHouseholdDialog
 from app.widgets.auto_resizing_table import AutoResizingTableWidget
-
+from app.utils.data_transformers import convert_head_to_member_format
 
 
 
@@ -234,7 +233,7 @@ class MainPageWidget(QWidget):
         data = self.current_households[row] # 你需在 update_household_table() 存這個
         
         # ➤ 將戶長轉換成 member 格式，判斷丁/口
-        head_as_member = self._convert_head_to_member_format(data)
+        head_as_member = convert_head_to_member_format(data)
             
         # 呼叫 controller 拿成員資料 (不含戶長)
         members = self.controller.get_household_members(household_id)
@@ -386,25 +385,4 @@ class MainPageWidget(QWidget):
                     field.setText("")
 
             self.stats_label.setText("戶號：　戶長：　家庭成員共：0 丁 0 口")
-    
-    def _convert_head_to_member_format(self, data: dict) -> dict:
-        mapping = {
-            "name": "head_name",
-            "gender": "head_gender",
-            "birthday_ad": "head_birthday_ad",
-            "birthday_lunar": "head_birthday_lunar",
-            "zodiac": "head_zodiac",
-            "age": "head_age",
-            "birth_time": "head_birth_time",
-            "phone_home": "head_phone_home",
-            "phone_mobile": "head_phone_mobile",
-            "id": "id",
-            "address": "head_address",
-            "email": "head_email",
-            "note": "head_note"
-        }
-        result = {k: data.get(v, "") for k, v in mapping.items()}
-        result["identity"] = "丁" if data.get("head_gender") == "男" else "口"
-        return result
-
 
