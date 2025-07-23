@@ -8,7 +8,8 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from app.widgets.search_bar import SearchBarWidget
 from app.widgets.auto_resizing_table import AutoResizingTableWidget
 from app.utils.data_transformers import convert_head_to_member_format
-
+from app.dialogs.new_member_dialog import NewMemberDialog
+from app.dialogs.edit_member_dialog import EditMemberDialog
 
 
 class MainPageWidget(QWidget):
@@ -19,6 +20,7 @@ class MainPageWidget(QWidget):
         super().__init__()
         self.controller = controller
         self.current_households = []
+        self.selected_household_id = None
         layout = QVBoxLayout()
         self.fields = {}  # 用來存放欄位
 
@@ -88,25 +90,32 @@ class MainPageWidget(QWidget):
         left_layout.addWidget(left_table_box)
 
         # 成員操作按鈕區塊（縮小按鈕間距）
+        # 定義要連接的按鈕與槽函數對應關係
+        self.member_buttons = {}  # 儲存按鈕參考
+
+        btns = [
+            ("➕ 新增成員", "green", self.on_add_member_clicked),
+            ("🖊 修改成員", "blue", self.on_edit_member_clicked),
+            ("❌ 刪除成員", "red", self.on_delete_member_clicked),
+            ("☑ 設為戶長", None, self.on_set_head_clicked),
+            ("🔄 戶籍變更", None, self.on_transfer_household_clicked),
+            ("⬆ 上移", None, self.on_move_up_clicked),
+            ("⬇ 下移", None, self.on_move_down_clicked),
+            ("⛔ 關閉退出", "darkred", self.on_close_clicked),
+        ]
+
         member_btn_layout = QVBoxLayout()
         member_btn_layout.setSpacing(2)
 
-        btns = [
-            ("➕ 新增成員", "green"),
-            ("🖊 修改成員", "blue"),
-            ("❌ 刪除成員", "red"),
-            ("☑ 設為戶長", None),
-            ("🔄 戶籍變更", None),
-            ("⬆ 上移", None),
-            ("⬇ 下移", None),
-            ("⛔ 關閉退出", "darkred")
-        ]
-        for label, color in btns:
+        for label, color, handler in btns:
             btn = QPushButton(label)
             style = "font-size: 14px; padding: 4px;"
             if color:
                 style += f" color: {color};"
             btn.setStyleSheet(style)
+
+            btn.clicked.connect(handler)  # 連接事件
+            self.member_buttons[label] = btn  # 儲存參考
             member_btn_layout.addWidget(btn)
 
         right_btn_box = QWidget()
@@ -189,8 +198,8 @@ class MainPageWidget(QWidget):
             members = self.controller.get_household_members(household_id)
             self.update_member_table(members)
             self.fill_head_detail(first_head)
-            num_adults = sum(1 for m in members if m.get("identity") == "丁")
-            num_dependents = sum(1 for m in members if m.get("identity") == "口")
+            num_adults = sum(1 for m in members if m.get("gender") == "男")
+            num_dependents = sum(1 for m in members if m.get("gender") == "女")
             self.stats_label.setText(
                 f"戶號：{household_id}　戶長：{first_head['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
             )
@@ -228,6 +237,7 @@ class MainPageWidget(QWidget):
             return
 
         household_id = household_id_item.text()
+        self.selected_household_id = household_id
 
         # 取得戶長本身資料
         data = self.current_households[row] # 你需在 update_household_table() 存這個
@@ -252,8 +262,8 @@ class MainPageWidget(QWidget):
         self.fill_head_detail(data)
 
         # 更新統計標籤
-        num_adults = sum(1 for m in full_member_list if m.get("identity") == "丁")
-        num_dependents = sum(1 for m in full_member_list if m.get("identity") == "口")
+        num_adults = sum(1 for m in full_member_list if m.get("gender") == "男")
+        num_dependents = sum(1 for m in full_member_list if m.get("gender") == "女")
         self.stats_label.setText(
             f"戶號：{household_id}　戶長：{data['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
         )
@@ -386,3 +396,134 @@ class MainPageWidget(QWidget):
 
             self.stats_label.setText("戶號：　戶長：　家庭成員共：0 丁 0 口")
 
+    def on_add_member_clicked(self):
+        """處理新增成員操作"""
+        current_household_id = self.selected_household_id
+        if not current_household_id:
+            QMessageBox.warning(self, "尚未選取戶籍", "請先選擇一筆戶籍資料")
+            return
+
+        dialog = NewMemberDialog(self.controller, current_household_id, self)
+        if dialog.exec_() == QDialog.Accepted:
+            member_data = dialog.get_data()
+            member_data["household_id"] = self.selected_household_id  # 關鍵補上這行
+
+            try:
+                self.controller.insert_member(member_data)
+                self.refresh_member_table(self.selected_household_id)
+            except Exception as e:
+                QMessageBox.critical(self, "❌ 錯誤", f"新增成員時發生錯誤：{e}")
+
+    def on_edit_member_clicked(self):
+        """處理修改成員操作"""
+        selected_row = self.member_table.currentRow()
+        if selected_row < 0:
+            QMessageBox.warning(self, "未選取成員", "請先選擇一位成員進行編輯")
+            return
+
+        person_id = self.member_table.item(selected_row, 13).text()
+        dialog = EditMemberDialog(self.controller, person_id, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.refresh_member_table(self.selected_household_id)
+
+    def on_delete_member_clicked(self):
+        """處理刪除成員操作"""
+        selected_row = self.member_table.currentRow()
+        if selected_row < 0:
+            QMessageBox.warning(self, "未選取成員", "請先選擇一位成員進行刪除")
+            return
+
+        name = self.member_table.item(selected_row, 2).text()
+        person_id = self.member_table.item(selected_row, 13).text()
+        is_head = self.member_table.item(selected_row, 1).text() == "戶長"
+
+        if is_head:
+            QMessageBox.warning(self, "刪除失敗", "無法直接刪除戶長，如需刪除請先變更戶長")
+            return
+
+        confirm = QMessageBox.question(self, "確認刪除", f"確定要刪除成員 {name} 嗎？", QMessageBox.Yes | QMessageBox.No)
+        if confirm == QMessageBox.Yes:
+            self.controller.delete_member_by_id(person_id)
+            self.refresh_member_table(self.selected_household_id)
+
+    def on_set_head_clicked(self):
+        """設為戶長"""
+        selected_row = self.member_table.currentRow()
+        if selected_row < 0:
+            QMessageBox.warning(self, "未選取成員", "請選擇一位成員設為戶長")
+            return
+
+        new_head_id = self.member_table.item(selected_row, 13).text()
+        new_head_name = self.member_table.item(selected_row, 2).text()
+        confirm = QMessageBox.question(self, "設為戶長", f"確定要將 {new_head_name} 設為戶長嗎？", QMessageBox.Yes | QMessageBox.No)
+        if confirm == QMessageBox.Yes:
+            self.controller.set_household_head(self.selected_household_id, new_head_id)
+            self.refresh_all_panels()
+
+    def on_transfer_household_clicked(self):
+        """戶籍變更"""
+        selected_row = self.member_table.currentRow()
+        if selected_row < 0:
+            QMessageBox.warning(self, "未選取成員", "請選擇一位成員進行戶籍變更")
+            return
+
+        person_id = self.member_table.item(selected_row, 13).text()
+        dialog = TransferHouseholdDialog(self.controller, person_id, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.refresh_all_panels()
+
+    def on_move_up_clicked(self):
+        """成員上移"""
+        row = self.member_table.currentRow()
+        if row <= 0:
+            return
+        self._swap_member_rows(row, row - 1)
+        self.member_table.selectRow(row - 1)
+
+    def on_move_down_clicked(self):
+        """成員下移"""
+        row = self.member_table.currentRow()
+        if row < 0 or row >= self.member_table.rowCount() - 1:
+            return
+        self._swap_member_rows(row, row + 1)
+        self.member_table.selectRow(row + 1)
+
+    def on_close_clicked(self):
+        """關閉退出按鈕"""
+        self.close()
+    
+    def refresh_member_table(self, household_id):
+        if not household_id:
+            return
+
+        # 取得戶長資料
+        head_data = self.controller.get_household_by_id(household_id)
+
+        # 取得 household 成員（people）資料
+        member_data = self.controller.get_household_members(household_id)
+
+        # 戶長轉為 member 格式，插入最前面
+        head_as_member = convert_head_to_member_format(head_data)
+        members_filtered = [
+            m for m in member_data
+            if m.get("name") != head_data.get("head_name")
+        ]
+        # 插入戶長在成員清單第一位
+        full_member_list = [head_as_member] + members_filtered
+
+        # 更新 member panel 表格
+        self.update_member_table(full_member_list, head_id=head_data.get("id"))
+
+        # 更新統計欄
+        num_adults = sum(1 for m in full_member_list if m.get("gender") == "男")
+        num_dependents = sum(1 for m in full_member_list if m.get("gender") == "女")
+        self.stats_label.setText(
+            f"戶號：{household_id}　戶長：{head_data['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
+        )
+        
+    def _swap_member_rows(self, row1, row2):
+        for col in range(self.member_table.columnCount()):
+            item1 = self.member_table.takeItem(row1, col)
+            item2 = self.member_table.takeItem(row2, col)
+            self.member_table.setItem(row1, col, item2)
+            self.member_table.setItem(row2, col, item1)

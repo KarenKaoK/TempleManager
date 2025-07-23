@@ -21,7 +21,7 @@ def convert_head_to_member_format(data: dict) -> dict:
             "note": "head_note"
         }
     result = {k: data.get(v, "") for k, v in mapping.items()}
-    result["identity"] = "丁" if data.get("head_gender") == "男" else "口"
+    # result["identity"] = "丁" if data.get("head_gender") == "男" else "口"
     return result
 
 def convert_member_to_head_format(member: dict) -> dict:

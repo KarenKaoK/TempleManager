@@ -1,4 +1,5 @@
 # app/controller/app_controller.py
+import uuid
 import locale
 import sqlite3
 from app.config import DB_NAME
@@ -200,9 +201,86 @@ class AppController:
         """, (identity_id,))
         self.conn.commit()
 
+    def insert_member(self, data):
+        data["id"] = str(uuid.uuid4())
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO people (
+                id, name, gender, birthday_ad, birthday_lunar, birth_time,
+                age, zodiac, phone_home, phone_mobile, email,
+                address, zip_code, identity, note, joined_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["id"], data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"],
+            data["birth_time"], data["age"], data["zodiac"], data["phone_home"], data["phone_mobile"],
+            data["email"], data["address"], data["zip_code"], data["identity"], data["note"], 
+            data["joined_at"]
+        ))
+        cursor.execute("""
+            INSERT INTO household_members (household_id, person_id)
+            VALUES (?, ?)
+        """, (
+            data["household_id"],
+            data["id"]
+        ))
+        self.conn.commit()
+
+    def update_member(self, data):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE people SET
+                name=?, gender=?, birthday_ad=?, birthday_lunar=?, birth_time=?,
+                age=?, zodiac=?, phone_home=?, phone_mobile=?, email=?,
+                address=?, zip_code=?, identity=?, note=?, joined_at=?,
+                lunar_is_leap=?, id_number=?
+            WHERE id=?
+        """, (
+            data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"], data["birth_time"],
+            data["age"], data["zodiac"], data["phone_home"], data["phone_mobile"], data["email"],
+            data["address"], data["zip_code"], data["identity"], data["note"], data["joined_at"],
+            data["lunar_is_leap"], data["id_number"], data["id"]
+        ))
+        self.conn.commit()
+
+    def delete_member_by_id(self, person_id):
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM people WHERE id = ?", (person_id,))
+        self.conn.commit()
+
+    def get_member_by_id(self, person_id):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM people WHERE id = ?", (person_id,))
+        row = cursor.fetchone()
+        if row:
+            columns = [col[0] for col in cursor.description]
+            return dict(zip(columns, row))
+        return None
+    def get_household_by_id(self, household_id):
+        """根據 household_id 取得戶長資料"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, head_name, head_gender, head_birthday_ad, head_birthday_lunar,
+                head_birth_time, head_age, head_zodiac, head_phone_home, head_phone_mobile,
+                head_email, head_address, head_zip_code, head_identity, head_note, head_joined_at
+            FROM households
+            WHERE id = ?
+        """, (household_id,))
+        row = cursor.fetchone()
+
+        if row is None:
+            return {}
+
+        # 欄位順序需與 SELECT 對應
+        keys = [
+            "id", "head_name", "head_gender", "head_birthday_ad", "head_birthday_lunar",
+            "head_birth_time", "head_age", "head_zodiac", "head_phone_home", "head_phone_mobile",
+            "head_email", "head_address", "head_zip_code", "head_identity", "head_note", "head_joined_at"
+        ]
+        return dict(zip(keys, row))
 
 
 
-    
+
+            
 
 
