@@ -11,7 +11,6 @@ from app.utils.data_transformers import convert_head_to_member_format
 from app.dialogs.new_member_dialog import NewMemberDialog
 from app.dialogs.edit_member_dialog import EditMemberDialog
 
-
 class MainPageWidget(QWidget):
 
     new_household_triggered = pyqtSignal()  
