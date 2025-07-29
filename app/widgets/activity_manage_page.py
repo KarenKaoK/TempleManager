@@ -1,9 +1,10 @@
 # app/widgets/activity_manage_page.py
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
-    QLabel, QGroupBox, QTableWidget
+    QLabel, QGroupBox, QTableWidget, QDialog
 )
 from app.widgets.auto_resizing_table import AutoResizingTableWidget
+from app.dialogs.activity_dialog import NewActivityDialog
 
 class ActivityManagePage(QWidget):
     def __init__(self, controller=None):
@@ -85,4 +86,16 @@ class ActivityManagePage(QWidget):
         signup_group.setLayout(signup_layout)
         layout.addWidget(signup_group)
 
+        self.add_activity_btn.clicked.connect(self.open_new_activity_dialog)
+        
+
+
         self.setLayout(layout)
+
+    def open_new_activity_dialog(self):
+        dialog = NewActivityDialog(self.controller)
+        if dialog.exec_() == QDialog.Accepted:
+            # 你可以選擇是否要 refresh table 資料
+            print("✅ 活動新增成功")
+
+

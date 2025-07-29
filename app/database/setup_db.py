@@ -183,6 +183,68 @@ def create_household_members_table(db_name=DB_NAME):
     conn.close()
     print("✅ `household_members` 資料表檢查完成")
 
+def create_activities_table(db_name=DB_NAME):
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP TABLE IF EXISTS activities")
+
+    cursor.execute("""
+    CREATE TABLE activities (
+        id TEXT PRIMARY KEY,
+        activity_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        start_date TEXT,
+        end_date TEXT,
+        scheme_name TEXT,
+        scheme_item TEXT,
+        amount REAL,
+        note TEXT,
+        is_closed INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+    print("✅ `activities` 資料表重建完成")
+
+
+
+
+def create_activity_signups_table(db_name=DB_NAME):
+    """建立 activity_signups 表，儲存活動報名人員資料"""
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS activity_signups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        activity_id INTEGER NOT NULL,
+        person_name TEXT NOT NULL,
+        gender TEXT,
+        birth_ad TEXT,
+        birth_lunar TEXT,
+        birth_year TEXT,
+        zodiac TEXT,
+        age INTEGER,
+        birth_time TEXT,
+        phone TEXT,
+        mobile TEXT,
+        identity TEXT,
+        identity_number TEXT,
+        address TEXT,
+        note TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE CASCADE
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+    print("✅ `activity_signups` 資料表檢查完成")
+
 
 if __name__ == "__main__":
     print("🔄 初始化資料庫...")
@@ -195,5 +257,8 @@ if __name__ == "__main__":
     create_people_table() # 所有人的基本資料表
     create_households_table() # 戶長表
     create_household_members_table() # 戶長和戶員關係表
+
+    create_activities_table() # 活動表
+    create_activity_signups_table() # 活動報名人員表
 
     print("🎉 資料庫初始化完成！")

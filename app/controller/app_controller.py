@@ -278,9 +278,31 @@ class AppController:
         ]
         return dict(zip(keys, row))
 
+    def insert_activity(self, data: dict):
+        cursor = self.conn.cursor()
+        activity_id = "A" + uuid.uuid4().hex[:7]
 
+        for scheme in data.get("scheme_rows", []):
+            row_id = "R" + uuid.uuid4().hex[:8]
 
+            cursor.execute("""
+                INSERT INTO activities (
+                    id, activity_id, name, start_date, end_date,
+                    scheme_name, scheme_item, amount, note,
+                    is_closed, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """, (
+                row_id,
+                activity_id,
+                data.get("activity_name"),
+                data.get("start_date"),
+                data.get("end_date"),
+                scheme.get("scheme_name"),  # ✅ 這裡要對應你在 get_scheme_data() 傳回的 key
+                scheme.get("scheme_item"),
+                float(scheme.get("amount") or 0),
+                data.get("content"),
+                0  # is_closed
+            ))
 
-            
-
+        self.conn.commit()
 
