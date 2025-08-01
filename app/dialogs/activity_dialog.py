@@ -12,7 +12,6 @@ class NewActivityDialog(QDialog):
         self.setWindowTitle("新增活動")
         self.setMinimumWidth(600)
 
-        # 🔹 設定全域字體大小
         self.setStyleSheet("""
             QLabel, QLineEdit, QDateEdit, QTextEdit, QPushButton, QTableWidget {
                 font-size: 16px;
@@ -21,7 +20,6 @@ class NewActivityDialog(QDialog):
 
         layout = QVBoxLayout()
 
-        # 🔸 活動名稱與日期
         grid = QGridLayout()
         grid.addWidget(QLabel("活動名稱"), 0, 0)
         self.name_input = QLineEdit()
@@ -53,12 +51,10 @@ class NewActivityDialog(QDialog):
         font.setPointSize(16)
         self.scheme_table.horizontalHeader().setFont(font)
 
-        # 🔸 備註
         layout.addWidget(QLabel("備註說明"))
         self.note_input = QTextEdit()
         layout.addWidget(self.note_input)
 
-        # 🔸 儲存與關閉
         button_layout = QHBoxLayout()
         self.save_btn = QPushButton("✅ 存入")
         self.cancel_btn = QPushButton("❌ 關閉")
@@ -66,7 +62,6 @@ class NewActivityDialog(QDialog):
         button_layout.addWidget(self.cancel_btn)
         layout.addLayout(button_layout)
 
-        # 🔸 事件
         self.save_btn.clicked.connect(self.accept)
         self.cancel_btn.clicked.connect(self.reject)
 
@@ -76,17 +71,17 @@ class NewActivityDialog(QDialog):
     def get_data(self):
         return {
             "activity_name": self.name_input.text().strip(),
-            "start_date": self.start_date.date().toString("yyyy-MM-dd"),   # ✅ 修改這裡
-            "end_date": self.end_date.date().toString("yyyy-MM-dd"),       # ✅ 修改這裡
-            "note": self.note_input.toPlainText().strip(),                 # ✅ 改成和你有的欄位對應
-            "scheme_rows": self.get_scheme_data()                          # ✅ 新增：從表格抓資料
+            "start_date": self.start_date.date().toString("yyyy-MM-dd"),   
+            "end_date": self.end_date.date().toString("yyyy-MM-dd"),       
+            "note": self.note_input.toPlainText().strip(),                 
+            "scheme_rows": self.get_scheme_data()                          
         }
     def save_activity(self):
         data = {
             "activity_name": self.name_input.text().strip(),
             "start_date": self.start_date.date().toString("yyyy-MM-dd"),
             "end_date": self.end_date.date().toString("yyyy-MM-dd"),
-            "location": "",  # 若你之後有這欄請加對應欄位
+            "location": "", 
             "content": self.note_input.toPlainText().strip(),
             "scheme_rows": self.get_scheme_data()
         }
@@ -106,7 +101,6 @@ class NewActivityDialog(QDialog):
                 "scheme_item": item_item.text().strip() if item_item else "",
                 "amount": amount_item.text().strip() if amount_item else ""
             }
-            # 如果整列是空的就略過
             if any(row_data.values()):
                 rows.append(row_data)
         return rows

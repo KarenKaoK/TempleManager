@@ -1,8 +1,9 @@
 # app/widgets/activity_manage_page.py
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
-    QLabel, QGroupBox, QTableWidget, QDialog
+    QLabel, QGroupBox, QTableWidget, QDialog, QTableWidgetItem
 )
+from PyQt5.QtCore import Qt
 from app.widgets.auto_resizing_table import AutoResizingTableWidget
 from app.dialogs.activity_dialog import NewActivityDialog
 
@@ -39,8 +40,12 @@ class ActivityManagePage(QWidget):
         activity_layout.addLayout(search_layout)
 
         self.activity_table = AutoResizingTableWidget()
-        self.activity_table.setColumnCount(4)
-        self.activity_table.setHorizontalHeaderLabels(["活動編號", "活動名稱", "起始日期", "結束日期"])
+        self.activity_table.setColumnCount(8)
+        self.activity_table.setHorizontalHeaderLabels([
+            "活動編號", "活動名稱", "起始日期", "結束日期",
+            "方案名稱", "方案項目", "金額", "狀態"
+        ])
+
         self.activity_table.setStyleSheet("font-size: 14px;")
         activity_layout.addWidget(self.activity_table)
 
@@ -87,15 +92,46 @@ class ActivityManagePage(QWidget):
         layout.addWidget(signup_group)
 
         self.add_activity_btn.clicked.connect(self.open_new_activity_dialog)
+        self.setLayout(layout)
+
+        self.search_activity_btn.clicked.connect(self.load_activities_to_table)
+        self.load_activities_to_table()
         
 
 
-        self.setLayout(layout)
 
     def open_new_activity_dialog(self):
         dialog = NewActivityDialog(self.controller)
         if dialog.exec_() == QDialog.Accepted:
-            # 你可以選擇是否要 refresh table 資料
             print("✅ 活動新增成功")
+            self.load_activities_to_table()  # 新增後自動刷新表格
+
+   
+
+    def load_activities_to_table(self):
+        self.activity_table.setRowCount(0)
+
+        activities = self.controller.get_all_activities()
+
+        for row_index, activity in enumerate(activities):
+            self.activity_table.insertRow(row_index)
+            for col_index, value in enumerate(activity):
+                if col_index == 7:  # is_closed 欄位
+                    value = "已關閉" if value == 1 else "進行中"
+                elif col_index == 6:  # amount 欄位（第7欄）
+                    try:
+                        # 將換行的多筆金額格式化（去除小數點、加上逗號）
+                        amounts = str(value).split('\n')
+                        value = '\n'.join([f"{int(float(a)):,}" for a in amounts])
+                    except:
+                        pass  # 防止空值或轉換錯誤
+                item = QTableWidgetItem(str(value))
+                item.setTextAlignment(Qt.AlignTop)  # 上對齊，看起來比較整齊
+                item.setFlags(item.flags() ^ Qt.ItemIsEditable)  # 不能編輯
+                self.activity_table.setItem(row_index, col_index, item)
+
+        self.activity_table.resizeRowsToContents()
+
+
 
 

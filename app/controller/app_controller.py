@@ -306,3 +306,25 @@ class AppController:
 
         self.conn.commit()
 
+    def get_all_activities(self):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT 
+                activity_id,
+                name,
+                start_date,
+                end_date,
+                GROUP_CONCAT(scheme_name, CHAR(10)) AS scheme_names,
+                GROUP_CONCAT(scheme_item, CHAR(10)) AS scheme_items,
+                GROUP_CONCAT(amount, CHAR(10)) AS amounts,
+                is_closed
+            FROM activities
+            GROUP BY activity_id
+            ORDER BY MAX(created_at) DESC
+        """)
+        return cursor.fetchall()
+
+    
+
+
+
