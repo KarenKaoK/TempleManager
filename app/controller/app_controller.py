@@ -3,6 +3,7 @@ import uuid
 import locale
 import sqlite3
 from app.config import DB_NAME
+from datetime import datetime
 
 class AppController:
     def __init__(self, db_path=DB_NAME):
@@ -255,6 +256,9 @@ class AppController:
             columns = [col[0] for col in cursor.description]
             return dict(zip(columns, row))
         return None
+    
+
+
     def get_household_by_id(self, household_id):
         """根據 household_id 取得戶長資料"""
         cursor = self.conn.cursor()
@@ -278,9 +282,20 @@ class AppController:
         ]
         return dict(zip(keys, row))
 
+    def generate_activity_id(self):
+        today_str = datetime.now().strftime("%Y%m%d")
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(DISTINCT activity_id)
+            FROM activities
+            WHERE activity_id LIKE ?
+        """, (f"{today_str}%",))
+        count = cursor.fetchone()[0] + 1
+        return f"{today_str}-{count:03}"
+
     def insert_activity(self, data: dict):
         cursor = self.conn.cursor()
-        activity_id = "A" + uuid.uuid4().hex[:7]
+        activity_id = self.generate_activity_id()
 
         for scheme in data.get("scheme_rows", []):
             row_id = "R" + uuid.uuid4().hex[:8]
@@ -323,6 +338,32 @@ class AppController:
             ORDER BY MAX(created_at) DESC
         """)
         return cursor.fetchall()
+    
+    def search_activities(self, keyword):
+        cursor = self.conn.cursor()
+        like_pattern = f"%{keyword}%"
+
+        cursor.execute("""
+            SELECT 
+                activity_id,
+                name,
+                start_date,
+                end_date,
+                GROUP_CONCAT(scheme_name, CHAR(10)) AS scheme_names,
+                GROUP_CONCAT(scheme_item, CHAR(10)) AS scheme_items,
+                GROUP_CONCAT(amount, CHAR(10)) AS amounts,
+                is_closed
+            FROM activities
+            WHERE 
+                activity_id LIKE ? OR
+                name LIKE ? OR
+                start_date LIKE ?
+            GROUP BY activity_id
+            ORDER BY MAX(created_at) DESC
+        """, (like_pattern, like_pattern, like_pattern))
+
+        return cursor.fetchall()
+
 
     
 
