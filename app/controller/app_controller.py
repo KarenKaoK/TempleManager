@@ -363,6 +363,87 @@ class AppController:
         """, (like_pattern, like_pattern, like_pattern))
 
         return cursor.fetchall()
+    
+    def get_activity_by_id(self, activity_id):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT name, start_date, end_date, note
+            FROM activities
+            WHERE activity_id = ?
+            LIMIT 1
+        """, (activity_id,))
+        basic_info = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT scheme_name, scheme_item, amount
+            FROM activities
+            WHERE activity_id = ?
+        """, (activity_id,))
+        scheme_rows = [
+            {
+                "scheme_name": row[0],
+                "scheme_item": row[1],
+                "amount": row[2]
+            }
+            for row in cursor.fetchall()
+        ]
+
+        activity_data = {
+            "activity_id": activity_id,
+            "activity_name": basic_info[0],
+            "start_date": basic_info[1],
+            "end_date": basic_info[2],
+            "content": basic_info[3]
+        }
+
+        return activity_data, scheme_rows
+    
+    def update_activity(self, data: dict):
+        cursor = self.conn.cursor()
+        activity_id = data.get("activity_id")
+
+        if not activity_id:
+            print("❌ 無效的 activity_id，無法更新")
+            return
+
+        # 先刪除舊資料
+        cursor.execute("DELETE FROM activities WHERE activity_id = ?", (activity_id,))
+
+        # 重建每一筆方案資料
+        for scheme in data.get("scheme_rows", []):
+            row_id = "R" + uuid.uuid4().hex[:8]
+            cursor.execute("""
+                INSERT INTO activities (
+                    id, activity_id, name, start_date, end_date,
+                    scheme_name, scheme_item, amount, note,
+                    is_closed, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+            """, (
+                row_id,
+                activity_id,
+                data.get("activity_name"),
+                data.get("start_date"),
+                data.get("end_date"),
+                scheme.get("scheme_name"),
+                scheme.get("scheme_item"),
+                float(scheme.get("amount") or 0),
+                data.get("content"),
+            ))
+
+        self.conn.commit()
+        print(f"✅ 活動 {activity_id} 更新完成")
+
+    def delete_activity(self, activity_id):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM activities WHERE activity_id = ?", (activity_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print("❌ 刪除活動時出錯：", e)
+            return False
+
+
 
 
     

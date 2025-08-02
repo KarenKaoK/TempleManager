@@ -1,9 +1,9 @@
 # app/widgets/activity_manage_page.py
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
-    QLabel, QGroupBox, QTableWidget, QDialog, QTableWidgetItem,QHeaderView
+    QLabel, QGroupBox, QTableWidget, QDialog, QTableWidgetItem,QHeaderView,QMessageBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt,QEvent
 from app.widgets.auto_resizing_table import AutoResizingTableWidget
 from app.dialogs.activity_dialog import NewActivityDialog
 
@@ -100,8 +100,17 @@ class ActivityManagePage(QWidget):
         self.activity_table.resizeRowsToContents()
         self.activity_table.resizeColumnsToContents()
         self.activity_table.horizontalHeader().setStretchLastSection(True)
+        self.activity_table.viewport().installEventFilter(self)
+        
+
+        self.edit_activity_btn.clicked.connect(self.handle_edit_activity)
+        self.delete_activity_btn.clicked.connect(self.handle_delete_activity)
+
+
+
                 
     def open_new_activity_dialog(self):
+        
         dialog = NewActivityDialog(self.controller)
         if dialog.exec_() == QDialog.Accepted:
             print("✅ 活動新增成功")
@@ -143,7 +152,50 @@ class ActivityManagePage(QWidget):
         results = self.controller.search_activities(keyword)
         self.load_results_to_table(results)
 
+    def handle_edit_activity(self):
+        selected_row = self.activity_table.currentRow()
+        if selected_row == -1:
+            QMessageBox.warning(self, "請選擇活動", "請先在上方表格中選取一筆活動進行修改。")
+            return
+
+        activity_id = self.activity_table.item(selected_row, 0).text()
+        activity_data, scheme_rows = self.controller.get_activity_by_id(activity_id)
+
+        dialog = NewActivityDialog(self.controller, mode="edit", activity_data=activity_data, scheme_rows=scheme_rows)
+        if dialog.exec_() == QDialog.Accepted:
+            self.load_activities_to_table()
 
 
+    def eventFilter(self, source, event):
+        if (source == self.activity_table.viewport() and event.type() == QEvent.MouseButtonPress):
+            index = self.activity_table.indexAt(event.pos())
+            if not index.isValid():  # 點空白區域
+                self.activity_table.setCurrentItem(None)  # ✅ 清除 currentRow 的狀態
+                self.activity_table.clearSelection()      # ✅ 清除視覺選取
+        return super().eventFilter(source, event)
+
+    
+    def handle_delete_activity(self):
+        selected_row = self.activity_table.currentRow()
+        if selected_row == -1:
+            QMessageBox.warning(self, "請選擇活動", "請先在上方表格中選取要刪除的活動。")
+            return
+
+        activity_id = self.activity_table.item(selected_row, 0).text()
+        activity_name = self.activity_table.item(selected_row, 1).text()
+
+        reply = QMessageBox.question(
+            self, "確認刪除",
+            f"確定要刪除活動「{activity_name}」嗎？此操作無法復原。",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            success = self.controller.delete_activity(activity_id)
+            if success:
+                QMessageBox.information(self, "刪除成功", f"活動「{activity_name}」已刪除。")
+                self.load_activities_to_table()
+            else:
+                QMessageBox.critical(self, "刪除失敗", "刪除活動時發生錯誤。")
 
 

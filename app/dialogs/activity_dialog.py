@@ -6,10 +6,14 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QDate
 
 class NewActivityDialog(QDialog):
-    def __init__(self,controller=None):
+    def __init__(self, controller=None, mode="new", activity_data=None, scheme_rows=None):
         super().__init__()
         self.controller = controller
-        self.setWindowTitle("新增活動")
+        self.mode = mode  # "new" or "edit"
+        self.activity_data = activity_data or {}
+        self.scheme_rows = scheme_rows or []
+
+        self.setWindowTitle("修改活動" if self.mode == "edit" else "新增活動")
         self.setMinimumWidth(600)
 
         self.setStyleSheet("""
@@ -27,13 +31,11 @@ class NewActivityDialog(QDialog):
 
         grid.addWidget(QLabel("起始日期"), 1, 0)
         self.start_date = QDateEdit()
-        self.start_date.setDate(QDate.currentDate())
         self.start_date.setCalendarPopup(True)
         grid.addWidget(self.start_date, 1, 1)
 
         grid.addWidget(QLabel("結束日期"), 1, 2)
         self.end_date = QDateEdit()
-        self.end_date.setDate(QDate.currentDate())
         self.end_date.setCalendarPopup(True)
         grid.addWidget(self.end_date, 1, 3)
 
@@ -46,47 +48,61 @@ class NewActivityDialog(QDialog):
         self.scheme_table.setRowCount(3)
         self.scheme_table.horizontalHeader().setStretchLastSection(True)
         self.scheme_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        layout.addWidget(self.scheme_table)
         font = self.scheme_table.horizontalHeader().font()
         font.setPointSize(16)
         self.scheme_table.horizontalHeader().setFont(font)
+        layout.addWidget(self.scheme_table)
 
         layout.addWidget(QLabel("備註說明"))
         self.note_input = QTextEdit()
         layout.addWidget(self.note_input)
 
         button_layout = QHBoxLayout()
-        self.save_btn = QPushButton("✅ 存入")
+        self.save_btn = QPushButton("✅ 儲存")
         self.cancel_btn = QPushButton("❌ 關閉")
         button_layout.addWidget(self.save_btn)
         button_layout.addWidget(self.cancel_btn)
         layout.addLayout(button_layout)
 
-        self.save_btn.clicked.connect(self.accept)
+        self.save_btn.clicked.connect(self.save_activity)
         self.cancel_btn.clicked.connect(self.reject)
 
         self.setLayout(layout)
-        self.save_btn.clicked.connect(self.save_activity)
+
+        # 若是編輯模式就填入舊資料
+        if self.mode == "edit":
+            self.populate_existing_data()
+
+    def populate_existing_data(self):
+        self.name_input.setText(self.activity_data.get("activity_name", ""))
+        self.start_date.setDate(QDate.fromString(self.activity_data.get("start_date", ""), "yyyy-MM-dd"))
+        self.end_date.setDate(QDate.fromString(self.activity_data.get("end_date", ""), "yyyy-MM-dd"))
+        self.note_input.setText(self.activity_data.get("content", ""))
+
+        for i, scheme in enumerate(self.scheme_rows):
+            self.scheme_table.insertRow(i)
+            self.scheme_table.setItem(i, 0, QTableWidgetItem(str(scheme["scheme_name"])))
+            self.scheme_table.setItem(i, 1, QTableWidgetItem(str(scheme["scheme_item"])))
+            self.scheme_table.setItem(i, 2, QTableWidgetItem(str(scheme["amount"])))
 
     def get_data(self):
         return {
-            "activity_name": self.name_input.text().strip(),
-            "start_date": self.start_date.date().toString("yyyy-MM-dd"),   
-            "end_date": self.end_date.date().toString("yyyy-MM-dd"),       
-            "note": self.note_input.toPlainText().strip(),                 
-            "scheme_rows": self.get_scheme_data()                          
-        }
-    def save_activity(self):
-        data = {
+            "activity_id": self.activity_data.get("activity_id") if self.mode == "edit" else None,
             "activity_name": self.name_input.text().strip(),
             "start_date": self.start_date.date().toString("yyyy-MM-dd"),
             "end_date": self.end_date.date().toString("yyyy-MM-dd"),
-            "location": "", 
             "content": self.note_input.toPlainText().strip(),
             "scheme_rows": self.get_scheme_data()
         }
 
-        self.controller.insert_activity(data)
+    def save_activity(self):
+        data = self.get_data()
+
+        if self.mode == "edit":
+            self.controller.update_activity(data)
+        else:
+            self.controller.insert_activity(data)
+
         self.accept()
 
     def get_scheme_data(self):
@@ -104,4 +120,3 @@ class NewActivityDialog(QDialog):
             if any(row_data.values()):
                 rows.append(row_data)
         return rows
-
