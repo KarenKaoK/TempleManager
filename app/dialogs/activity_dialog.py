@@ -3,7 +3,15 @@ from PyQt5.QtWidgets import (
     QDialog, QLabel, QLineEdit, QTextEdit, QPushButton, QDateEdit,
     QVBoxLayout, QHBoxLayout, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView,QMessageBox
 )
-from PyQt5.QtCore import QDate
+from PyQt5.QtCore import QDate, Qt
+
+def _fmt_int(value):
+        """把 8888.0、'8888.0'、' 8888 ' 等都轉成沒有小數點的字串；失敗就原樣字串。"""
+        try:
+            f = float(value)
+            return str(int(f))
+        except Exception:
+            return str(value).strip() if value is not None else ""
 
 class NewActivityDialog(QDialog):
     def __init__(self, controller=None, mode="new", activity_data=None, scheme_rows=None):
@@ -69,6 +77,11 @@ class NewActivityDialog(QDialog):
 
         self.setLayout(layout)
 
+        if self.mode == "new":
+            # 新增資料
+            today = QDate.currentDate()
+            self.start_date.setDate(today)
+            self.end_date.setDate(today)
         # 若是編輯模式就填入舊資料
         if self.mode == "edit":
             self.populate_existing_data()
@@ -81,9 +94,12 @@ class NewActivityDialog(QDialog):
 
         for i, scheme in enumerate(self.scheme_rows):
             self.scheme_table.insertRow(i)
-            self.scheme_table.setItem(i, 0, QTableWidgetItem(str(scheme["scheme_name"])))
-            self.scheme_table.setItem(i, 1, QTableWidgetItem(str(scheme["scheme_item"])))
-            self.scheme_table.setItem(i, 2, QTableWidgetItem(str(scheme["amount"])))
+            self.scheme_table.setItem(i, 0, QTableWidgetItem(str(scheme.get("scheme_name", ""))))
+            self.scheme_table.setItem(i, 1, QTableWidgetItem(str(scheme.get("scheme_item", ""))))
+
+            amt_item = QTableWidgetItem(_fmt_int(scheme.get("amount", "")))
+            amt_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.scheme_table.setItem(i, 2, amt_item)
 
     def get_data(self):
         return {
@@ -112,11 +128,18 @@ class NewActivityDialog(QDialog):
             item_item = self.scheme_table.item(row, 1)
             amount_item = self.scheme_table.item(row, 2)
 
+            amt_text = amount_item.text().strip() if amount_item else ""
+            amt_text = _fmt_int(amt_text)  # 轉成沒有小數點的字串
+
             row_data = {
                 "scheme_name": name_item.text().strip() if name_item else "",
                 "scheme_item": item_item.text().strip() if item_item else "",
-                "amount": amount_item.text().strip() if amount_item else ""
+                "amount": amt_text
             }
             if any(row_data.values()):
                 rows.append(row_data)
         return rows
+
+    
+    
+

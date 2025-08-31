@@ -184,13 +184,17 @@ class ActivityManagePage(QWidget):
         activity_id = self.activity_table.item(selected_row, 0).text()
         activity_name = self.activity_table.item(selected_row, 1).text()
 
-        reply = QMessageBox.question(
-            self, "確認刪除",
-            f"確定要刪除活動「{activity_name}」嗎？此操作無法復原。",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Question)
+        msg.setWindowTitle("確認刪除")
+        msg.setText(f"確定要刪除活動「{activity_name}」嗎？此操作無法復原。")
 
-        if reply == QMessageBox.Yes:
+        yes_btn = msg.addButton("是", QMessageBox.YesRole)
+        no_btn  = msg.addButton("否", QMessageBox.NoRole)
+        msg.setDefaultButton(no_btn)          # 預設選擇「否」
+        msg.exec_()
+
+        if msg.clickedButton() == yes_btn:
             success = self.controller.delete_activity(activity_id)
             if success:
                 QMessageBox.information(self, "刪除成功", f"活動「{activity_name}」已刪除。")
