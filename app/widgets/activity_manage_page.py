@@ -3,11 +3,14 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
     QLabel, QGroupBox, QTableWidget, QDialog, QTableWidgetItem,QHeaderView,QMessageBox
 )
-from PyQt5.QtCore import Qt,QEvent
+from PyQt5.QtCore import Qt,QEvent, pyqtSignal
 from app.widgets.auto_resizing_table import AutoResizingTableWidget
 from app.dialogs.activity_dialog import NewActivityDialog
 
 class ActivityManagePage(QWidget):
+
+    request_close = pyqtSignal()
+
     def __init__(self, controller=None):
         super().__init__()
         self.controller = controller
@@ -28,6 +31,7 @@ class ActivityManagePage(QWidget):
         self.edit_activity_btn = QPushButton("🖊 修改活動")
         self.delete_activity_btn = QPushButton("❌ 刪除活動")
         self.close_activity_btn = QPushButton("⛔ 關閉活動")
+        self.close_activity_btn.clicked.connect(self._on_close_clicked)
 
         for btn in [
             self.search_activity_btn, self.add_activity_btn,
@@ -106,7 +110,8 @@ class ActivityManagePage(QWidget):
         self.edit_activity_btn.clicked.connect(self.handle_edit_activity)
         self.delete_activity_btn.clicked.connect(self.handle_delete_activity)
 
-
+    def _on_close_clicked(self):
+        self.request_close.emit()
 
                 
     def open_new_activity_dialog(self):
@@ -170,8 +175,8 @@ class ActivityManagePage(QWidget):
         if (source == self.activity_table.viewport() and event.type() == QEvent.MouseButtonPress):
             index = self.activity_table.indexAt(event.pos())
             if not index.isValid():  # 點空白區域
-                self.activity_table.setCurrentItem(None)  # ✅ 清除 currentRow 的狀態
-                self.activity_table.clearSelection()      # ✅ 清除視覺選取
+                self.activity_table.setCurrentItem(None)  
+                self.activity_table.clearSelection()      
         return super().eventFilter(source, event)
 
     

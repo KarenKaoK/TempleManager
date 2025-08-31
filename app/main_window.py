@@ -104,6 +104,14 @@ class MainWindow(QMainWindow):
 
     def open_activity_manage(self):
         self.activity_page = ActivityManagePage(self.controller)
+        self.activity_page.request_close.connect(self.close_activity_page)
         self.setCentralWidget(self.activity_page)
+    
+    def close_activity_page(self):
+        if self.activity_page is not None:
+            self.activity_page.deleteLater()
+            self.activity_page = None
+        # 換成一個空白頁
+        self.setCentralWidget(QWidget())
 
     
