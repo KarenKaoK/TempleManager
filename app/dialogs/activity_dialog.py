@@ -88,8 +88,8 @@ class NewActivityDialog(QDialog):
 
     def populate_existing_data(self):
         self.name_input.setText(self.activity_data.get("activity_name", ""))
-        self.start_date.setDate(QDate.fromString(self.activity_data.get("start_date", ""), "yyyy-MM-dd"))
-        self.end_date.setDate(QDate.fromString(self.activity_data.get("end_date", ""), "yyyy-MM-dd"))
+        self.start_date.setDate(QDate.fromString(self.activity_data.get("start_date", ""), "yyyy/MM/dd"))
+        self.end_date.setDate(QDate.fromString(self.activity_data.get("end_date", ""), "yyyy/MM/dd"))
         self.note_input.setText(self.activity_data.get("content", ""))
 
         for i, scheme in enumerate(self.scheme_rows):
@@ -105,8 +105,8 @@ class NewActivityDialog(QDialog):
         return {
             "activity_id": self.activity_data.get("activity_id") if self.mode == "edit" else None,
             "activity_name": self.name_input.text().strip(),
-            "start_date": self.start_date.date().toString("yyyy-MM-dd"),
-            "end_date": self.end_date.date().toString("yyyy-MM-dd"),
+            "start_date": self.start_date.date().toString("yyyy/MM/dd"),
+            "end_date": self.end_date.date().toString("yyyy/MM/dd"),
             "content": self.note_input.toPlainText().strip(),
             "scheme_rows": self.get_scheme_data()
         }

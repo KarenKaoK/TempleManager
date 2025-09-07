@@ -218,8 +218,11 @@ def create_activity_signups_table(db_name=DB_NAME):
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
 
+    # 先刪除舊表，然後重新建立
+    cursor.execute("DROP TABLE IF EXISTS activity_signups")
+
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS activity_signups (
+    CREATE TABLE activity_signups (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         activity_id INTEGER NOT NULL,
         person_name TEXT NOT NULL,
@@ -236,6 +239,9 @@ def create_activity_signups_table(db_name=DB_NAME):
         identity_number TEXT,
         address TEXT,
         note TEXT,
+        activity_items TEXT,
+        activity_amount REAL,
+        receipt_number TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE CASCADE
     )

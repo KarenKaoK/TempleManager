@@ -443,7 +443,175 @@ class AppController:
             print("❌ 刪除活動時出錯：", e)
             return False
 
+    def insert_activity_signup(self, signup_data):
+        """新增活動報名人員資料"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # 處理活動項目資料
+            selected_items = signup_data.get("selected_items", [])
+            activity_items_text = ""
+            if selected_items:
+                items_list = []
+                for item in selected_items:
+                    items_list.append(f"{item['item_name']} x{item['quantity']}")
+                activity_items_text = "; ".join(items_list)
+            
+            # 插入報名人員基本資料
+            cursor.execute("""
+                INSERT INTO activity_signups (
+                    activity_id, person_name, gender, birth_ad, birth_lunar,
+                    zodiac, birth_time, phone, mobile, identity, identity_number,
+                    address, note, activity_items, activity_amount, receipt_number, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                signup_data.get("activity_id"),
+                signup_data.get("name"),
+                signup_data.get("gender"),
+                signup_data.get("gregorian_birthday"),
+                signup_data.get("lunar_birthday"),
+                signup_data.get("zodiac"),
+                signup_data.get("birth_time"),
+                signup_data.get("contact_phone"),
+                signup_data.get("contact_phone"),  # 使用相同電話號碼
+                signup_data.get("identity", ""),
+                signup_data.get("identity_number", ""),
+                signup_data.get("address"),
+                signup_data.get("remarks"),
+                activity_items_text,
+                signup_data.get("activity_amount", 0),
+                signup_data.get("receipt_number", ""),
+                signup_data.get("registration_date")
+            ))
+            
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ 新增報名人員時出錯：{e}")
+            return False
 
+    def get_activity_signups(self, activity_id):
+        """取得特定活動的報名人員列表"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    id, person_name, gender, birth_ad, birth_lunar,
+                    zodiac, birth_time, phone, mobile, identity, identity_number,
+                    address, note, activity_items, activity_amount, receipt_number, created_at
+                FROM activity_signups
+                WHERE activity_id = ?
+                ORDER BY created_at DESC
+            """, (activity_id,))
+            
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"❌ 取得報名人員列表時出錯：{e}")
+            return []
+
+    def search_activity_signups(self, activity_id, keyword):
+        """搜尋特定活動的報名人員"""
+        try:
+            cursor = self.conn.cursor()
+            like_pattern = f"%{keyword}%"
+            cursor.execute("""
+                SELECT 
+                    id, person_name, gender, birth_ad, birth_lunar,
+                    zodiac, birth_time, phone, mobile, identity, identity_number,
+                    address, note, activity_items, activity_amount, receipt_number, created_at
+                FROM activity_signups
+                WHERE activity_id = ? AND (
+                    person_name LIKE ? OR 
+                    phone LIKE ? OR 
+                    mobile LIKE ? OR
+                    address LIKE ?
+                )
+                ORDER BY created_at DESC
+            """, (activity_id, like_pattern, like_pattern, like_pattern, like_pattern))
+            
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"❌ 搜尋報名人員時出錯：{e}")
+            return []
+
+    def delete_activity_signup(self, signup_id):
+        """刪除特定報名人員資料"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM activity_signups WHERE id = ?", (signup_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print(f"❌ 刪除報名人員時出錯：{e}")
+            return False
+
+    def get_activity_signup_by_id(self, signup_id):
+        """根據ID取得特定報名人員資料"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    id, activity_id, person_name, gender, birth_ad, birth_lunar,
+                    zodiac, birth_time, phone, mobile, identity, identity_number,
+                    address, note, activity_items, activity_amount, receipt_number, created_at
+                FROM activity_signups
+                WHERE id = ?
+            """, (signup_id,))
+            
+            result = cursor.fetchone()
+            return dict(result) if result else None
+        except Exception as e:
+            print(f"❌ 取得報名人員資料時出錯：{e}")
+            return None
+
+    def update_activity_signup(self, signup_data):
+        """更新報名人員資料"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # 處理活動項目資料
+            selected_items = signup_data.get("selected_items", [])
+            activity_items_text = ""
+            if selected_items:
+                items_list = []
+                for item in selected_items:
+                    items_list.append(f"{item['item_name']} x{item['quantity']}")
+                activity_items_text = "; ".join(items_list)
+            
+            # 更新報名人員資料
+            cursor.execute("""
+                UPDATE activity_signups SET
+                    person_name = ?, gender = ?, birth_ad = ?, birth_lunar = ?,
+                    zodiac = ?, birth_time = ?, phone = ?, mobile = ?, 
+                    identity = ?, identity_number = ?, address = ?, note = ?,
+                    activity_items = ?, activity_amount = ?, receipt_number = ?,
+                    created_at = ?
+                WHERE id = ?
+            """, (
+                signup_data.get("name"),
+                signup_data.get("gender"),
+                signup_data.get("gregorian_birthday"),
+                signup_data.get("lunar_birthday"),
+                signup_data.get("zodiac"),
+                signup_data.get("birth_time"),
+                signup_data.get("contact_phone"),
+                signup_data.get("contact_phone"),  # 使用相同電話號碼
+                signup_data.get("identity", ""),
+                signup_data.get("identity_number", ""),
+                signup_data.get("address"),
+                signup_data.get("remarks"),
+                activity_items_text,
+                signup_data.get("activity_amount", 0),
+                signup_data.get("receipt_number", ""),
+                signup_data.get("registration_date"),
+                signup_data.get("id")
+            ))
+            
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ 更新報名人員時出錯：{e}")
+            return False
 
 
     
