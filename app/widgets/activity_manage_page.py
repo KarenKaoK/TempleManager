@@ -8,6 +8,7 @@ from PyQt5.QtGui import QBrush, QColor
 from app.widgets.auto_resizing_table import AutoResizingTableWidget
 from app.dialogs.activity_dialog import NewActivityDialog
 from app.dialogs.activity_signup_dialog import ActivitySignupDialog
+from app.dialogs.activity_member_search_dialog import ActivityMemberSearchDialog
 from app.dialogs.edit_activity_signup_dialog import EditActivitySignupDialog
 
 class ActivityManagePage(QWidget):
@@ -311,8 +312,8 @@ class ActivityManagePage(QWidget):
             'activity_name': activity_name
         }
         
-        # 開啟報名對話框
-        dialog = ActivitySignupDialog(self.controller, activity_data, self)
+        # 開啟人員搜尋報名對話框
+        dialog = ActivityMemberSearchDialog(self.controller, activity_data, self)
         dialog.signup_added.connect(self.on_signup_added)
         dialog.exec_()
         

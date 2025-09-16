@@ -534,6 +534,26 @@ class AppController:
             print(f"❌ 搜尋報名人員時出錯：{e}")
             return []
 
+    def search_people(self, keyword):
+        """搜尋人員資料（從 people 表）"""
+        try:
+            cursor = self.conn.cursor()
+            like_pattern = f"%{keyword}%"
+            cursor.execute("""
+                SELECT 
+                    id, name, gender, birthday_ad, birthday_lunar, birth_time,
+                    age, zodiac, phone_home, phone_mobile, email,
+                    address, zip_code, identity, note, joined_at
+                FROM people
+                WHERE name LIKE ? OR phone_home LIKE ? OR phone_mobile LIKE ? OR address LIKE ?
+                ORDER BY name
+            """, (like_pattern, like_pattern, like_pattern, like_pattern))
+            
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"❌ 搜尋人員資料時出錯：{e}")
+            return []
+
     def delete_activity_signup(self, signup_id):
         """刪除特定報名人員資料"""
         try:
