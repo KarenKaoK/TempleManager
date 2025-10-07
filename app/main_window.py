@@ -79,8 +79,8 @@ class MainWindow(QMainWindow):
             self.main_page.update_member_table(members)
 
             # 統計成員身份
-            num_adults = sum(1 for m in members if m.get("identity") == "丁")
-            num_dependents = sum(1 for m in members if m.get("identity") == "口")
+            num_adults = sum(1 for m in members if m.get("gender") == "男")
+            num_dependents = sum(1 for m in members if m.get("gender") == "女")
             self.main_page.stats_label.setText(
                 f"戶號：{head_data['id']}　戶長：{head_data['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
             )
