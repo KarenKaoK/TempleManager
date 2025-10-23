@@ -256,8 +256,5 @@ def test_delete_identity_success(qtbot, monkeypatch):
 
         # 確認 SQL 執行正確
         mock_cursor.execute.assert_any_call(
-        "DELETE FROM member_identity WHERE id = ?", (mock.ANY,)
-        )
-
-        
+        "DELETE FROM member_identity WHERE id = ?", (mock.ANY,))
         mock_info.assert_called_once_with(dialog, "成功", "身份名稱刪除成功！")
