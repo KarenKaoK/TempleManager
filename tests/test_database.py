@@ -7,19 +7,12 @@ from app.database.setup_db import (
     create_member_identity_table
 )
 
-@pytest.fixture(scope="function")
-def test_db():
-    """建立測試用資料庫，並在測試結束後刪除"""
-    test_db_name = "tests/temp_test.db"
-    conn = sqlite3.connect(test_db_name)
+@pytest.fixture
+def test_db(tmp_path):
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(db_path)
     conn.close()
-    
-    yield test_db_name  # 讓測試使用這個資料庫
-    
-    # # 測試完成後刪除測試用資料庫
-    # import os
-    # if os.path.exists(test_db_name):
-    #     os.remove(test_db_name)
+    return str(db_path)
 
 def test_create_users_table(test_db):
     """測試 users 表是否能成功建立"""
