@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
     QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, 
-    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy
+    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -50,6 +50,18 @@ class MainPageWidget(QWidget):
             "戶號", "標籤", "戶長姓名", "性別", "國曆生日", "農曆生日", "年份", "生肖", "年齡", "生辰",
             "聯絡電話", "手機號碼", "身份", "電子郵件", "聯絡地址", "備註說明"
         ])
+        
+        header = self.household_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+
+        # 地址欄（第 14 欄）≈ 35 個中文字
+        header.resizeSection(14, 380)
+
+        # 備註欄（第 15 欄）吃剩餘空間
+        header.setStretchLastSection(True)
+
+        self.household_table.setTextElideMode(Qt.ElideRight)
+
         self.household_table.setStyleSheet("font-size: 14px;")
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
 
@@ -60,7 +72,7 @@ class MainPageWidget(QWidget):
         group_layout.addWidget(self.household_table)
         household_group.setLayout(group_layout)
         layout.addWidget(household_group)
-
+        
         # 成員與詳情分區
         splitter = QSplitter(Qt.Horizontal)
 
@@ -80,6 +92,14 @@ class MainPageWidget(QWidget):
             "序", "標示", "姓名", "性別", "國曆生日", "農曆生日", "年份", "生肖", "年齡", "生辰",
             "聯絡電話", "手機號碼", "身份", "身分證字號", "聯絡地址", "備註說明"
         ])
+
+        header = self.member_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.resizeSection(14, 380)
+        header.setStretchLastSection(True)
+
+        self.member_table.setTextElideMode(Qt.ElideRight)
+
         self.member_table.setStyleSheet("font-size: 14px;")
         self.member_table.cellClicked.connect(self.on_member_row_clicked)
         left_inner.addWidget(self.member_table)
@@ -183,8 +203,11 @@ class MainPageWidget(QWidget):
             tab_widget.addTab(placeholder, tab_name)
 
         splitter.addWidget(tab_widget)
-
         layout.addWidget(splitter)
+
+        layout.setStretchFactor(household_group, 55)  # 上：戶長表格
+        layout.setStretchFactor(splitter, 45)         # 下：成員+詳情
+
         self.setLayout(layout)
 
         # 讀取所有戶長並排序（controller 需提供這個方法）
@@ -224,11 +247,20 @@ class MainPageWidget(QWidget):
             self.household_table.setItem(row_idx, 11, QTableWidgetItem(row.get("head_phone_mobile", "")))
             self.household_table.setItem(row_idx, 12, QTableWidgetItem(row.get("head_identity", "")))
             self.household_table.setItem(row_idx, 13, QTableWidgetItem(row.get("head_email", "")))
-            self.household_table.setItem(row_idx, 14, QTableWidgetItem(row.get("head_address", "")))
-            self.household_table.setItem(row_idx, 15, QTableWidgetItem(row.get("household_note", "")))
+
+            addr = row.get("head_address", "") or ""
+            addr_item = QTableWidgetItem(addr)
+            addr_item.setToolTip(addr)
+            self.household_table.setItem(row_idx, 14, addr_item)
+
+            note = row.get("household_note", "") or ""
+            note_item = QTableWidgetItem(note)
+            note_item.setToolTip(note)
+            self.household_table.setItem(row_idx, 15, note_item)
+
         
         # 調整表格大小
-        self.household_table.adjust_to_contents()
+        # self.household_table.adjust_to_contents()
 
     def on_household_row_clicked(self, row, col):
         household_id_item = self.household_table.item(row, 0)  # 假設 id 在第 0 欄
@@ -286,8 +318,16 @@ class MainPageWidget(QWidget):
             self.member_table.setItem(row_idx, 11, QTableWidgetItem(row.get("phone_mobile", "")))
             self.member_table.setItem(row_idx, 12, QTableWidgetItem(row.get("identity", "")))
             self.member_table.setItem(row_idx, 13, QTableWidgetItem(row.get("id", "")))  # ID 當作身份證
-            self.member_table.setItem(row_idx, 14, QTableWidgetItem(row.get("address", "")))
-            self.member_table.setItem(row_idx, 15, QTableWidgetItem(row.get("note", "")))
+            
+            addr = row.get("address", "") or ""
+            addr_item = QTableWidgetItem(addr)
+            addr_item.setToolTip(addr)
+            self.member_table.setItem(row_idx, 14, addr_item)
+
+            note = row.get("note", "") or ""
+            note_item = QTableWidgetItem(note)
+            note_item.setToolTip(note)
+            self.member_table.setItem(row_idx, 15, note_item)
             
             # 在任一 cell 上存放 "email", "zip_code", "joined_at" 等隱藏資料
             hidden_data = {
@@ -298,7 +338,8 @@ class MainPageWidget(QWidget):
             item = self.member_table.item(row_idx, 2)  # 用姓名那欄當作隱藏資料載體
             item.setData(Qt.UserRole, hidden_data)
         # 調整表格大小
-        self.member_table.adjust_to_contents()
+        # self.member_table.adjust_to_contents()
+        
     def on_member_row_clicked(self, row, col):
         name_item = self.member_table.item(row, 2)
         hidden = name_item.data(Qt.UserRole) or {}
