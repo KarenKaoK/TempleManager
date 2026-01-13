@@ -6,6 +6,7 @@ from app.dialogs.member_identity_dialog import MemberIdentityDialog
 from PyQt5.QtWidgets import QTableWidgetItem
 from PyQt5.QtWidgets import QLineEdit
 from PyQt5.QtWidgets import QMessageBox
+from unittest.mock import ANY
 
 # 測試 1：有資料時正確載入到表格
 def test_load_data_with_records(qtbot):
@@ -72,13 +73,6 @@ def test_confirm_add_identity_success(qtbot, monkeypatch):
         mock_connect.return_value.cursor.return_value = mock_cursor
 
         dialog.confirm_add_identity(mock_dialog, "新身份")
-
-        # 修正這一行！
-        mock_cursor.execute.assert_any_call(
-            "INSERT INTO member_identity (name) VALUES (?)", ("新身份",))
-        # 修正這一行！
-        mock_cursor.execute.assert_any_call(
-            "INSERT INTO member_identity (name) VALUES (?)", ("新身份",))
 
         mock_cursor.execute.assert_any_call(
         "INSERT INTO member_identity (id, name) VALUES (?, ?)", mock.ANY
@@ -178,13 +172,9 @@ def test_confirm_edit_identity_success(qtbot):
 
         dialog.confirm_edit_identity(mock_dialog, "原身份", "新身份")
 
-
-        # ✅ 修正這裡
         mock_cursor.execute.assert_any_call(
-            "UPDATE member_identity SET name = ? WHERE name = ?", ("新身份", "原身份")
-
-        mock_cursor.execute.assert_any_call(
-        "UPDATE member_identity SET name = ? WHERE id = ?", ("新身份", mock.ANY)
+            "UPDATE member_identity SET name = ? WHERE id = ?",
+            ("新身份", "原身份")
         )
 
         mock_connect.return_value.commit.assert_called_once()
