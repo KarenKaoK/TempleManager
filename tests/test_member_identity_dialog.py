@@ -73,14 +73,15 @@ def test_confirm_add_identity_success(qtbot, monkeypatch):
 
         dialog.confirm_add_identity(mock_dialog, "新身份")
 
-<<<<<<< HEAD
         # 修正這一行！
         mock_cursor.execute.assert_any_call(
-            "INSERT INTO member_identity (name) VALUES (?)", ("新身份",)
-=======
+            "INSERT INTO member_identity (name) VALUES (?)", ("新身份",))
+        # 修正這一行！
+        mock_cursor.execute.assert_any_call(
+            "INSERT INTO member_identity (name) VALUES (?)", ("新身份",))
+
         mock_cursor.execute.assert_any_call(
         "INSERT INTO member_identity (id, name) VALUES (?, ?)", mock.ANY
->>>>>>> main
         )
 
         mock_connect.return_value.commit.assert_called_once()
@@ -177,14 +178,13 @@ def test_confirm_edit_identity_success(qtbot):
 
         dialog.confirm_edit_identity(mock_dialog, "原身份", "新身份")
 
-<<<<<<< HEAD
+
         # ✅ 修正這裡
         mock_cursor.execute.assert_any_call(
             "UPDATE member_identity SET name = ? WHERE name = ?", ("新身份", "原身份")
-=======
+
         mock_cursor.execute.assert_any_call(
         "UPDATE member_identity SET name = ? WHERE id = ?", ("新身份", mock.ANY)
->>>>>>> main
         )
 
         mock_connect.return_value.commit.assert_called_once()
@@ -271,5 +271,4 @@ def test_delete_identity_success(qtbot, monkeypatch):
         "DELETE FROM member_identity WHERE id = ?", (mock.ANY,)
         )
 
-        
         mock_info.assert_called_once_with(dialog, "成功", "身份名稱刪除成功！")
