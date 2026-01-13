@@ -1,0 +1,640 @@
+# app/controller/app_controller.py
+import uuid
+import locale
+import sqlite3
+from app.config import DB_NAME
+from datetime import datetime
+
+class AppController:
+    def __init__(self, db_path=DB_NAME):
+        self.conn = sqlite3.connect(db_path)
+        self.conn.row_factory = sqlite3.Row
+
+    def format_head_data(self, row):
+        return {
+            "id": row[0],
+            "head_name": row[1],
+            "head_gender": row[2],
+            "head_birthday_ad": row[3],
+            "head_birthday_lunar": row[4],
+            "head_birth_time": row[5],
+            "head_age": row[6],
+            "head_zodiac": row[7],
+            "head_phone_home": row[8],
+            "head_phone_mobile": row[9],
+            "head_email": row[10],
+            "head_address": row[11],
+            "head_zip_code": row[12],
+            "head_identity": row[13],
+            "head_note": row[14],
+            "head_joined_at": row[15],
+            "household_note": row[16],
+        }
+
+    def search_households(self, keyword):
+        cursor = self.conn.cursor()
+        like_value = f"%{keyword}%"
+        query = """
+            SELECT * FROM households
+            WHERE head_name LIKE ? OR head_phone_home LIKE ? OR head_phone_mobile LIKE ?
+        """
+        cursor.execute(query, (like_value, like_value, like_value))
+        return [dict(row) for row in cursor.fetchall()]
+    def get_household_members(self, household_id):
+        cursor = self.conn.cursor()
+        query = """
+            SELECT p.*
+            FROM household_members hm
+            JOIN people p ON hm.person_id = p.id
+            WHERE hm.household_id = ?
+        """
+        cursor.execute(query, (household_id,))
+        return [dict(row) for row in cursor.fetchall()]
+    
+    def search_by_any_name(self, keyword):
+        cursor = self.conn.cursor()
+
+        # 搜尋戶長
+        cursor.execute("""
+            SELECT * FROM households
+            WHERE head_name LIKE ?
+            LIMIT 1
+        """, (f"%{keyword}%",))
+        head_row = cursor.fetchone()
+
+        if head_row:
+            household_id = head_row[0]  # 假設 household.id 在第 0 欄
+        else:
+            # 沒找到戶長 → 查 household_members 對應的 people.name
+            cursor.execute("""
+                SELECT hm.household_id
+                FROM household_members hm
+                JOIN people p ON hm.person_id = p.id
+                WHERE p.name LIKE ?
+                LIMIT 1
+            """, (f"%{keyword}%",))
+            row = cursor.fetchone()
+            if row:
+                household_id = row[0]
+                cursor.execute("SELECT * FROM households WHERE id = ?", (household_id,))
+                head_row = cursor.fetchone()
+            else:
+                return None, []
+
+        # 查 household_id 對應的戶員
+        members = self.get_household_members(household_id)
+        return head_row, members
+    def add_new_household(self, data):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO households (
+                head_name, head_gender, head_birthday_ad, head_birthday_lunar,
+                head_birth_time, head_age, head_zodiac, head_phone_home,
+                head_phone_mobile, head_email, head_address, head_zip_code,
+                head_identity, head_note, head_joined_at, household_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get("head_name"), data.get("head_gender"), data.get("head_birthday_ad"),
+            data.get("head_birthday_lunar"), data.get("head_birth_time"), data.get("head_age"),
+            data.get("head_zodiac"), data.get("head_phone_home"), data.get("head_phone_mobile"),
+            data.get("head_email"), data.get("head_address"), data.get("head_zip_code"),
+            data.get("head_identity"), data.get("head_note"), data.get("head_joined_at"),
+            data.get("household_note")
+        ))
+        self.conn.commit()
+
+    def insert_household(self, data):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO households (
+                head_name, head_gender, head_birthday_ad, head_birthday_lunar, head_birth_time,
+                head_age, head_zodiac, head_phone_home, head_phone_mobile, head_email,
+                head_address, head_zip_code, head_identity, head_note, head_joined_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["head_name"],
+            data["head_gender"],
+            data["head_birthday_ad"],
+            data["head_birthday_lunar"],
+            data["head_birth_time"],
+            data["head_age"],
+            data["head_zodiac"],
+            data["head_phone_home"],
+            data["head_phone_mobile"],
+            data["head_email"],
+            data["head_address"],
+            data["head_zip_code"],
+            data["head_identity"],
+            data["head_note"],
+            data["head_joined_at"]
+        ))
+        self.conn.commit()
+    
+    def get_all_households_ordered(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM households")
+        rows = [dict(row) for row in cursor.fetchall()]
+
+        # 設定locale（注意: 要在支援中文排序的系統）
+        locale.setlocale(locale.LC_COLLATE, "zh_TW.UTF-8")
+
+        # 排序
+        rows.sort(key=lambda x: locale.strxfrm(x["head_name"]))
+
+        return rows
+    
+    def household_has_members(self, household_id):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) FROM household_members
+            WHERE household_id = ?
+        """, (household_id,))
+        count = cursor.fetchone()[0]
+        return count > 0
+
+    def delete_household(self, household_id):
+        cursor = self.conn.cursor()
+
+        # 先刪 household_members（避免外鍵違反）
+        cursor.execute("""
+            DELETE FROM household_members
+            WHERE household_id = ?
+        """, (household_id,))
+
+        # 再刪 households
+        cursor.execute("""
+            DELETE FROM households
+            WHERE id = ?
+        """, (household_id,))
+
+        self.conn.commit()
+
+    def get_all_member_identities(self):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, name FROM member_identity
+            ORDER BY name COLLATE NOCASE ASC
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
+    def add_member_identity(self, identity_id, name):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO member_identity (id, name)
+            VALUES (?, ?)
+        """, (identity_id, name))
+        self.conn.commit()
+
+    def update_member_identity(self, identity_id, new_name):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE member_identity
+            SET name = ?
+            WHERE id = ?
+        """, (new_name, identity_id))
+        self.conn.commit()
+    
+    def delete_member_identity(self, identity_id):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            DELETE FROM member_identity
+            WHERE id = ?
+        """, (identity_id,))
+        self.conn.commit()
+
+    def insert_member(self, data):
+        data["id"] = str(uuid.uuid4())
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO people (
+                id, name, gender, birthday_ad, birthday_lunar, birth_time,
+                age, zodiac, phone_home, phone_mobile, email,
+                address, zip_code, identity, note, joined_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["id"], data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"],
+            data["birth_time"], data["age"], data["zodiac"], data["phone_home"], data["phone_mobile"],
+            data["email"], data["address"], data["zip_code"], data["identity"], data["note"], 
+            data["joined_at"]
+        ))
+        cursor.execute("""
+            INSERT INTO household_members (household_id, person_id)
+            VALUES (?, ?)
+        """, (
+            data["household_id"],
+            data["id"]
+        ))
+        self.conn.commit()
+
+    def update_member(self, data):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE people SET
+                name=?, gender=?, birthday_ad=?, birthday_lunar=?, birth_time=?,
+                age=?, zodiac=?, phone_home=?, phone_mobile=?, email=?,
+                address=?, zip_code=?, identity=?, note=?, joined_at=?,
+                lunar_is_leap=?, id_number=?
+            WHERE id=?
+        """, (
+            data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"], data["birth_time"],
+            data["age"], data["zodiac"], data["phone_home"], data["phone_mobile"], data["email"],
+            data["address"], data["zip_code"], data["identity"], data["note"], data["joined_at"],
+            data["lunar_is_leap"], data["id_number"], data["id"]
+        ))
+        self.conn.commit()
+
+    def delete_member_by_id(self, person_id):
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM people WHERE id = ?", (person_id,))
+        self.conn.commit()
+
+    def get_member_by_id(self, person_id):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM people WHERE id = ?", (person_id,))
+        row = cursor.fetchone()
+        if row:
+            columns = [col[0] for col in cursor.description]
+            return dict(zip(columns, row))
+        return None
+    
+
+
+    def get_household_by_id(self, household_id):
+        """根據 household_id 取得戶長資料"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, head_name, head_gender, head_birthday_ad, head_birthday_lunar,
+                head_birth_time, head_age, head_zodiac, head_phone_home, head_phone_mobile,
+                head_email, head_address, head_zip_code, head_identity, head_note, head_joined_at
+            FROM households
+            WHERE id = ?
+        """, (household_id,))
+        row = cursor.fetchone()
+
+        if row is None:
+            return {}
+
+        # 欄位順序需與 SELECT 對應
+        keys = [
+            "id", "head_name", "head_gender", "head_birthday_ad", "head_birthday_lunar",
+            "head_birth_time", "head_age", "head_zodiac", "head_phone_home", "head_phone_mobile",
+            "head_email", "head_address", "head_zip_code", "head_identity", "head_note", "head_joined_at"
+        ]
+        return dict(zip(keys, row))
+
+    def generate_activity_id(self):
+        today_str = datetime.now().strftime("%Y%m%d")
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(DISTINCT activity_id)
+            FROM activities
+            WHERE activity_id LIKE ?
+        """, (f"{today_str}%",))
+        count = cursor.fetchone()[0] + 1
+        return f"{today_str}-{count:03}"
+
+    def insert_activity(self, data: dict):
+        cursor = self.conn.cursor()
+        activity_id = self.generate_activity_id()
+
+        for scheme in data.get("scheme_rows", []):
+            row_id = "R" + uuid.uuid4().hex[:8]
+
+            cursor.execute("""
+                INSERT INTO activities (
+                    id, activity_id, name, start_date, end_date,
+                    scheme_name, scheme_item, amount, note,
+                    is_closed, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """, (
+                row_id,
+                activity_id,
+                data.get("activity_name"),
+                data.get("start_date"),
+                data.get("end_date"),
+                scheme.get("scheme_name"),  # ✅ 這裡要對應你在 get_scheme_data() 傳回的 key
+                scheme.get("scheme_item"),
+                float(scheme.get("amount") or 0),
+                data.get("content"),
+                0  # is_closed
+            ))
+
+        self.conn.commit()
+
+    def get_all_activities(self):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT 
+                activity_id,
+                name,
+                start_date,
+                end_date,
+                GROUP_CONCAT(scheme_name, CHAR(10)) AS scheme_names,
+                GROUP_CONCAT(scheme_item, CHAR(10)) AS scheme_items,
+                GROUP_CONCAT(amount, CHAR(10)) AS amounts,
+                is_closed
+            FROM activities
+            GROUP BY activity_id
+            ORDER BY MAX(created_at) DESC
+        """)
+        return cursor.fetchall()
+    
+    def search_activities(self, keyword):
+        cursor = self.conn.cursor()
+        like_pattern = f"%{keyword}%"
+
+        cursor.execute("""
+            SELECT 
+                activity_id,
+                name,
+                start_date,
+                end_date,
+                GROUP_CONCAT(scheme_name, CHAR(10)) AS scheme_names,
+                GROUP_CONCAT(scheme_item, CHAR(10)) AS scheme_items,
+                GROUP_CONCAT(amount, CHAR(10)) AS amounts,
+                is_closed
+            FROM activities
+            WHERE 
+                activity_id LIKE ? OR
+                name LIKE ? OR
+                start_date LIKE ?
+            GROUP BY activity_id
+            ORDER BY MAX(created_at) DESC
+        """, (like_pattern, like_pattern, like_pattern))
+
+        return cursor.fetchall()
+    
+    def get_activity_by_id(self, activity_id):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT name, start_date, end_date, note
+            FROM activities
+            WHERE activity_id = ?
+            LIMIT 1
+        """, (activity_id,))
+        basic_info = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT scheme_name, scheme_item, amount
+            FROM activities
+            WHERE activity_id = ?
+        """, (activity_id,))
+        scheme_rows = [
+            {
+                "scheme_name": row[0],
+                "scheme_item": row[1],
+                "amount": row[2]
+            }
+            for row in cursor.fetchall()
+        ]
+
+        activity_data = {
+            "activity_id": activity_id,
+            "activity_name": basic_info[0],
+            "start_date": basic_info[1],
+            "end_date": basic_info[2],
+            "content": basic_info[3]
+        }
+
+        return activity_data, scheme_rows
+    
+    def update_activity(self, data: dict):
+        cursor = self.conn.cursor()
+        activity_id = data.get("activity_id")
+
+        if not activity_id:
+            print("❌ 無效的 activity_id，無法更新")
+            return
+
+        # 先刪除舊資料
+        cursor.execute("DELETE FROM activities WHERE activity_id = ?", (activity_id,))
+
+        # 重建每一筆方案資料
+        for scheme in data.get("scheme_rows", []):
+            row_id = "R" + uuid.uuid4().hex[:8]
+            cursor.execute("""
+                INSERT INTO activities (
+                    id, activity_id, name, start_date, end_date,
+                    scheme_name, scheme_item, amount, note,
+                    is_closed, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+            """, (
+                row_id,
+                activity_id,
+                data.get("activity_name"),
+                data.get("start_date"),
+                data.get("end_date"),
+                scheme.get("scheme_name"),
+                scheme.get("scheme_item"),
+                float(scheme.get("amount") or 0),
+                data.get("content"),
+            ))
+
+        self.conn.commit()
+        print(f"✅ 活動 {activity_id} 更新完成")
+
+    def delete_activity(self, activity_id):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM activities WHERE activity_id = ?", (activity_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print("❌ 刪除活動時出錯：", e)
+            return False
+
+    def insert_activity_signup(self, signup_data):
+        """新增活動報名人員資料"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # 處理活動項目資料
+            selected_items = signup_data.get("selected_items", [])
+            activity_items_text = ""
+            if selected_items:
+                items_list = []
+                for item in selected_items:
+                    items_list.append(f"{item['item_name']} x{item['quantity']}")
+                activity_items_text = "; ".join(items_list)
+            
+            # 插入報名人員基本資料
+            cursor.execute("""
+                INSERT INTO activity_signups (
+                    activity_id, person_name, gender, birth_ad, birth_lunar,
+                    zodiac, birth_time, phone, mobile, identity, identity_number,
+                    address, note, activity_items, activity_amount, receipt_number, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                signup_data.get("activity_id"),
+                signup_data.get("name"),
+                signup_data.get("gender"),
+                signup_data.get("gregorian_birthday"),
+                signup_data.get("lunar_birthday"),
+                signup_data.get("zodiac"),
+                signup_data.get("birth_time"),
+                signup_data.get("contact_phone"),
+                signup_data.get("contact_phone"),  # 使用相同電話號碼
+                signup_data.get("identity", ""),
+                signup_data.get("identity_number", ""),
+                signup_data.get("address"),
+                signup_data.get("remarks"),
+                activity_items_text,
+                signup_data.get("activity_amount", 0),
+                signup_data.get("receipt_number", ""),
+                signup_data.get("registration_date")
+            ))
+            
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ 新增報名人員時出錯：{e}")
+            return False
+
+    def get_activity_signups(self, activity_id):
+        """取得特定活動的報名人員列表"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    id, person_name, gender, birth_ad, birth_lunar,
+                    zodiac, birth_time, phone, mobile, identity, identity_number,
+                    address, note, activity_items, activity_amount, receipt_number, created_at
+                FROM activity_signups
+                WHERE activity_id = ?
+                ORDER BY created_at DESC
+            """, (activity_id,))
+            
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"❌ 取得報名人員列表時出錯：{e}")
+            return []
+
+    def search_activity_signups(self, activity_id, keyword):
+        """搜尋特定活動的報名人員"""
+        try:
+            cursor = self.conn.cursor()
+            like_pattern = f"%{keyword}%"
+            cursor.execute("""
+                SELECT 
+                    id, person_name, gender, birth_ad, birth_lunar,
+                    zodiac, birth_time, phone, mobile, identity, identity_number,
+                    address, note, activity_items, activity_amount, receipt_number, created_at
+                FROM activity_signups
+                WHERE activity_id = ? AND (
+                    person_name LIKE ? OR 
+                    phone LIKE ? OR 
+                    mobile LIKE ? OR
+                    address LIKE ?
+                )
+                ORDER BY created_at DESC
+            """, (activity_id, like_pattern, like_pattern, like_pattern, like_pattern))
+            
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"❌ 搜尋報名人員時出錯：{e}")
+            return []
+
+    def search_people(self, keyword):
+        """搜尋人員資料（從 people 表）"""
+        try:
+            cursor = self.conn.cursor()
+            like_pattern = f"%{keyword}%"
+            cursor.execute("""
+                SELECT 
+                    id, name, gender, birthday_ad, birthday_lunar, birth_time,
+                    age, zodiac, phone_home, phone_mobile, email,
+                    address, zip_code, identity, note, joined_at
+                FROM people
+                WHERE name LIKE ? OR phone_home LIKE ? OR phone_mobile LIKE ? OR address LIKE ?
+                ORDER BY name
+            """, (like_pattern, like_pattern, like_pattern, like_pattern))
+            
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"❌ 搜尋人員資料時出錯：{e}")
+            return []
+
+    def delete_activity_signup(self, signup_id):
+        """刪除特定報名人員資料"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM activity_signups WHERE id = ?", (signup_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print(f"❌ 刪除報名人員時出錯：{e}")
+            return False
+
+    def get_activity_signup_by_id(self, signup_id):
+        """根據ID取得特定報名人員資料"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    id, activity_id, person_name, gender, birth_ad, birth_lunar,
+                    zodiac, birth_time, phone, mobile, identity, identity_number,
+                    address, note, activity_items, activity_amount, receipt_number, created_at
+                FROM activity_signups
+                WHERE id = ?
+            """, (signup_id,))
+            
+            result = cursor.fetchone()
+            return dict(result) if result else None
+        except Exception as e:
+            print(f"❌ 取得報名人員資料時出錯：{e}")
+            return None
+
+    def update_activity_signup(self, signup_data):
+        """更新報名人員資料"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # 處理活動項目資料
+            selected_items = signup_data.get("selected_items", [])
+            activity_items_text = ""
+            if selected_items:
+                items_list = []
+                for item in selected_items:
+                    items_list.append(f"{item['item_name']} x{item['quantity']}")
+                activity_items_text = "; ".join(items_list)
+            
+            # 更新報名人員資料
+            cursor.execute("""
+                UPDATE activity_signups SET
+                    person_name = ?, gender = ?, birth_ad = ?, birth_lunar = ?,
+                    zodiac = ?, birth_time = ?, phone = ?, mobile = ?, 
+                    identity = ?, identity_number = ?, address = ?, note = ?,
+                    activity_items = ?, activity_amount = ?, receipt_number = ?,
+                    created_at = ?
+                WHERE id = ?
+            """, (
+                signup_data.get("name"),
+                signup_data.get("gender"),
+                signup_data.get("gregorian_birthday"),
+                signup_data.get("lunar_birthday"),
+                signup_data.get("zodiac"),
+                signup_data.get("birth_time"),
+                signup_data.get("contact_phone"),
+                signup_data.get("contact_phone"),  # 使用相同電話號碼
+                signup_data.get("identity", ""),
+                signup_data.get("identity_number", ""),
+                signup_data.get("address"),
+                signup_data.get("remarks"),
+                activity_items_text,
+                signup_data.get("activity_amount", 0),
+                signup_data.get("receipt_number", ""),
+                signup_data.get("registration_date"),
+                signup_data.get("id")
+            ))
+            
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ 更新報名人員時出錯：{e}")
+            return False
+
+
+    
+
+
+
