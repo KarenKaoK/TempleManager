@@ -420,10 +420,26 @@ class MainPageWidget(QWidget):
             QMessageBox.warning(self, "未選取成員", "請先選擇一位成員進行編輯")
             return
 
+        # ✅ 先記住正在編輯的那個人（以及原本列）
         person_id = self.member_table.item(selected_row, 13).text()
+        prev_row = selected_row
+
         dialog = EditMemberDialog(self.controller, person_id, self)
         if dialog.exec_() == QDialog.Accepted:
+            # ✅ 先刷新表格（資料來源重新抓 DB）
             self.refresh_member_table(self.selected_household_id)
+
+            # ✅ 刷新後：優先用 person_id 找回那一列（最穩）
+            row_to_select = self._find_member_row_by_person_id(person_id)
+
+            # 找不到就退回用原本 row（避免整個沒選到）
+            if row_to_select is None:
+                row_to_select = min(prev_row, self.member_table.rowCount() - 1)
+
+            if row_to_select >= 0:
+                self.member_table.selectRow(row_to_select)
+                self.on_member_row_clicked(row_to_select, 0)  # ✅ 重新刷新右側面板
+
 
     def on_delete_member_clicked(self):
         """處理刪除成員操作"""
@@ -519,6 +535,7 @@ class MainPageWidget(QWidget):
         self.stats_label.setText(
             f"戶號：{household_id}　戶長：{head_data['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
         )
+
         
     def _swap_member_rows(self, row1, row2):
         for col in range(self.member_table.columnCount()):
@@ -526,3 +543,12 @@ class MainPageWidget(QWidget):
             item2 = self.member_table.takeItem(row2, col)
             self.member_table.setItem(row1, col, item2)
             self.member_table.setItem(row2, col, item1)
+
+    def _find_member_row_by_person_id(self, person_id: str):
+        if not person_id:
+            return None
+        for r in range(self.member_table.rowCount()):
+            item = self.member_table.item(r, 13)
+            if item and item.text() == person_id:
+                return r
+        return None

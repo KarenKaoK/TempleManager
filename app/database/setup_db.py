@@ -111,6 +111,7 @@ def create_people_table(db_name=DB_NAME):
         gender TEXT,
         birthday_ad TEXT,
         birthday_lunar TEXT,
+        lunar_is_leap INTEGER DEFAULT 0,   -- ✅ 是否為農曆閏月（0/1）
         birth_time TEXT,
         age INTEGER,
         zodiac TEXT,
@@ -120,6 +121,7 @@ def create_people_table(db_name=DB_NAME):
         address TEXT,
         zip_code TEXT,
         identity TEXT,
+        id_number TEXT,                   -- ✅ 身分證字號
         note TEXT,
         joined_at TEXT
     )
@@ -127,7 +129,8 @@ def create_people_table(db_name=DB_NAME):
 
     conn.commit()
     conn.close()
-    print("✅ `people` 資料表檢查完成")
+    print("✅ `people` 資料表檢查完成（含 lunar_is_leap, id_number）")
+
 
 def create_households_table(db_name=DB_NAME):
     """建立 households 表"""

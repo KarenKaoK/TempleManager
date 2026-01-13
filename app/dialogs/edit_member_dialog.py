@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout
+from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
 from .base_person_dialog import BasePersonDialog
 from PyQt5.QtCore import QDate
 
@@ -16,7 +16,7 @@ class EditMemberDialog(BasePersonDialog):
         btn_layout.addWidget(self.cancel_btn)
         self.layout().addLayout(btn_layout)
 
-        self.confirm_btn.clicked.connect(self.accept)
+        self.confirm_btn.clicked.connect(self.on_save_clicked)
         self.cancel_btn.clicked.connect(lambda: self.done(QDialog.Rejected))
 
     def fill_data(self):
@@ -46,3 +46,17 @@ class EditMemberDialog(BasePersonDialog):
         data = super().get_data()
         data["id"] = self.person_id
         return data
+    
+    def on_save_clicked(self):
+        data = self.get_member_data()  # ✅ 你寫好的方法終於用到了
+
+        # （可選）防呆：避免 checkbox/欄位是 None
+        data["lunar_is_leap"] = 1 if data.get("lunar_is_leap") else 0
+        data["id_number"] = data.get("id_number") or ""
+
+        try:
+            self.controller.update_member(data)  # ✅ 真正寫回 DB
+            QMessageBox.information(self, "成功", "成員資料已更新！")
+            self.accept()
+        except Exception as e:
+            QMessageBox.warning(self, "錯誤", f"更新失敗：{e}")
