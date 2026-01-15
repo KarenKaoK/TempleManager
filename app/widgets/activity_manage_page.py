@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt,QEvent, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor
 from app.widgets.auto_resizing_table import AutoResizingTableWidget
-from app.dialogs.activity_dialog import NewActivityDialog
+from app.dialogs.activity_dialog import NewActivityDialog, FEE_TYPE_OPTIONS
 from app.dialogs.activity_signup_dialog import ActivitySignupDialog
 from app.dialogs.activity_member_search_dialog import ActivityMemberSearchDialog
 from app.dialogs.edit_activity_signup_dialog import EditActivitySignupDialog
@@ -48,10 +48,10 @@ class ActivityManagePage(QWidget):
         activity_layout.addLayout(search_layout)
 
         self.activity_table = AutoResizingTableWidget()
-        self.activity_table.setColumnCount(8)
+        self.activity_table.setColumnCount(9)
         self.activity_table.setHorizontalHeaderLabels([
             "活動編號", "活動名稱", "起始日期", "結束日期",
-            "方案名稱", "方案項目", "金額", "狀態"
+            "方案名稱", "方案項目", "費用方式", "金額", "狀態"
         ])
 
         self.activity_table.setStyleSheet("font-size: 14px;")
@@ -182,23 +182,111 @@ class ActivityManagePage(QWidget):
     def load_results_to_table(self, results):
         self.activity_table.setRowCount(0)
 
+        def _is_numberlike(v) -> bool:
+            try:
+                if v is None:
+                    return False
+                s = str(v).strip()
+                if s == "":
+                    return False
+                float(s)
+                return True
+            except Exception:
+                return False
+
+        def _format_amount_multiline(v):
+            # 保留你原本的多行金額顯示（每行加千分位、去 .0）
+            try:
+                parts = [p for p in str(v).split("\n") if str(p).strip() != ""]
+                return "\n".join([f"{int(float(p)):,}" for p in parts])
+            except Exception:
+                return "" if v is None else str(v)
+
         for row_index, activity in enumerate(results):
             self.activity_table.insertRow(row_index)
-            for col_index, value in enumerate(activity):
-                if col_index == 7:  # is_closed
-                    value = "已關閉" if value == 1 else "進行中"
-                elif col_index == 6:  # amount
-                    try:
-                        value = '\n'.join([f"{int(float(a)):,}" for a in str(value).split('\n')])
-                    except:
-                        pass
+
+            # -------------------------
+            # 1) 推斷回傳順序（只針對後三欄：fee_type/amount/is_closed）
+            # -------------------------
+            # 你 UI 期待欄位：
+            # 0 活動編號, 1 活動名稱, 2 起始, 3 結束, 4 方案名稱, 5 方案項目, 6 費用方式, 7 金額, 8 狀態
+            #
+            # 目前你畫面顯示錯，常見原因是 controller 回傳順序變成：
+            # 6 amount, 7 is_closed, 8 fee_type   (或其他排列)
+            #
+            # 我們用內容特徵去判斷：
+            # - fee_type：通常是 FEE_TYPE_OPTIONS 其中之一（或空字串）
+            # - is_closed：通常是 0/1/True/False
+            # - amount：通常是數字（或多行數字字串）
+            #
+
+            def _is_closed_like(v) -> bool:
+                s = str(v).strip()
+                return s in ("0", "1", "True", "False", "true", "false")
+
+            def _is_fee_type_like(v) -> bool:
+                s = str(v).strip()
+                return s in FEE_TYPE_OPTIONS or s == ""
+
+            # 預設：假設 controller 已經是正確順序：6 fee_type, 7 amount, 8 is_closed
+            src_fee_idx, src_amt_idx, src_closed_idx = 6, 7, 8
+
+            if len(activity) >= 9:
+                v6, v7, v8 = activity[6], activity[7], activity[8]
+
+                # Case A：6 是 amount、7 是 is_closed、8 是 fee_type（你現在畫面最像這種）
+                if _is_numberlike(v6) and _is_closed_like(v7) and _is_fee_type_like(v8):
+                    src_amt_idx, src_closed_idx, src_fee_idx = 6, 7, 8
+
+                # Case B：6 是 fee_type、7 是 is_closed、8 是 amount
+                elif _is_fee_type_like(v6) and _is_closed_like(v7) and _is_numberlike(v8):
+                    src_fee_idx, src_closed_idx, src_amt_idx = 6, 7, 8
+
+                # Case C：6 是 is_closed、7 是 fee_type、8 是 amount
+                elif _is_closed_like(v6) and _is_fee_type_like(v7) and _is_numberlike(v8):
+                    src_closed_idx, src_fee_idx, src_amt_idx = 6, 7, 8
+
+                # Case D：6 是 amount、7 是 fee_type、8 是 is_closed
+                elif _is_numberlike(v6) and _is_fee_type_like(v7) and _is_closed_like(v8):
+                    src_amt_idx, src_fee_idx, src_closed_idx = 6, 7, 8
+
+            # -------------------------
+            # 2) 先把前 0~5 欄照原順序塞
+            # -------------------------
+            for col_index in range(min(6, len(activity))):
+                value = "" if activity[col_index] is None else activity[col_index]
                 item = QTableWidgetItem(str(value))
                 item.setTextAlignment(Qt.AlignTop)
                 item.setFlags(item.flags() ^ Qt.ItemIsEditable)
                 self.activity_table.setItem(row_index, col_index, item)
 
+            # -------------------------
+            # 3) 再把 fee_type / amount / status 塞到固定欄位 (6/7/8)
+            # -------------------------
+            # fee_type → 欄 6
+            fee_val = "" if len(activity) <= src_fee_idx or activity[src_fee_idx] is None else activity[src_fee_idx]
+            fee_item = QTableWidgetItem(str(fee_val))
+            fee_item.setTextAlignment(Qt.AlignTop)
+            fee_item.setFlags(fee_item.flags() ^ Qt.ItemIsEditable)
+            self.activity_table.setItem(row_index, 6, fee_item)
+
+            # amount → 欄 7（多行千分位）
+            amt_val = "" if len(activity) <= src_amt_idx or activity[src_amt_idx] is None else activity[src_amt_idx]
+            amt_text = _format_amount_multiline(amt_val)
+            amt_item = QTableWidgetItem(str(amt_text))
+            amt_item.setTextAlignment(Qt.AlignTop)
+            amt_item.setFlags(amt_item.flags() ^ Qt.ItemIsEditable)
+            self.activity_table.setItem(row_index, 7, amt_item)
+
+            # status → 欄 8（is_closed）
+            closed_val = "" if len(activity) <= src_closed_idx or activity[src_closed_idx] is None else activity[src_closed_idx]
+            status_text = "已關閉" if str(closed_val).strip() in ("1", "True", "true") else "進行中"
+            st_item = QTableWidgetItem(status_text)
+            st_item.setTextAlignment(Qt.AlignTop)
+            st_item.setFlags(st_item.flags() ^ Qt.ItemIsEditable)
+            self.activity_table.setItem(row_index, 8, st_item)
+
         self.activity_table.resizeRowsToContents()
-        # 移除 resizeColumnsToContents() 以保持 Stretch 模式
 
 
     def handle_search_activity(self):

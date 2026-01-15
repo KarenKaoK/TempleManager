@@ -201,6 +201,7 @@ def create_activities_table(db_name=DB_NAME):
         end_date TEXT,
         scheme_name TEXT,
         scheme_item TEXT,
+        fee_type TEXT NOT NULL DEFAULT '固定金額',
         amount REAL,
         note TEXT,
         is_closed INTEGER DEFAULT 0,

@@ -303,17 +303,18 @@ class AppController:
             cursor.execute("""
                 INSERT INTO activities (
                     id, activity_id, name, start_date, end_date,
-                    scheme_name, scheme_item, amount, note,
+                    scheme_name, scheme_item, fee_type, amount, note,
                     is_closed, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
             """, (
                 row_id,
                 activity_id,
                 data.get("activity_name"),
                 data.get("start_date"),
                 data.get("end_date"),
-                scheme.get("scheme_name"),  # ✅ 這裡要對應你在 get_scheme_data() 傳回的 key
+                scheme.get("scheme_name"),  
                 scheme.get("scheme_item"),
+                scheme.get("fee_type"), 
                 float(scheme.get("amount") or 0),
                 data.get("content"),
                 0  # is_closed
@@ -331,13 +332,27 @@ class AppController:
                 end_date,
                 GROUP_CONCAT(scheme_name, CHAR(10)) AS scheme_names,
                 GROUP_CONCAT(scheme_item, CHAR(10)) AS scheme_items,
-                GROUP_CONCAT(amount, CHAR(10)) AS amounts,
-                is_closed
+
+                GROUP_CONCAT(fee_type, CHAR(10)) AS fee_types,
+
+                GROUP_CONCAT(
+                    CASE 
+                        WHEN fee_type = '隨喜隨緣' THEN ''
+                        ELSE amount
+                    END,
+                    CHAR(10)
+                ) AS amounts,
+
+                CASE 
+                    WHEN is_closed = 1 THEN '已關閉'
+                    ELSE '進行中'
+                END AS status
             FROM activities
             GROUP BY activity_id
             ORDER BY MAX(created_at) DESC
         """)
         return cursor.fetchall()
+
     
     def search_activities(self, keyword):
         cursor = self.conn.cursor()
