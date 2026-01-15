@@ -1,7 +1,8 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
     QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, 
-    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView
+    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView,
+    QFrame
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -20,27 +21,35 @@ class MainPageWidget(QWidget):
         self.controller = controller
         self.current_households = []
         self.selected_household_id = None
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
         self.fields = {}  # 用來存放欄位
+        self.load_styles()
 
         # 搜尋欄位與功能按鈕
-        top_layout = QHBoxLayout()
+        top_container = QFrame()
+        top_container.setObjectName("topContainer")  # 命名：對應 QSS 的白色圓角背景
+        top_layout = QHBoxLayout(top_container)       # 佈局設在 Frame 上
+        top_layout.setContentsMargins(10, 10, 10, 10) # 內邊距
+    
         self.search_bar = SearchBarWidget()
         top_layout.addWidget(self.search_bar)
-    
 
         self.add_btn = QPushButton("➕ 新增戶籍資料")
+        self.add_btn.setObjectName("primaryBtn")
         self.add_btn.clicked.connect(self.new_household_triggered.emit)
-
+        
         self.delete_btn = QPushButton("❌ 刪除戶籍資料")
+        self.delete_btn.setObjectName("deleteBtn")
         self.delete_btn.clicked.connect(self.delete_selected_household)
+        
 
         self.print_btn = QPushButton("🖨️ 資料列印")
-        for btn in [ self.add_btn, self.delete_btn, self.print_btn]:
-            btn.setStyleSheet("font-size: 14px;")
-            top_layout.addWidget(btn)
+        self.print_btn.setObjectName("secondaryBtn")
 
-        layout.addLayout(top_layout)
+        top_layout.addWidget(self.add_btn)
+        top_layout.addWidget(self.delete_btn)
+        top_layout.addWidget(self.print_btn)
+        layout.addWidget(top_container)
 
         # 戶長表格
         # self.household_table = QTableWidget() # AutoResizingTableWidget 代替，已經繼承 QTableWidget
@@ -61,13 +70,10 @@ class MainPageWidget(QWidget):
         header.setStretchLastSection(True)
 
         self.household_table.setTextElideMode(Qt.ElideRight)
-
-        self.household_table.setStyleSheet("font-size: 14px;")
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
 
 
         household_group = QGroupBox("信眾戶籍戶長資料")
-        household_group.setStyleSheet("font-size: 14px;")
         group_layout = QVBoxLayout()
         group_layout.addWidget(self.household_table)
         household_group.setLayout(group_layout)
@@ -82,7 +88,7 @@ class MainPageWidget(QWidget):
 
         # 🔴 成員統計標籤（紅色）
         self.stats_label = QLabel("戶號：1　戶長：賴阿貓　家庭成員共：1 丁 1 口")
-        self.stats_label.setStyleSheet("color: red; font-size: 14px; font-weight: bold; padding: 2px 4px;")
+        self.stats_label.setObjectName("statsLabel")
         left_inner.addWidget(self.stats_label)
 
         # self.member_table = QTableWidget()
@@ -99,8 +105,6 @@ class MainPageWidget(QWidget):
         header.setStretchLastSection(True)
 
         self.member_table.setTextElideMode(Qt.ElideRight)
-
-        self.member_table.setStyleSheet("font-size: 14px;")
         self.member_table.cellClicked.connect(self.on_member_row_clicked)
         left_inner.addWidget(self.member_table)
 
@@ -112,29 +116,24 @@ class MainPageWidget(QWidget):
         # 定義要連接的按鈕與槽函數對應關係
         self.member_buttons = {}  # 儲存按鈕參考
 
-        btns = [
-            ("➕ 新增成員", "green", self.on_add_member_clicked),
-            ("🖊 修改成員", "blue", self.on_edit_member_clicked),
-            ("❌ 刪除成員", "red", self.on_delete_member_clicked),
-            ("☑ 設為戶長", None, self.on_set_head_clicked),
-            ("🔄 戶籍變更", None, self.on_transfer_household_clicked),
-            ("⬆ 上移", None, self.on_move_up_clicked),
-            ("⬇ 下移", None, self.on_move_down_clicked),
-            ("⛔ 關閉退出", "darkred", self.on_close_clicked),
+        btns_config = [
+            ("➕ 新增成員", "memberAdd", self.on_add_member_clicked),
+            ("🖊 修改成員", "memberEdit", self.on_edit_member_clicked),
+            ("❌ 刪除成員", "memberDel", self.on_delete_member_clicked),
+            ("☑ 設為戶長", "memberNormal", self.on_set_head_clicked),
+            ("🔄 戶籍變更", "memberNormal", self.on_transfer_household_clicked),
+            ("⬆ 上移", "memberNormal", self.on_move_up_clicked),
+            ("⬇ 下移", "memberNormal", self.on_move_down_clicked),
+            ("⛔ 關閉退出", "memberClose", self.on_close_clicked),
         ]
 
         member_btn_layout = QVBoxLayout()
-        member_btn_layout.setSpacing(2)
+        member_btn_layout.setSpacing(6) # 增加按鈕間距，長輩好點擊
 
-        for label, color, handler in btns:
+        for label, obj_name, handler in btns_config:
             btn = QPushButton(label)
-            style = "font-size: 14px; padding: 4px;"
-            if color:
-                style += f" color: {color};"
-            btn.setStyleSheet(style)
-
-            btn.clicked.connect(handler)  # 連接事件
-            self.member_buttons[label] = btn  # 儲存參考
+            btn.setObjectName(obj_name) # 🟢 關鍵：為每個按鈕設定身分證
+            btn.clicked.connect(handler)
             member_btn_layout.addWidget(btn)
 
         right_btn_box = QWidget()
@@ -143,10 +142,6 @@ class MainPageWidget(QWidget):
 
         left_container.setLayout(left_layout)
         splitter.addWidget(left_container)
-
-        # 詳情表單分頁（右側）
-        tab_widget = QTabWidget()
-        tab_widget.setStyleSheet("font-size: 14px;")
 
         # ➤ 基本資料頁籤內容（改為符合圖示布局）
         base_form = QGridLayout()
@@ -184,7 +179,6 @@ class MainPageWidget(QWidget):
                 widget = QLineEdit()
                 widget.setReadOnly(True)  # 設為唯讀
                 base_form.addWidget(widget, row, col + 1)
-            widget.setStyleSheet("font-size: 14px;")
             self.fields[label] = widget
 
         base_widget = QWidget()
@@ -195,6 +189,8 @@ class MainPageWidget(QWidget):
             if isinstance(widget, QLineEdit):
                 widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
+        tab_widget = QTabWidget()
+        tab_widget.setObjectName("detailTab")
         tab_widget.addTab(base_widget, "基本資料")
 
         # 👉 可擴充其他分頁（例如：安燈紀錄、拜斗紀錄...）
@@ -204,6 +200,9 @@ class MainPageWidget(QWidget):
 
         splitter.addWidget(tab_widget)
         layout.addWidget(splitter)
+
+        splitter.setStretchFactor(0, 6) 
+        splitter.setStretchFactor(1, 4)
 
         layout.setStretchFactor(household_group, 55)  # 上：戶長表格
         layout.setStretchFactor(splitter, 45)         # 下：成員+詳情
@@ -593,3 +592,10 @@ class MainPageWidget(QWidget):
             if item and item.text() == person_id:
                 return r
         return None
+    
+    def load_styles(self):
+        try:
+            with open("app/ui/styles.qss", "r", encoding="utf-8") as f:
+                self.setStyleSheet(f.read())
+        except FileNotFoundError:
+            print("樣式檔案未找到，使用預設樣式。")

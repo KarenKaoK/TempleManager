@@ -1,0 +1,184 @@
+/* --- 全域設定 --- */
+QWidget {
+    background-color: #F9F7F2; /* 莫蘭迪米色底 */
+    font-family: "Microsoft JhengHei", "微軟正黑體", sans-serif;
+    font-size: 15px;
+    color: #5A4F48; /* 深灰棕色文字，比純黑更柔和 */
+}
+
+/* --- 容器卡片樣式 --- */
+QFrame#topContainer, QFrame#whiteCard {
+    background-color: #FFFFFF;
+    border: 1px solid #E9E3D5;
+    border-radius: 12px;
+}
+
+QGroupBox {
+    font-weight: bold;
+    border: 1px solid #E9E3D5;
+    border-radius: 10px;
+    margin-top: 15px;
+    padding-top: 15px;
+    background-color: #FFFFFF;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 15px;
+    padding: 0 8px;
+    color: #D68E6E; /* 灰橘色標題 */
+}
+
+/* --- 表格樣式 --- */
+QTableWidget {
+    background-color: #FFFFFF;
+    alternate-background-color: #FAF9F6;
+    border: 1px solid #E9E3D5;
+    gridline-color: #F2EDE4;
+    selection-background-color: #F2E8E4;
+    selection-color: #D68E6E;
+    border-radius: 4px;
+}
+
+QHeaderView::section {
+    background-color: #F2EDE4;
+    padding: 8px;
+    border: none;
+    border-bottom: 2px solid #E9E3D5;
+    font-weight: bold;
+    color: #7D6B5D;
+}
+
+/* --- 按鈕系列 --- */
+QPushButton {
+    padding: 8px 16px;
+    border-radius: 6px;
+    background-color: #E9E3D5;
+    border: 1px solid #D7CCC8;
+    font-weight: bold;
+    min-height: 30px;
+}
+
+QPushButton:hover {
+    background-color: #D7CCC8;
+}
+
+/* 主功能按鈕 (橘色) */
+QPushButton#primaryBtn, QPushButton#memberAdd {
+    background-color: #D67A43; /* 加深的橘色 */
+    color: white;
+    font-weight: bold;
+    border: 1px solid #B56535;
+}
+
+/* 刪除或警告按鈕 (灰紅) */
+QPushButton#deleteBtn, QPushButton#memberDel {
+    color: #A64444;
+}
+
+/* 側邊欄專用按鈕 */
+QPushButton#memberNormal { background-color: #F2EDE4; color: #7D6B5D; }
+QPushButton#memberAdd { background-color: #E0E7E1; color: #5D7A5D; }
+QPushButton#memberEdit { background-color: #E1E7F0; color: #5D6D7A; }
+QPushButton#memberClose { background-color: #7D6B5D; color: white; }
+
+/* --- 表單與標籤 --- */
+QLabel#statsLabel {
+    color: #A64444;
+    font-weight: bold;
+    padding: 5px;
+    background-color: #FFF0F0;
+    border-radius: 4px;
+}
+
+QLineEdit, QTextEdit, QComboBox {
+    background-color: #FFFFFF;
+    border: 1px solid #D7CCC8;
+    border-radius: 6px;
+    padding: 6px;
+}
+
+QLineEdit:read-only, QTextEdit:read-only {
+    background-color: #F5F5F5;
+    color: #8D8D8D;
+}
+
+/* --- 分頁樣式 --- */
+QTabWidget::pane {
+    border: 1px solid #E9E3D5;
+    background: white;
+    border-radius: 8px;
+    top: -1px;
+}
+
+QTabBar::tab {
+    background: #E9E3D5;
+    padding: 10px 25px;
+    margin-right: 4px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    color: #7D6B5D;
+}
+
+QTabBar::tab:selected {
+    background: white;
+    color: #D68E6E;
+    font-weight: bold;
+}
+
+/* 橘色系主按鈕 (新增) */
+QPushButton#primaryBtn, QPushButton#memberAdd {
+    background-color: #D67A43; /* 加深的橘色 */
+    color: white;
+    font-weight: bold;
+    border: 1px solid #B56535;
+}
+
+/* 灰色系次要按鈕 (功能/列印) */
+QPushButton#secondaryBtn, QPushButton#memberNormal {
+    background-color: #9A948C; /* 加深的莫蘭迪灰 */
+    color: white;
+    border: 1px solid #7A756E;
+}
+
+/* 刪除按鈕 (紅色指引) */
+QPushButton#deleteBtn, QPushButton#memberDel {
+    background-color: #B25D5D; /* 深紅灰色 */
+    color: white;
+    border: 1px solid #8E4A4A;
+}
+
+/* 關閉按鈕 (深咖啡) */
+QPushButton#memberClose {
+    background-color: #6D5D51;
+    color: white;
+}
+
+/* 主功能按鈕 (橘紅色系 - 專業加深版) */
+QPushButton#primaryBtn, QPushButton#memberAdd {
+    background-color: #C16C39; /* 降低飽和度，加深 */
+    color: white;
+    border-radius: 4px;
+    padding: 8px 15px;
+    font-weight: bold;
+}
+
+/* 警示按鈕 (深紅灰色系) */
+QPushButton#deleteBtn, QPushButton#memberDel {
+    background-color: #A64D4D;
+    color: white;
+    border-radius: 4px;
+}
+
+/* 輔助按鈕 (莫蘭迪灰綠/深灰) */
+QPushButton#secondaryBtn, QPushButton#memberNormal {
+    background-color: #7E8C8D;
+    color: white;
+    border-radius: 4px;
+}
+
+/* 退出按鈕 */
+QPushButton#memberClose {
+    background-color: #5D534A;
+    color: white;
+}
