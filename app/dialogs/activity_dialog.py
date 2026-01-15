@@ -67,9 +67,16 @@ class NewActivityDialog(QDialog):
 
         # 初始化每列的「費用方式」下拉 + 金額規則
         for r in range(self.scheme_table.rowCount()):
+            # ✅ 先建立文字欄位 item（方案名稱/方案項目）
+            if self.scheme_table.item(r, 0) is None:
+                self.scheme_table.setItem(r, 0, QTableWidgetItem(""))
+            if self.scheme_table.item(r, 1) is None:
+                self.scheme_table.setItem(r, 1, QTableWidgetItem(""))
+
             self._ensure_fee_type_combo(r, default="固定金額")
             self._ensure_amount_item(r)
             self._apply_fee_rule(r)
+
 
         layout.addWidget(QLabel("備註說明"))
         self.note_input = QTextEdit()
@@ -161,6 +168,16 @@ class NewActivityDialog(QDialog):
         self.note_input.setText(self.activity_data.get("content", ""))
 
         for i, scheme in enumerate(self.scheme_rows):
+            # 若資料列數超過目前 rowCount，先擴充
+            if i >= self.scheme_table.rowCount():
+                self.scheme_table.insertRow(i)
+
+            # 確保 item 存在
+            if self.scheme_table.item(i, 0) is None:
+                self.scheme_table.setItem(i, 0, QTableWidgetItem(""))
+            if self.scheme_table.item(i, 1) is None:
+                self.scheme_table.setItem(i, 1, QTableWidgetItem(""))
+
             self.scheme_table.item(i, 0).setText(str(scheme.get("scheme_name", "")).strip())
             self.scheme_table.item(i, 1).setText(str(scheme.get("scheme_item", "")).strip())
 

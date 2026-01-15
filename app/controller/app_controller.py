@@ -390,7 +390,7 @@ class AppController:
         basic_info = cursor.fetchone()
 
         cursor.execute("""
-            SELECT scheme_name, scheme_item, amount
+            SELECT scheme_name, scheme_item, fee_type, amount
             FROM activities
             WHERE activity_id = ?
         """, (activity_id,))
@@ -398,7 +398,8 @@ class AppController:
             {
                 "scheme_name": row[0],
                 "scheme_item": row[1],
-                "amount": row[2]
+                "fee_type": row[2],
+                "amount": row[3]
             }
             for row in cursor.fetchall()
         ]
@@ -430,9 +431,9 @@ class AppController:
             cursor.execute("""
                 INSERT INTO activities (
                     id, activity_id, name, start_date, end_date,
-                    scheme_name, scheme_item, amount, note,
+                    scheme_name, scheme_item, fee_type, amount, note,
                     is_closed, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
             """, (
                 row_id,
                 activity_id,
@@ -441,6 +442,7 @@ class AppController:
                 data.get("end_date"),
                 scheme.get("scheme_name"),
                 scheme.get("scheme_item"),
+                scheme.get("fee_type"),
                 float(scheme.get("amount") or 0),
                 data.get("content"),
             ))
