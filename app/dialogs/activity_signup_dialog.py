@@ -302,12 +302,13 @@ class ActivitySignupDialog(QDialog):
         }
         
     def add_next_entry(self):
-        """新增下筆"""
-        if self.validate_input():
+        ok, msg = self.validate_input()
+        print("DEBUG add_next_entry validate:", ok, msg)
+
+        if ok:
             signup_data = self.get_signup_data()
             print(f"🔍 準備儲存資料: {signup_data}")
-            
-            # 儲存到資料庫
+
             if self.controller and self.controller.insert_activity_signup(signup_data):
                 self.signup_added.emit(signup_data)
                 self.clear_form()
@@ -315,23 +316,54 @@ class ActivitySignupDialog(QDialog):
             else:
                 QMessageBox.critical(self, "儲存失敗", "儲存報名資料時發生錯誤，請檢查資料庫連接")
         else:
-            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）")
+            QMessageBox.warning(self, "輸入錯誤", msg or "請填寫必要欄位")
+
             
     def save_and_exit(self):
-        """存入離開"""
-        if self.validate_input():
+        print("🔥 DEBUG: save_and_exit triggered, focus=", type(self.focusWidget()).__name__)
+        print("====== DEBUG save_and_exit ======")
+        print("name:", repr(self.name.text()))
+        print("phone:", repr(self.contact_phone.text()))
+        print("address:", repr(self.address.text()))
+        print("total_amount:", self.total_amount)
+        print("activity_amount text:", repr(self.activity_amount.text()))
+
+        for row in range(self.items_table.rowCount()):
+            w = self.items_table.cellWidget(row, 0)
+            amt_item = self.items_table.item(row, 2)
+            item = self.items_table.item(row, 1)
+            print(
+                f"row {row} item:", item.text() if item else None,
+                "qty:", w.value() if w else None,
+                "amount_cell:", amt_item.text() if amt_item else None
+            )
+
+        ok, msg = self.validate_input()
+        print("validate_input:", ok, msg)
+        print("====== END DEBUG ======")
+
+        if ok:
             signup_data = self.get_signup_data()
             print(f"🔍 準備儲存資料: {signup_data}")
-            
-            # 儲存到資料庫
-            if self.controller and self.controller.insert_activity_signup(signup_data):
+
+            try:
+                result = self.controller.insert_activity_signup(signup_data) if self.controller else None
+                print("DEBUG insert_activity_signup result:", result)
+            except Exception as e:
+                print("❌ insert_activity_signup exception:", repr(e))
+                QMessageBox.critical(self, "儲存失敗", f"儲存報名資料時發生例外：{e}")
+                return
+
+            if result:
                 self.signup_added.emit(signup_data)
                 QMessageBox.information(self, "儲存成功", f"已成功儲存報名人員：{signup_data['name']}")
                 self.accept()
             else:
                 QMessageBox.critical(self, "儲存失敗", "儲存報名資料時發生錯誤，請檢查資料庫連接")
         else:
-            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）")
+            QMessageBox.warning(self, "輸入錯誤", msg or "請填寫必要欄位")
+
+
             
     def close_dialog(self):
         """關閉退出"""
@@ -358,16 +390,50 @@ class ActivitySignupDialog(QDialog):
                 quantity_widget.setValue(0)
                 
         self.calculate_total()
-        
+
     def validate_input(self):
-        """驗證輸入"""
-        if not self.name.text().strip():
-            return False
-        if not self.contact_phone.text().strip():
-            return False
-        if self.total_amount == 0:
-            return False
-        return True
+        """
+        驗證輸入：
+        - 必填：姓名、聯絡電話、地址
+        - 必須至少選一個活動項目（數量 > 0）
+        - 隨喜隨緣：不檢查金額（允許 total_amount == 0）
+        - 固定金額：也不必特別檢查 total_amount（因為它會跟著選項計算）
+        """
+        name = self.name.text().strip()
+        phone = self.contact_phone.text().strip()
+        address = self.address.text().strip()
+
+        if not name:
+            return False, "姓名未填"
+        if not phone:
+            return False, "聯絡電話未填"
+        if not address:
+            return False, "地址未填"
+
+        # 至少選一個活動項目（數量 > 0）
+        has_selected_item = False
+        debug_rows = []
+        for row in range(self.items_table.rowCount()):
+            qty_widget = self.items_table.cellWidget(row, 0)
+            qty = qty_widget.value() if qty_widget else 0
+
+            item = self.items_table.item(row, 1)
+            item_name = item.text() if item else ""
+
+            debug_rows.append((row, item_name, qty))
+
+            if qty > 0:
+                has_selected_item = True
+
+        if not has_selected_item:
+            return False, f"尚未選擇活動項目（全部數量都是 0） rows={debug_rows}"
+
+        # ✅ 隨喜隨緣：不需要檢查金額（允許 0）
+        # ✅ 固定金額：也不額外檢查 total_amount（避免編輯器未 commit 時誤判）
+        return True, ""
+
+
+
         
     def on_gregorian_date_changed(self, date):
         """當國曆日期改變時，自動轉換為農曆並計算生肖"""
@@ -439,11 +505,10 @@ class ActivitySignupDialog(QDialog):
         return key_press_handler
         
     def handle_enter_key(self):
-        """處理Enter鍵按下事件"""
-        # 檢查是否有填寫必要欄位
-        if self.validate_input():
-            # 如果驗證通過，執行新增下筆
+        print("🔥 DEBUG: handle_enter_key triggered, focus=", type(self.focusWidget()).__name__)
+        ok, msg = self.validate_input()
+        print("🔥 DEBUG: handle_enter_key validate:", ok, msg)
+        if ok:
             self.add_next_entry()
         else:
-            # 如果驗證失敗，顯示提示
-            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）")
+            QMessageBox.warning(self, "輸入錯誤", msg or "請填寫必要欄位（姓名、聯絡電話、地址、選擇活動項目）")

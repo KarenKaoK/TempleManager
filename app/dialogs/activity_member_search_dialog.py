@@ -502,37 +502,122 @@ class ActivityMemberSearchDialog(QDialog):
             "selected_items": selected_items
         }
         
+    # def add_next_entry(self):
+    #     """新增下筆"""
+    #     if self.validate_input():
+    #         signup_data = self.get_signup_data()
+    #         print(f"🔍 準備儲存資料: {signup_data}")
+            
+    #         # 儲存到資料庫
+    #         if self.controller and self.controller.insert_activity_signup(signup_data):
+    #             self.signup_added.emit(signup_data)
+    #             self.clear_form()
+    #             QMessageBox.information(self, "新增成功", f"已成功新增報名人員：{signup_data['name']}")
+    #         else:
+    #             QMessageBox.critical(self, "儲存失敗", "儲存報名資料時發生錯誤，請檢查資料庫連接")
+    #     else:
+    #         QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）11111")
+
     def add_next_entry(self):
         """新增下筆"""
-        if self.validate_input():
-            signup_data = self.get_signup_data()
-            print(f"🔍 準備儲存資料: {signup_data}")
-            
-            # 儲存到資料庫
-            if self.controller and self.controller.insert_activity_signup(signup_data):
-                self.signup_added.emit(signup_data)
-                self.clear_form()
-                QMessageBox.information(self, "新增成功", f"已成功新增報名人員：{signup_data['name']}")
-            else:
-                QMessageBox.critical(self, "儲存失敗", "儲存報名資料時發生錯誤，請檢查資料庫連接")
+        ok = self.validate_input()
+        msg = ""  # 或你固定提示訊息
+        print("====== DEBUG add_next_entry ======")
+        print("validate_input ok:", ok)
+        print("validate_input msg:", msg)
+
+        # 額外列印目前表單內容
+        print("name:", repr(self.name.text()))
+        print("phone:", repr(self.contact_phone.text()))
+        print("address:", repr(self.address.text()))
+        print("total_amount:", self.total_amount)
+        print("activity_amount text:", repr(self.activity_amount.text()))
+
+        # 強制把 spinbox 正在輸入的文字 commit 成 value（很常導致 qty 讀到 0）
+        for row in range(self.items_table.rowCount()):
+            w = self.items_table.cellWidget(row, 0)
+            if isinstance(w, QSpinBox):
+                w.interpretText()
+
+        # 列印每一列的 qty / item / amount
+        for row in range(self.items_table.rowCount()):
+            w = self.items_table.cellWidget(row, 0)
+            item = self.items_table.item(row, 1)
+            amt_item = self.items_table.item(row, 2)
+            print(
+                f"row {row} item:", item.text() if item else None,
+                "qty:", w.value() if w else None,
+                "amount_cell:", amt_item.text() if amt_item else None
+            )
+        print("====== END DEBUG ======")
+
+        if not ok:
+            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目） 1111")
+            return
+
+        signup_data = self.get_signup_data()
+        print(f"🔍 準備儲存資料: {signup_data}")
+
+        try:
+            result = self.controller.insert_activity_signup(signup_data) if self.controller else None
+            print("DEBUG insert_activity_signup result:", result)
+        except Exception as e:
+            print("❌ insert_activity_signup exception:", repr(e))
+            QMessageBox.critical(self, "儲存失敗", f"儲存報名資料時發生例外：{e}")
+            return
+
+        if result:
+            self.signup_added.emit(signup_data)
+            self.clear_form()
+            QMessageBox.information(self, "新增成功", f"已成功新增報名人員：{signup_data['name']}")
         else:
-            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）")
+            QMessageBox.critical(self, "儲存失敗", "儲存報名資料時發生錯誤，請檢查資料庫連接")
+
             
+    # def save_and_exit(self):
+    #     """存入離開"""
+    #     if self.validate_input():
+    #         signup_data = self.get_signup_data()
+    #         print(f"🔍 準備儲存資料: {signup_data}")
+            
+    #         # 儲存到資料庫
+    #         if self.controller and self.controller.insert_activity_signup(signup_data):
+    #             self.signup_added.emit(signup_data)
+    #             QMessageBox.information(self, "儲存成功", f"已成功儲存報名人員：{signup_data['name']}")
+    #             self.accept()
+    #         else:
+    #             QMessageBox.critical(self, "儲存失敗", "儲存報名資料時發生錯誤，請檢查資料庫連接")
+    #     else:
+    #         QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）2222")
+
     def save_and_exit(self):
-        """存入離開"""
-        if self.validate_input():
-            signup_data = self.get_signup_data()
-            print(f"🔍 準備儲存資料: {signup_data}")
-            
-            # 儲存到資料庫
-            if self.controller and self.controller.insert_activity_signup(signup_data):
-                self.signup_added.emit(signup_data)
-                QMessageBox.information(self, "儲存成功", f"已成功儲存報名人員：{signup_data['name']}")
-                self.accept()
-            else:
-                QMessageBox.critical(self, "儲存失敗", "儲存報名資料時發生錯誤，請檢查資料庫連接")
-        else:
+        print("🔥 DEBUG: save_and_exit clicked", flush=True)
+
+        ok = self.validate_input()
+        print("🔥 DEBUG validate_input:", ok, flush=True)
+
+        if not ok:
             QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）")
+            return
+
+        signup_data = self.get_signup_data()
+        print("🔍 準備儲存資料:", signup_data, flush=True)
+
+        try:
+            result = self.controller.insert_activity_signup(signup_data) if self.controller else None
+            print("DEBUG insert_activity_signup result:", result, flush=True)
+        except Exception as e:
+            print("❌ insert exception:", repr(e), flush=True)
+            QMessageBox.critical(self, "儲存失敗", f"例外：{e}")
+            return
+
+        if result:
+            QMessageBox.information(self, "儲存成功", f"已成功儲存報名人員：{signup_data.get('name','')}")
+            self.accept()
+        else:
+            QMessageBox.critical(self, "儲存失敗", "儲存報名資料時發生錯誤，請檢查資料庫連接")
+
+
             
     def close_dialog(self):
         """關閉退出"""
@@ -565,8 +650,6 @@ class ActivityMemberSearchDialog(QDialog):
         if not self.name.text().strip():
             return False
         if not self.contact_phone.text().strip():
-            return False
-        if self.total_amount == 0:
             return False
         return True
         
@@ -693,4 +776,4 @@ class ActivityMemberSearchDialog(QDialog):
             self.add_next_entry()
         else:
             # 如果驗證失敗，顯示提示
-            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）")
+            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）3333")

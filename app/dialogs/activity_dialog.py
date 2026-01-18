@@ -181,7 +181,7 @@ class NewActivityDialog(QDialog):
             self.scheme_table.item(i, 0).setText(str(scheme.get("scheme_name", "")).strip())
             self.scheme_table.item(i, 1).setText(str(scheme.get("scheme_item", "")).strip())
 
-            # ✅ 讀取 fee_type（你 DB 已新增欄位）
+            # 讀取 fee_type
             fee_type = str(scheme.get("fee_type", "")).strip()
             if fee_type not in FEE_TYPE_OPTIONS:
                 fee_type = "固定金額"

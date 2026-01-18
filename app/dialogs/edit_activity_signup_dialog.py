@@ -407,7 +407,7 @@ class EditActivitySignupDialog(QDialog):
             else:
                 QMessageBox.critical(self, "更新失敗", "更新報名資料時發生錯誤，請檢查資料庫連接")
         else:
-            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）")
+            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）4444")
             
     def close_dialog(self):
         """關閉退出"""
@@ -418,8 +418,6 @@ class EditActivitySignupDialog(QDialog):
         if not self.name.text().strip():
             return False
         if not self.contact_phone.text().strip():
-            return False
-        if self.total_amount == 0:
             return False
         return True
         
@@ -500,4 +498,4 @@ class EditActivitySignupDialog(QDialog):
             self.save_changes()
         else:
             # 如果驗證失敗，顯示提示
-            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）")
+            QMessageBox.warning(self, "輸入錯誤", "請填寫必要欄位（姓名、聯絡電話、選擇活動項目）555")
