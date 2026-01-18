@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import pyqtSignal, Qt
 
 from app.widgets.activity_list_panel import ActivityListPanel, ActivityListItem
+from app.widgets.activity_detail_panel import ActivityDetailPanel
 
 
 class ActivityManagePage(QWidget):
@@ -21,8 +22,12 @@ class ActivityManagePage(QWidget):
 
         # 顶部工具列
         topbar = QHBoxLayout()
+
         btn_back = QPushButton("返回")
+
         btn_back.clicked.connect(self.request_close.emit)
+
+
 
         topbar.addStretch(1)
         topbar.addWidget(btn_back)
@@ -38,6 +43,7 @@ class ActivityManagePage(QWidget):
         v_splitter.addWidget(lower_group)
         v_splitter.setStretchFactor(0, 2)
         v_splitter.setStretchFactor(1, 6)
+        v_splitter.setSizes([500, 500])
 
         root.addWidget(v_splitter, 1)
 
@@ -46,15 +52,12 @@ class ActivityManagePage(QWidget):
         upper_layout.setContentsMargins(10, 10, 10, 10)
 
         h_splitter = QSplitter(Qt.Horizontal)
-
-        # ✅ 一定要掛在 self 上
         self.activity_list_panel = ActivityListPanel()
-
-        right_placeholder = QLabel("活動詳情（待完成）")
-        right_placeholder.setAlignment(Qt.AlignCenter)
-
         h_splitter.addWidget(self.activity_list_panel)
-        h_splitter.addWidget(right_placeholder)
+
+        self.activity_detail_panel = ActivityDetailPanel()
+        h_splitter.addWidget(self.activity_detail_panel)
+
         h_splitter.setStretchFactor(0, 3)
         h_splitter.setStretchFactor(1, 7)
 
@@ -64,8 +67,6 @@ class ActivityManagePage(QWidget):
         lower_layout = QVBoxLayout(lower_group)
         lower_layout.setContentsMargins(10, 10, 10, 10)
         lower_layout.addWidget(QLabel("下半部（待完成）"))
-
-        # ✅ 放在建立 self.activity_list_panel 之後
         self._load_mock_activities()
 
     def _load_mock_activities(self):
