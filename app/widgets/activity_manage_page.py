@@ -6,6 +6,8 @@ from PyQt5.QtCore import pyqtSignal, Qt
 
 from app.widgets.activity_list_panel import ActivityListPanel, ActivityListItem
 from app.widgets.activity_detail_panel import ActivityDetailPanel
+from app.widgets.activity_person_panel import ActivityPersonPanel
+
 
 
 class ActivityManagePage(QWidget):
@@ -37,13 +39,13 @@ class ActivityManagePage(QWidget):
         v_splitter = QSplitter(Qt.Vertical)
 
         upper_group = QGroupBox("")
-        lower_group = QGroupBox("下半部：人員資料 / 方案選擇 / 金額")
+        lower_group = QGroupBox("")
 
         v_splitter.addWidget(upper_group)
         v_splitter.addWidget(lower_group)
         v_splitter.setStretchFactor(0, 2)
         v_splitter.setStretchFactor(1, 6)
-        v_splitter.setSizes([500, 500])
+        v_splitter.setSizes([550, 450])
 
         root.addWidget(v_splitter, 1)
 
@@ -63,10 +65,25 @@ class ActivityManagePage(QWidget):
 
         upper_layout.addWidget(h_splitter)
 
-        # （下半部先放 placeholder layout，避免 groupbox 空著）
+        # ---------- 下半部內容：左右 splitter ----------
         lower_layout = QVBoxLayout(lower_group)
         lower_layout.setContentsMargins(10, 10, 10, 10)
-        lower_layout.addWidget(QLabel("下半部（待完成）"))
+
+        lower_splitter = QSplitter(Qt.Horizontal)
+
+        self.person_panel = ActivityPersonPanel()
+        lower_splitter.addWidget(self.person_panel)
+
+        right_placeholder = QLabel("右下（待完成）")
+        right_placeholder.setAlignment(Qt.AlignCenter)
+        lower_splitter.addWidget(right_placeholder)
+
+        lower_splitter.setStretchFactor(0, 5)
+        lower_splitter.setStretchFactor(1, 5)
+        lower_splitter.setSizes([500, 500])
+
+        lower_layout.addWidget(lower_splitter)
+
         self._load_mock_activities()
 
     def _load_mock_activities(self):
