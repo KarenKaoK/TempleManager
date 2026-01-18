@@ -30,7 +30,8 @@ class ActivityManagePage(QWidget):
         h_splitter = QSplitter(Qt.Horizontal)
 
         # 左：活動清單
-        self.activity_list_panel = ActivityListPanel()
+        self.activity_list_panel = ActivityListPanel(controller=self.controller)
+
         h_splitter.addWidget(self.activity_list_panel)
 
         # 右：新版本（標題/操作 + Tabs：活動/方案、報名狀況）
@@ -43,7 +44,7 @@ class ActivityManagePage(QWidget):
 
         upper_layout.addWidget(h_splitter, 1)
 
-        self._load_mock_activities()
+        # self._load_mock_activities()
 
         # 如果你的 ActivityListPanel 有 signal（例如 activity_selected），這邊接上去
         if hasattr(self.activity_list_panel, "activity_selected"):
