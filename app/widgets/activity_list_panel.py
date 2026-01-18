@@ -63,7 +63,6 @@ class ActivityCard(QFrame):
         self._apply_style()
 
     def _apply_style(self):
-        # 先用 inline stylesheet，之後你如果有全域 QSS，可以移出去
         base = """
         QFrame#activityCard {
             border: 1px solid #E6D8C7;
@@ -104,16 +103,24 @@ class ActivityListPanel(QWidget):
     左側活動清單面板：
     - 搜尋列（關鍵字：編號/名稱）
     - 活動卡片列表（可點選）
+
+    ✅ 本版本：可選擇直接注入 controller，讓此 panel 自己查 DB / 搜尋。
     """
     activity_selected = pyqtSignal(str)   # emit activity_id
-    search_requested = pyqtSignal(str)    # emit keyword
+    search_requested = pyqtSignal(str)    # emit keyword（保留給外層，如果你未來想改回純 UI）
 
-    def __init__(self, parent=None):
+    def __init__(self, controller=None, parent=None):
         super().__init__(parent)
+        self.controller = controller  # ✅ 新增：注入 AppController
+
         self._items: List[ActivityListItem] = []
         self._cards: List[ActivityCard] = []
         self._selected_id: Optional[str] = None
         self._build_ui()
+
+        # ✅ 初始化載入活動清單
+        if self.controller is not None:
+            self.refresh(keyword="")
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -131,7 +138,7 @@ class ActivityListPanel(QWidget):
         # 搜尋列
         search_row = QHBoxLayout()
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("搜尋活動（編號/名稱）")
+        self.search_edit.setPlaceholderText("搜尋活動（名稱/日期）")
         self.search_edit.returnPressed.connect(self._on_search)
 
         self.btn_search = QPushButton("搜尋")
@@ -184,6 +191,9 @@ class ActivityListPanel(QWidget):
 
         if auto_select_first and self._items:
             self.set_selected(self._items[0].id)
+        elif not self._items:
+            # 清空選取
+            self._selected_id = None
 
     def set_selected(self, activity_id: str):
         self._selected_id = activity_id
@@ -191,9 +201,66 @@ class ActivityListPanel(QWidget):
             c.set_selected(c.item.id == activity_id)
         self.activity_selected.emit(activity_id)
 
+    def refresh(self, keyword: str = ""):
+        """
+        ✅ 對外提供：刷新清單（用 controller 查 DB）
+        """
+        if self.controller is None:
+            # 沒有 controller 就只 emit，讓外層自己接
+            self.search_requested.emit(keyword)
+            return
+
+        rows = self._fetch_activities(keyword)
+        items = [self._map_activity_row_to_item(r) for r in rows]
+        self.set_activities(items, auto_select_first=True)
+
     # ---------- internal ----------
+    def _fetch_activities(self, keyword: str):
+        """
+        透過 controller 查活動資料（新 schema）
+        """
+        kw = (keyword or "").strip()
+        if not kw:
+            return self.controller.get_all_activities(active_only=False)
+        return self.controller.search_activities(kw)
+
+    def _map_activity_row_to_item(self, row: dict) -> ActivityListItem:
+        """
+        New schema row(dict) -> ActivityListItem
+        activities 欄位：
+          id, name, activity_start_date, activity_end_date, note, status
+        """
+        activity_id = row.get("id", "")
+        title = row.get("name", "") or ""
+
+        start_date = row.get("activity_start_date", "") or ""
+        end_date = row.get("activity_end_date", "") or ""
+
+        # 卡片上顯示日期區間
+        if start_date and end_date and end_date != start_date:
+            date_range = f"{start_date} ~ {end_date}"
+        else:
+            date_range = start_date or end_date or ""
+
+        # 狀態：status=1 -> 進行中；0 -> 停用/結束（你要改字也行）
+        status_val = int(row.get("status", 1) or 1)
+        status_text = "進行中" if status_val == 1 else "停用"
+
+        # code：你新表沒有活動編號，我先用 id 前 8 碼（之後想要正式編號再加欄位）
+        code = (activity_id[:8] if activity_id else "—")
+
+        return ActivityListItem(
+            id=activity_id,
+            title=title,
+            code=code,
+            date_range=date_range,
+            status=status_text,
+            plan_count=0,
+            signup_count=0
+        )
+
     def _rebuild_cards(self):
-        # clear old (remove all except stretch)
+        # clear old (remove all)
         while self.list_layout.count() > 0:
             item = self.list_layout.takeAt(0)
             w = item.widget()
@@ -211,8 +278,21 @@ class ActivityListPanel(QWidget):
 
     def _on_search(self):
         keyword = self.search_edit.text().strip()
+
+        # ✅ 如果有 controller：直接刷新（接起來）
+        if self.controller is not None:
+            self.refresh(keyword)
+            return
+
+        # 保留原本 signal 行為
         self.search_requested.emit(keyword)
 
     def _on_clear(self):
         self.search_edit.clear()
+
+        # ✅ 如果有 controller：直接刷新（接起來）
+        if self.controller is not None:
+            self.refresh("")
+            return
+
         self.search_requested.emit("")
