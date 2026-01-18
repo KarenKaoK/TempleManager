@@ -186,73 +186,140 @@ def create_household_members_table(db_name=DB_NAME):
     conn.close()
     print("✅ `household_members` 資料表檢查完成")
 
+
 def create_activities_table(db_name=DB_NAME):
+    """建立 activities 表"""
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
 
-    cursor.execute("DROP TABLE IF EXISTS activities")
-
     cursor.execute("""
-    CREATE TABLE activities (
-        id TEXT PRIMARY KEY,
-        activity_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        start_date TEXT,
-        end_date TEXT,
-        scheme_name TEXT,
-        scheme_item TEXT,
-        amount REAL,
-        note TEXT,
-        is_closed INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
+    CREATE TABLE IF NOT EXISTS activities (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,                 -- 活動名稱
+    activity_start_date TEXT NOT NULL,        -- YYYY-MM-DD 或 YYYY-MM-DD HH:MM
+    activity_end_date TEXT NOT NULL,   
+    note TEXT,
+    status INTEGER DEFAULT 1,         -- 0/1
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     """)
 
     conn.commit()
     conn.close()
-    print("✅ `activities` 資料表重建完成")
+    print("✅ `activities` 資料表檢查完成")
 
-
-
-
-def create_activity_signups_table(db_name=DB_NAME):
-    """建立 activity_signups 表，儲存活動報名人員資料"""
+def create_activity_plans_table(db_name=DB_NAME):
+    """建立 activity_plans 表"""
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
 
-    # 先刪除舊表，然後重新建立
-    cursor.execute("DROP TABLE IF EXISTS activity_signups")
+    cursor.executescript("""
+    CREATE TABLE IF NOT EXISTS activity_plans (
+    id TEXT PRIMARY KEY,
+    activity_id TEXT NOT NULL,
 
-    cursor.execute("""
-    CREATE TABLE activity_signups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        activity_id INTEGER NOT NULL,
-        person_name TEXT NOT NULL,
-        gender TEXT,
-        birth_ad TEXT,
-        birth_lunar TEXT,
-        birth_year TEXT,
-        zodiac TEXT,
-        age INTEGER,
-        birth_time TEXT,
-        phone TEXT,
-        mobile TEXT,
-        identity TEXT,
-        identity_number TEXT,
-        address TEXT,
-        note TEXT,
-        activity_items TEXT,
-        activity_amount REAL,
-        receipt_number TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(activity_id) REFERENCES activities(id) ON DELETE CASCADE
-    )
+    name TEXT NOT NULL,                 -- 方案名稱
+    description TEXT,                   -- 方案項目文字敘述
+
+    price_type TEXT NOT NULL CHECK (price_type IN ('FIXED', 'FREE')),
+    
+    fixed_price INTEGER DEFAULT 0,      -- 固定金額（FIXED 用）
+    suggested_price INTEGER DEFAULT 0,  -- 隨喜建議金額（FREE 顯示用）
+    min_price INTEGER DEFAULT 0,        -- 隨喜最低金額（可 0）
+
+    allow_qty INTEGER DEFAULT 1,        -- 是否允許數量（0/1）
+    sort_order INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_activity_plans_activity_id
+    ON activity_plans(activity_id);
+
+
+    """)
+
+    conn.commit()
+    conn.close()
+    print("✅ `activity_plans` 資料表檢查完成")
+
+def create_activity_signups_table(db_name=DB_NAME):
+    """建立 activity_signups 表"""
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    cursor.executescript("""
+    CREATE TABLE IF NOT EXISTS activity_signups (
+    id TEXT PRIMARY KEY,
+    activity_id TEXT NOT NULL,
+    person_id TEXT NOT NULL,
+
+    signup_time TEXT NOT NULL,           -- YYYY-MM-DD HH:MM:SS
+    note TEXT,
+
+    total_amount INTEGER NOT NULL DEFAULT 0,  -- 報名總金額快照
+
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE CASCADE,
+    FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE RESTRICT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_activity_signups_activity_id
+    ON activity_signups(activity_id);
+
+    CREATE INDEX IF NOT EXISTS idx_activity_signups_person_id
+    ON activity_signups(person_id);
+
+
     """)
 
     conn.commit()
     conn.close()
     print("✅ `activity_signups` 資料表檢查完成")
+
+def create_activity_signup_plans_table(db_name=DB_NAME):
+    """建立 activity_signup_plans 表"""
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    cursor.executescript("""
+    CREATE TABLE IF NOT EXISTS activity_signup_plans (
+    id TEXT PRIMARY KEY,
+    signup_id TEXT NOT NULL,
+    plan_id TEXT NOT NULL,
+
+    qty INTEGER NOT NULL DEFAULT 1,
+
+    unit_price_snapshot INTEGER NOT NULL DEFAULT 0,
+    amount_override INTEGER,             -- 隨喜 / 手動改價（整行總額）
+    line_total INTEGER NOT NULL DEFAULT 0,
+
+    note TEXT,
+
+    FOREIGN KEY (signup_id) REFERENCES activity_signups(id) ON DELETE CASCADE,
+    FOREIGN KEY (plan_id) REFERENCES activity_plans(id) ON DELETE RESTRICT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_signup_plans_signup_id
+    ON activity_signup_plans(signup_id);
+
+    CREATE INDEX IF NOT EXISTS idx_signup_plans_plan_id
+    ON activity_signup_plans(plan_id);
+
+
+    """)
+
+    conn.commit()
+    conn.close()
+    print("✅ `activity_signup_plans` 資料表檢查完成")
 
 
 if __name__ == "__main__":
@@ -267,7 +334,10 @@ if __name__ == "__main__":
     create_households_table() # 戶長表
     create_household_members_table() # 戶長和戶員關係表
 
-    create_activities_table() # 活動表
-    create_activity_signups_table() # 活動報名人員表
+    create_activities_table() # 活動主檔
+    create_activity_plans_table() # 活動方案
+    create_activity_signups_table() # 活動報名
+    create_activity_signup_plans_table() # 活動報名方案
+
 
     print("🎉 資料庫初始化完成！")
