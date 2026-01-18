@@ -227,10 +227,6 @@ class ActivityPlanPanel(QWidget):
         self.lbl_title = QLabel("方案選擇（可多選 + 數量）")
         self.lbl_title.setObjectName("panelTitle")
 
-        # self.btn_calc = QPushButton("即時計算")
-        # self.btn_calc.setObjectName("pillButton")
-        # self.btn_calc.clicked.connect(self.recalculate)
-
         header.addWidget(self.lbl_title, 1)
         # header.addWidget(self.btn_calc, 0, Qt.AlignRight)
         root.addLayout(header)
