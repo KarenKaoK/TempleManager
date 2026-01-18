@@ -4,6 +4,9 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 
+from app.widgets.activity_list_panel import ActivityListPanel, ActivityListItem
+
+
 class ActivityManagePage(QWidget):
     request_close = pyqtSignal()
 
@@ -12,30 +15,77 @@ class ActivityManagePage(QWidget):
         self.controller = controller
         self._build_ui()
 
+
     def _build_ui(self):
         root = QVBoxLayout(self)
 
         # 顶部工具列
         topbar = QHBoxLayout()
-        title = QLabel("活動管理")
-        title.setStyleSheet("font-size: 18px; font-weight: 700;")
         btn_back = QPushButton("返回")
         btn_back.clicked.connect(self.request_close.emit)
 
-        topbar.addWidget(title)
         topbar.addStretch(1)
         topbar.addWidget(btn_back)
         root.addLayout(topbar)
 
-        # 主要區域：先用 splitter 占位（之後再換成你的新 layout）
-        splitter = QSplitter(Qt.Vertical)
+        # 上下 splitter
+        v_splitter = QSplitter(Qt.Vertical)
 
-        upper = QGroupBox("上半部：活動清單 / 活動詳情")
-        lower = QGroupBox("下半部：人員資料 / 方案選擇 / 金額")
+        upper_group = QGroupBox("")
+        lower_group = QGroupBox("下半部：人員資料 / 方案選擇 / 金額")
 
-        splitter.addWidget(upper)
-        splitter.addWidget(lower)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 4)
+        v_splitter.addWidget(upper_group)
+        v_splitter.addWidget(lower_group)
+        v_splitter.setStretchFactor(0, 2)
+        v_splitter.setStretchFactor(1, 6)
 
-        root.addWidget(splitter)
+        root.addWidget(v_splitter, 1)
+
+        # ---------- 上半部內容：左右 splitter ----------
+        upper_layout = QVBoxLayout(upper_group)
+        upper_layout.setContentsMargins(10, 10, 10, 10)
+
+        h_splitter = QSplitter(Qt.Horizontal)
+
+        # ✅ 一定要掛在 self 上
+        self.activity_list_panel = ActivityListPanel()
+
+        right_placeholder = QLabel("活動詳情（待完成）")
+        right_placeholder.setAlignment(Qt.AlignCenter)
+
+        h_splitter.addWidget(self.activity_list_panel)
+        h_splitter.addWidget(right_placeholder)
+        h_splitter.setStretchFactor(0, 3)
+        h_splitter.setStretchFactor(1, 7)
+
+        upper_layout.addWidget(h_splitter)
+
+        # （下半部先放 placeholder layout，避免 groupbox 空著）
+        lower_layout = QVBoxLayout(lower_group)
+        lower_layout.setContentsMargins(10, 10, 10, 10)
+        lower_layout.addWidget(QLabel("下半部（待完成）"))
+
+        # ✅ 放在建立 self.activity_list_panel 之後
+        self._load_mock_activities()
+
+    def _load_mock_activities(self):
+        items = [
+            ActivityListItem(
+                id="1",
+                title="二月元帥加持",
+                code="20260115-002",
+                date_range="2026/01/15 ~ 2026/01/15",
+                plan_count=1,
+                signup_count=1,
+            ),
+            ActivityListItem(
+                id="2",
+                title="安座大典",
+                code="20260115-001",
+                date_range="2026/01/15 ~ 2026/01/15",
+                plan_count=3,
+                signup_count=2,
+            ),
+        ]
+        self.activity_list_panel.set_activities(items)
+
