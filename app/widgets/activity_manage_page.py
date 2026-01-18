@@ -7,6 +7,7 @@ from PyQt5.QtCore import pyqtSignal, Qt
 from app.widgets.activity_list_panel import ActivityListPanel, ActivityListItem
 from app.widgets.activity_detail_panel import ActivityDetailPanel
 from app.widgets.activity_person_panel import ActivityPersonPanel
+from app.widgets.activity_plan_panel import ActivityPlanPanel, PlanItem
 
 
 
@@ -74,9 +75,8 @@ class ActivityManagePage(QWidget):
         self.person_panel = ActivityPersonPanel()
         lower_splitter.addWidget(self.person_panel)
 
-        right_placeholder = QLabel("右下（待完成）")
-        right_placeholder.setAlignment(Qt.AlignCenter)
-        lower_splitter.addWidget(right_placeholder)
+        self.plan_panel = ActivityPlanPanel()
+        lower_splitter.addWidget(self.plan_panel)
 
         lower_splitter.setStretchFactor(0, 5)
         lower_splitter.setStretchFactor(1, 5)
