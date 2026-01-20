@@ -87,8 +87,7 @@ class ActivityManagePage(QWidget):
         你 ActivityListPanel 的 signal 如果送 id，
         這裡就切換右側內容（先示範 mock）
         """
-        pass
-        # self.activity_detail_panel.load_mock_activity(activity_id=activity_id)
+        self.activity_detail_panel.load_activity(activity_id)
 
     def on_activity_saved(self, activity_id: str):
         # 讓左側 panel 重新抓 DB

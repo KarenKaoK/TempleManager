@@ -9,9 +9,12 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QGridLayout,
     QSizePolicy, QGroupBox
 )
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QMessageBox, QTextEdit
 import uuid
 from datetime import datetime
+from app.utils.id_utils import _compute_display_status
+from app.dialogs.activity_edit_dialog import ActivityEditDialog
+from app.dialogs.plan_edit_dialog import PlanEditDialog
 
 
 # -----------------------------
@@ -59,6 +62,8 @@ class ActivityDetailPanel(QWidget):
 
         self._plans: List[PlanRow] = []
         self._signups: List[SignupRow] = []
+
+        self._current_activity_id = None
 
         self._build_ui()
         
@@ -109,7 +114,7 @@ class ActivityDetailPanel(QWidget):
         self.btn_back.clicked.connect(self.request_back.emit)
 
         self.btn_new.clicked.connect(self.on_new_activity)
-        self.btn_edit.clicked.connect(lambda: self._toast("TODO: 修改活動"))
+        self.btn_edit.clicked.connect(self.on_edit_activity)
         self.btn_del.clicked.connect(lambda: self._toast("TODO: 刪除活動"))
 
         for b in (self.btn_back, self.btn_new, self.btn_edit, self.btn_del):
@@ -166,9 +171,7 @@ class ActivityDetailPanel(QWidget):
         self.f_name = QLineEdit()
         self.f_start = QLineEdit()
         self.f_end = QLineEdit()
-        self.f_status = QComboBox()
-        self.f_status.addItems(["進行中", "未開始", "已結束"])
-        self.f_note = QLineEdit()
+        self.f_note = QTextEdit()
 
         form.addRow("活動名稱", self.f_name)
 
@@ -182,15 +185,14 @@ class ActivityDetailPanel(QWidget):
         date_row_l.addWidget(self.f_end)
 
         form.addRow("日期", date_row)
-        form.addRow("狀態", self.f_status)
         form.addRow("備註", self.f_note)
 
         lf.addLayout(form, 1)
 
-        btn_save = QPushButton("儲存活動資料")
-        btn_save.setMinimumHeight(36)
-        btn_save.clicked.connect(self.on_save_activity)
-        lf.addWidget(btn_save, 0, Qt.AlignRight)
+        # btn_save = QPushButton("儲存活動資料")
+        # btn_save.setMinimumHeight(36)
+        # btn_save.clicked.connect(self.on_save_activity)
+        # lf.addWidget(btn_save, 0, Qt.AlignRight)
 
         # 右：方案列表 + 方案操作
         right = QGroupBox("方案列表")
@@ -208,7 +210,7 @@ class ActivityDetailPanel(QWidget):
         for b in (self.btn_plan_new, self.btn_plan_edit, self.btn_plan_del):
             b.setMinimumHeight(32)
 
-        self.btn_plan_new.clicked.connect(lambda: self._toast("TODO: 新增方案 Dialog"))
+        self.btn_plan_new.clicked.connect(self.on_new_plan)
         self.btn_plan_edit.clicked.connect(lambda: self._toast("TODO: 修改方案 Dialog"))
         self.btn_plan_del.clicked.connect(lambda: self._toast("TODO: 刪除方案"))
 
@@ -346,89 +348,45 @@ class ActivityDetailPanel(QWidget):
         bottom.addWidget(left, 6)
         bottom.addWidget(right, 4)
 
-    # -----------------------------
-    # Public: load data
-    # -----------------------------
-    def load_mock_activity(self, activity_id: str):
-        self._current_activity_id = activity_id
-
-        if activity_id == "1":
-            title = "二月元帥加持"
-            meta = "20260115-002 ｜ 2026/01/15 ～ 2026/01/15 ｜ 進行中"
-            self._plans = [
-                PlanRow("p1", "元帥加持", "加持符*1", "fixed", 300),
-            ]
-            self._signups = [
-                SignupRow(
-                    id="s1",
-                    name="阿春",
-                    phone="0912-000-111",
-                    address="新北市",
-                    items=[
-                        SignupItemRow("p1", "元帥加持", 1, 300, 300, False),
-                    ],
-                )
-            ]
-        else:
-            title = "安座大典"
-            meta = "20260115-001 ｜ 2026/01/15 ～ 2026/01/15 ｜ 進行中"
-            self._plans = [
-                PlanRow("p2", "安坐平安", "蓮花*9", "fixed", 999),
-                PlanRow("p3", "快快樂樂", "補運*9", "fixed", 333),
-                PlanRow("p4", "加購A", "金紙組", "fixed", 200),
-                PlanRow("p5", "隨喜祈福", "香油 / 隨喜", "donation", None),
-            ]
-            self._signups = [
-                SignupRow(
-                    id="s2",
-                    name="小魔女",
-                    phone="0909-090-090",
-                    address="大樹下",
-                    items=[
-                        SignupItemRow("p2", "安坐平安", 1, 999, 999, False),
-                        SignupItemRow("p5", "隨喜祈福", 1, 600, 600, True),
-                    ],
-                ),
-                SignupRow(
-                    id="s3",
-                    name="林先生",
-                    phone="0988-777-666",
-                    address="桃園",
-                    items=[
-                        SignupItemRow("p3", "快快樂樂", 2, 333, 666, False),
-                    ],
-                )
-            ]
-
-        self.lbl_title.setText(title)
-        self.lbl_meta.setText(meta)
-
-        # tab1 form（demo 先帶）
-        self.f_name.setText(title)
-
-        self.f_start.setText("2026/01/15")
-        self.f_end.setText("2026/01/15")
-        self.f_status.setCurrentText("進行中")
-        self.f_note.setText("")
-
-        self._render_plans()
-        self._render_signup_stats()
-        self._render_signups_table(select_first=True)
 
     # -----------------------------
     # Render helpers
     # -----------------------------
-    def _render_plans(self):
+    def _render_plans(self, plans: List[Dict]):
+        """
+        plans: controller.get_activity_plans 回來的 list[dict]
+        例如 dict keys: id, name, items, fee_type, amount
+        """
+        # ✅ 同步到 self._plans（若你後續其他地方還在用 self._plans）
+        self._plans = [
+            PlanRow(
+                id=str(p.get("id", "")),
+                name=str(p.get("name", "")),
+                items=str(p.get("items", "")),
+                fee_type=str(p.get("fee_type", "")),
+                amount=(None if p.get("amount") in (None, "") else int(float(p.get("amount")))),
+            )
+            for p in (plans or [])
+        ]
+
         self.tbl_plans.setRowCount(0)
+
         for r, p in enumerate(self._plans):
             self.tbl_plans.insertRow(r)
-            self.tbl_plans.setItem(r, 0, QTableWidgetItem(p.name))
+
+            # 把 plan_id 存到 UserRole，後續「修改/刪除方案」會用到
+            it0 = QTableWidgetItem(p.name)
+            it0.setData(Qt.UserRole, p.id)
+            self.tbl_plans.setItem(r, 0, it0)
+
             self.tbl_plans.setItem(r, 1, QTableWidgetItem(p.items))
             self.tbl_plans.setItem(r, 2, QTableWidgetItem(self._fee_text(p.fee_type)))
+
             amt_text = "報名時填" if p.fee_type == "donation" else (str(p.amount) if p.amount is not None else "-")
             self.tbl_plans.setItem(r, 3, QTableWidgetItem(amt_text))
 
         self.tbl_plans.resizeRowsToContents()
+
 
     def _render_signup_stats(self):
         signup_cnt = len(self._signups)
@@ -638,84 +596,72 @@ class ActivityDetailPanel(QWidget):
         """)
 
     def on_new_activity(self):
-        """
-        進入新增模式：清空表單、清空目前 activity_id、更新 header
-        """
-        self._current_activity_id = None
-        self._clear_activity_form()
-        self._plans = []
-        self._signups = []
-        self._render_plans()
-        self._render_signup_stats()
-        self._render_signups_table(select_first=False)
+        dlg = ActivityEditDialog(self.controller, mode="new", parent=self)
+        if dlg.exec_() == dlg.Accepted:
+            new_id = dlg.result_activity_id()
+            if new_id:
+                self.activity_saved.emit(new_id)
 
-        self.lbl_title.setText("（新增活動）")
-        self.lbl_meta.setText("尚未儲存")
-
-        # 切到 tab1
-        self.tabs.setCurrentIndex(0)
-
-    def on_save_activity(self):
-
-
-        # ######################
-        # import inspect
-
-        # print("controller obj:", self.controller)
-        # print("controller type:", type(self.controller))
-        # print("controller module:", type(self.controller).__module__)
-        # print("controller file:", inspect.getfile(type(self.controller)))
-        # print("has insert_activity_new:", hasattr(self.controller, "insert_activity_new"))
-        # print("dir contains:", [x for x in dir(self.controller) if "activity" in x])
-        # #####################
-
-
-        """
-        儲存活動資料到 activities（新 schema）
-        """
-        data = self._collect_activity_form()
-        if not data:
-            return  # 已顯示錯誤
-
-        try:
-            new_id = self.controller.insert_activity_new(data)
-        except Exception as e:
-            QMessageBox.critical(self, "儲存失敗", f"寫入資料庫失敗：\n{e}")
+    def on_edit_activity(self):
+        if not self._current_activity_id:
+            QMessageBox.warning(self, "請先選擇活動", "請先從左側清單選擇一筆活動")
             return
 
-        self._current_activity_id = new_id
-
-        # 更新 header 顯示
-        title = data["name"]
-        date_range = self._format_date_range(data["activity_start_date"], data["activity_end_date"])
-        status_text = self._status_int_to_text(data["status"])
-        self.lbl_title.setText(title)
-        self.lbl_meta.setText(f"{new_id} ｜ {date_range} ｜ {status_text}")
-
-        # 組提示訊息
-        title = data["name"]
-        date_range = self._format_date_range(data["activity_start_date"], data["activity_end_date"])
-
-        msg = (
-            "活動已新增完成\n\n"
-            f"活動名稱：{title}\n"
-            f"活動 ID：{new_id}\n"
-            f"活動時間：{date_range}"
+        activity_data = self.controller.get_activity_by_id(self._current_activity_id)
+        dlg = ActivityEditDialog(
+            self.controller,
+            mode="edit",
+            activity_id=self._current_activity_id,
+            activity_data=activity_data,
+            parent=self
         )
+        if dlg.exec_() == dlg.Accepted:
+            self.activity_saved.emit(self._current_activity_id)
 
-        QMessageBox.information(self, "活動已新增完成", msg)
+    def on_new_plan(self):
+        if not self._current_activity_id:
+            QMessageBox.warning(self, "請先選擇活動", "要新增方案前請先選擇一個活動")
+            return
 
+        dlg = PlanEditDialog(
+            self.controller,
+            mode="new",
+            activity_id=self._current_activity_id,
+            parent=self
+        )
+        if dlg.exec_() == dlg.Accepted:
+            self.reload_plans()
 
-        # ✅ 通知外層刷新左側活動清單
-        self.activity_saved.emit(new_id)
+    def load_activity(self, activity_id: str):
+        self._current_activity_id = activity_id
+
+        data = self.controller.get_activity_by_id(activity_id)
+        if not data:
+            QMessageBox.warning(self, "載入失敗", "找不到活動資料")
+            return
+
+        # 下面這些欄位名稱請用你面板上的實際 widget 名稱替換
+        self.f_name.setText(data.get("name", ""))
+        self.f_start.setText(data.get("activity_start_date", ""))
+        self.f_end.setText(data.get("activity_end_date", ""))
+        self.f_note.setPlainText(data.get("note", ""))
+
+        self.reload_plans()
+
+    def reload_plans(self):
+        if not self._current_activity_id:
+            self.tbl_plans.setRowCount(0)
+            return
+
+        plans = self.controller.get_activity_plans(self._current_activity_id) or []
+        self._render_plans(plans)
+
 
     def _collect_activity_form(self) -> Optional[dict]:
         name = self.f_name.text().strip()
         start = self.f_start.text().strip()
         end = self.f_end.text().strip()
-        note = self.f_note.text().strip()
-        status_text = self.f_status.currentText().strip()
-        status = self._status_text_to_int(status_text)
+        note = self.f_note.toPlainText().strip()
 
         # 必填檢查
         if not name:
@@ -733,7 +679,6 @@ class ActivityDetailPanel(QWidget):
             "activity_start_date": start,
             "activity_end_date": end,
             "note": note,
-            "status": status,
         }
 
     def _clear_activity_form(self):
@@ -741,7 +686,6 @@ class ActivityDetailPanel(QWidget):
         self.f_start.clear()
         self.f_end.clear()
         self.f_note.clear()
-        self.f_status.setCurrentText("進行中")
 
     def _status_text_to_int(self, text: str) -> int:
         # 你新 schema 只有 0/1，先簡化：
@@ -757,3 +701,5 @@ class ActivityDetailPanel(QWidget):
         if start and end and start != end:
             return f"{start} ～ {end}"
         return start or end or ""
+    
+

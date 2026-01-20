@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
+from PyQt5.QtCore import QDate
 
 def generate_activity_id() -> str:
     """
@@ -29,3 +30,11 @@ def generate_activity_id_safe(exists_fn, max_retry: int = 5) -> str:
         time.sleep(0.2)
 
     raise RuntimeError("無法產生唯一的活動ID（同秒建立過多筆），請稍後再試。")
+
+def _compute_display_status(self, start_qdate: QDate, end_qdate: QDate) -> str:
+    today = QDate.currentDate()
+    if today < start_qdate:
+        return "未開始"
+    if today > end_qdate:
+        return "已結束"
+    return "進行中"

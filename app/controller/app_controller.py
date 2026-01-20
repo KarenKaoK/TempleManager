@@ -399,40 +399,7 @@ class AppController:
 
     #     return activity_data, scheme_rows
     
-    # def update_activity(self, data: dict):
-    #     cursor = self.conn.cursor()
-    #     activity_id = data.get("activity_id")
-
-    #     if not activity_id:
-    #         print("❌ 無效的 activity_id，無法更新")
-    #         return
-
-    #     # 先刪除舊資料
-    #     cursor.execute("DELETE FROM activities WHERE activity_id = ?", (activity_id,))
-
-    #     # 重建每一筆方案資料
-    #     for scheme in data.get("scheme_rows", []):
-    #         row_id = "R" + uuid.uuid4().hex[:8]
-    #         cursor.execute("""
-    #             INSERT INTO activities (
-    #                 id, activity_id, name, start_date, end_date,
-    #                 scheme_name, scheme_item, amount, note,
-    #                 is_closed, created_at, updated_at
-    #             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
-    #         """, (
-    #             row_id,
-    #             activity_id,
-    #             data.get("activity_name"),
-    #             data.get("start_date"),
-    #             data.get("end_date"),
-    #             scheme.get("scheme_name"),
-    #             scheme.get("scheme_item"),
-    #             float(scheme.get("amount") or 0),
-    #             data.get("content"),
-    #         ))
-
-    #     self.conn.commit()
-    #     print(f"✅ 活動 {activity_id} 更新完成")
+    
 
     # def delete_activity(self, activity_id):
     #     try:
@@ -585,55 +552,7 @@ class AppController:
     #         print(f"❌ 取得報名人員資料時出錯：{e}")
     #         return None
 
-    # def update_activity_signup(self, signup_data):
-    #     """更新報名人員資料"""
-    #     try:
-    #         cursor = self.conn.cursor()
-            
-    #         # 處理活動項目資料
-    #         selected_items = signup_data.get("selected_items", [])
-    #         activity_items_text = ""
-    #         if selected_items:
-    #             items_list = []
-    #             for item in selected_items:
-    #                 items_list.append(f"{item['item_name']} x{item['quantity']}")
-    #             activity_items_text = "; ".join(items_list)
-            
-    #         # 更新報名人員資料
-    #         cursor.execute("""
-    #             UPDATE activity_signups SET
-    #                 person_name = ?, gender = ?, birth_ad = ?, birth_lunar = ?,
-    #                 zodiac = ?, birth_time = ?, phone = ?, mobile = ?, 
-    #                 identity = ?, identity_number = ?, address = ?, note = ?,
-    #                 activity_items = ?, activity_amount = ?, receipt_number = ?,
-    #                 created_at = ?
-    #             WHERE id = ?
-    #         """, (
-    #             signup_data.get("name"),
-    #             signup_data.get("gender"),
-    #             signup_data.get("gregorian_birthday"),
-    #             signup_data.get("lunar_birthday"),
-    #             signup_data.get("zodiac"),
-    #             signup_data.get("birth_time"),
-    #             signup_data.get("contact_phone"),
-    #             signup_data.get("contact_phone"),  # 使用相同電話號碼
-    #             signup_data.get("identity", ""),
-    #             signup_data.get("identity_number", ""),
-    #             signup_data.get("address"),
-    #             signup_data.get("remarks"),
-    #             activity_items_text,
-    #             signup_data.get("activity_amount", 0),
-    #             signup_data.get("receipt_number", ""),
-    #             signup_data.get("registration_date"),
-    #             signup_data.get("id")
-    #         ))
-            
-    #         self.conn.commit()
-    #         return True
-    #     except Exception as e:
-    #         print(f"❌ 更新報名人員時出錯：{e}")
-    #         return False
-
+    
 
 
     # -------------------------
@@ -670,24 +589,32 @@ class AppController:
     #     self.conn.commit()
     #     return activity_id
 
-    def update_activity(self, activity_id: str, data: dict) -> bool:
-        now = self._now()
-        cursor = self.conn.cursor()
+    def update_activity(self, activity_id: str, data: dict):
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+
         cursor.execute("""
             UPDATE activities
-            SET name = ?, activity_date = ?, location = ?, note = ?, is_active = ?, updated_at = ?
+            SET
+                name = ?,
+                activity_start_date = ?,
+                activity_end_date = ?,
+                note = ?,
+                status = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, (
             data.get("name"),
-            data.get("activity_date"),
-            data.get("location"),
-            data.get("note"),
-            int(data.get("is_active", 1)),
-            now,
+            data.get("activity_start_date"),
+            data.get("activity_end_date"),
+            data.get("note", ""),
+            int(data.get("status", 1)),
             activity_id
         ))
-        self.conn.commit()
-        return cursor.rowcount > 0
+
+        conn.commit()
+        conn.close()
+
 
     def delete_activity(self, activity_id: str) -> bool:
         cursor = self.conn.cursor()

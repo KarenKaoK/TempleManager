@@ -212,8 +212,6 @@ class ActivityPersonPanel(QWidget):
         grid.setColumnStretch(1, 3)
         grid.setColumnStretch(3, 3)
         grid.setColumnMinimumWidth(2, LABEL_W + 18)
-
-        # ✅ 如果下半部變高，讓多的空間往下，不要把欄位擠在一起
         grid.setRowStretch(6, 1)
 
         outer.addLayout(grid)
@@ -221,6 +219,4 @@ class ActivityPersonPanel(QWidget):
 
 
 
-    # ===== 可選：提供方法讓外部更新 badge =====
-    def set_activity_badge(self, text: str):
-        self.lbl_activity_badge.setText(text)
+

@@ -8,8 +8,10 @@ from app.dialogs.member_identity_dialog import MemberIdentityDialog
 from app.dialogs.household_dialog import NewHouseholdDialog
 
 from app.widgets.main_page import MainPageWidget
-from app.widgets.activity_manage_page import ActivityManagePage   # ✅ 建議用新版本
+from app.widgets.activity_manage_page import ActivityManagePage
 from app.widgets.activity_signup_page import ActivitySignupPage
+
+
 
 
 class MainWindow(QMainWindow):
