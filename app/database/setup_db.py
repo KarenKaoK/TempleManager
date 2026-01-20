@@ -194,17 +194,17 @@ def create_activities_table(db_name=DB_NAME):
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS activities (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,                 -- 活動名稱
-    activity_start_date TEXT NOT NULL,        -- YYYY-MM-DD 或 YYYY-MM-DD HH:MM
-    activity_end_date TEXT NOT NULL,   
-    note TEXT,
-    status INTEGER DEFAULT 1,         -- 0/1
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        id TEXT PRIMARY KEY,                 -- YYYYMMDDHHMMSS（由程式產生）
+        name TEXT NOT NULL,
+        activity_start_date TEXT NOT NULL,
+        activity_end_date TEXT NOT NULL,
+        note TEXT,
+        status INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
-
     """)
+
 
     conn.commit()
     conn.close()
