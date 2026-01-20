@@ -78,15 +78,17 @@ class ActivityManagePage(QWidget):
         ]
         self.activity_list_panel.set_activities(items)
 
+        pass 
         # 讓右側先顯示「安座大典」的 mock
-        self.activity_detail_panel.load_mock_activity(activity_id="2")
+        # self.activity_detail_panel.load_mock_activity(activity_id="2")
 
     def on_activity_selected(self, activity_id: str):
         """
         你 ActivityListPanel 的 signal 如果送 id，
         這裡就切換右側內容（先示範 mock）
         """
-        self.activity_detail_panel.load_mock_activity(activity_id=activity_id)
+        pass
+        # self.activity_detail_panel.load_mock_activity(activity_id=activity_id)
 
     def on_activity_saved(self, activity_id: str):
         # 讓左側 panel 重新抓 DB

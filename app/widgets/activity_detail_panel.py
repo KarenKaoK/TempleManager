@@ -658,16 +658,16 @@ class ActivityDetailPanel(QWidget):
     def on_save_activity(self):
 
 
-        ######################
-        import inspect
+        # ######################
+        # import inspect
 
-        print("controller obj:", self.controller)
-        print("controller type:", type(self.controller))
-        print("controller module:", type(self.controller).__module__)
-        print("controller file:", inspect.getfile(type(self.controller)))
-        print("has insert_activity_new:", hasattr(self.controller, "insert_activity_new"))
-        print("dir contains:", [x for x in dir(self.controller) if "activity" in x])
-        #####################
+        # print("controller obj:", self.controller)
+        # print("controller type:", type(self.controller))
+        # print("controller module:", type(self.controller).__module__)
+        # print("controller file:", inspect.getfile(type(self.controller)))
+        # print("has insert_activity_new:", hasattr(self.controller, "insert_activity_new"))
+        # print("dir contains:", [x for x in dir(self.controller) if "activity" in x])
+        # #####################
 
 
         """
@@ -692,7 +692,19 @@ class ActivityDetailPanel(QWidget):
         self.lbl_title.setText(title)
         self.lbl_meta.setText(f"{new_id} ｜ {date_range} ｜ {status_text}")
 
-        QMessageBox.information(self, "成功", "✅ 活動已新增完成")
+        # 組提示訊息
+        title = data["name"]
+        date_range = self._format_date_range(data["activity_start_date"], data["activity_end_date"])
+
+        msg = (
+            "活動已新增完成\n\n"
+            f"活動名稱：{title}\n"
+            f"活動 ID：{new_id}\n"
+            f"活動時間：{date_range}"
+        )
+
+        QMessageBox.information(self, "活動已新增完成", msg)
+
 
         # ✅ 通知外層刷新左側活動清單
         self.activity_saved.emit(new_id)
