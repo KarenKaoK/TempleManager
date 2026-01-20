@@ -173,6 +173,10 @@ class ActivityDetailPanel(QWidget):
         self.f_start = QLineEdit()
         self.f_end = QLineEdit()
         self.f_note = QTextEdit()
+        self.f_note.setMinimumHeight(120)
+        self.f_note.setMaximumHeight(180)
+        self.f_note.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
 
         form.addRow("活動名稱", self.f_name)
 
@@ -185,15 +189,11 @@ class ActivityDetailPanel(QWidget):
         date_row_l.addWidget(QLabel("～"))
         date_row_l.addWidget(self.f_end)
 
-        form.addRow("日期", date_row)
+        form.addRow("國曆日期", date_row)
         form.addRow("備註", self.f_note)
 
-        lf.addLayout(form, 1)
-
-        # btn_save = QPushButton("儲存活動資料")
-        # btn_save.setMinimumHeight(36)
-        # btn_save.clicked.connect(self.on_save_activity)
-        # lf.addWidget(btn_save, 0, Qt.AlignRight)
+        lf.addLayout(form, 0)
+        lf.addStretch(1)
 
         # 右：方案列表 + 方案操作
         right = QGroupBox("方案列表")
@@ -233,9 +233,6 @@ class ActivityDetailPanel(QWidget):
 
         rf.addWidget(self.tbl_plans, 1)
 
-        hint = QLabel("✔ 隨喜方案：金額在報名時可自由填寫（這版已預留行為）")
-        hint.setStyleSheet("color:#6B7280;")
-        rf.addWidget(hint)
 
         layout.addWidget(left, 4)
         layout.addWidget(right, 6)
@@ -594,6 +591,14 @@ class ActivityDetailPanel(QWidget):
             border-radius: 12px;
             background: #FFF3DF;
         }
+        QTextEdit {
+            padding: 8px 10px;
+            border: 1px solid #E5E7EB;
+            border-radius: 10px;
+            background: #FFFFFF;
+        }
+        QTextEdit:hover { border-color: #D1D5DB; }
+        QTextEdit:focus { border-color: #D1D5DB; }
         """)
 
     def on_new_activity(self):
@@ -641,7 +646,7 @@ class ActivityDetailPanel(QWidget):
         detail_lines = [
             f"活動名稱：{name}",
             f"活動ID：{activity_id}",
-            f"活動日期：{start} ～ {end}" if start or end else "活動日期：—",
+            f"活動日期國曆：{start} ～ {end}" if start or end else "活動日期國曆：—",
         ]
         if plan_cnt is not None and signup_cnt is not None:
             detail_lines.append(f"方案數：{plan_cnt}　｜　報名數：{signup_cnt}")
@@ -709,7 +714,6 @@ class ActivityDetailPanel(QWidget):
         self.f_start.setText(data.get("activity_start_date", ""))
         self.f_end.setText(data.get("activity_end_date", ""))
         self.f_note.setPlainText(data.get("note", ""))
-
         self.reload_plans()
 
     def reload_plans(self):
@@ -732,10 +736,10 @@ class ActivityDetailPanel(QWidget):
             QMessageBox.warning(self, "欄位不足", "請輸入活動名稱")
             return None
         if not start:
-            QMessageBox.warning(self, "欄位不足", "請輸入活動開始日期（activity_start_date）")
+            QMessageBox.warning(self, "欄位不足", "請輸入活動開始日期國曆（activity_start_date）")
             return None
         if not end:
-            QMessageBox.warning(self, "欄位不足", "請輸入活動結束日期（activity_end_date）")
+            QMessageBox.warning(self, "欄位不足", "請輸入活動結束日期國曆（activity_end_date）")
             return None
 
         return {
