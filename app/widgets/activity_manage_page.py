@@ -35,7 +35,7 @@ class ActivityManagePage(QWidget):
         h_splitter.addWidget(self.activity_list_panel)
 
         # 右：新版本（標題/操作 + Tabs：活動/方案、報名狀況）
-        self.activity_detail_panel = ActivityDetailPanel()
+        self.activity_detail_panel = ActivityDetailPanel(controller=self.controller)
         self.activity_detail_panel.request_back.connect(self.request_close.emit)
         h_splitter.addWidget(self.activity_detail_panel)
 
@@ -52,6 +52,10 @@ class ActivityManagePage(QWidget):
         else:
             # 沒有 signal 的話也沒關係，先用右側 mock 顯示
             pass
+
+        # 新增/儲存活動後 → 刷新左側列表
+        self.activity_detail_panel.activity_saved.connect(self.on_activity_saved)
+
 
     def _load_mock_activities(self):
         items = [
@@ -83,3 +87,10 @@ class ActivityManagePage(QWidget):
         這裡就切換右側內容（先示範 mock）
         """
         self.activity_detail_panel.load_mock_activity(activity_id=activity_id)
+
+    def on_activity_saved(self, activity_id: str):
+        # 讓左側 panel 重新抓 DB
+        self.activity_list_panel.refresh(keyword="")
+        # 並選到剛新增的活動
+        self.activity_list_panel.set_selected(activity_id)
+

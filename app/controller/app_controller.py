@@ -4,6 +4,7 @@ import locale
 import sqlite3
 from app.config import DB_NAME
 from datetime import datetime
+from app.utils.id_utils import generate_activity_id_safe
 
 class AppController:
     def __init__(self, db_path=DB_NAME):
@@ -633,33 +634,41 @@ class AppController:
     #         print(f"❌ 更新報名人員時出錯：{e}")
     #         return False
 
+
+
     # -------------------------
     # Activities
     # -------------------------
-    def create_activity(self, data: dict) -> str:
-        """
-        data:
-          name, activity_date, location?, note?, is_active?
-        """
-        activity_id = self._uuid()
-        now = self._now()
+    def _activity_id_exists(self, activity_id: str) -> bool:
         cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT INTO activities (
-                id, name, activity_date, location, note, is_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            activity_id,
-            data.get("name"),
-            data.get("activity_date"),
-            data.get("location"),
-            data.get("note"),
-            int(data.get("is_active", 1)),
-            now,
-            now
-        ))
-        self.conn.commit()
-        return activity_id
+        cursor.execute("SELECT 1 FROM activities WHERE id = ? LIMIT 1", (activity_id,))
+        return cursor.fetchone() is not None
+
+
+    # def create_activity(self, data: dict) -> str:
+    #     """
+    #     data:
+    #       name, activity_date, location?, note?, is_active?
+    #     """
+    #     activity_id = self._uuid()
+    #     now = self._now()
+    #     cursor = self.conn.cursor()
+    #     cursor.execute("""
+    #         INSERT INTO activities (
+    #             id, name, activity_date, location, note, is_active, created_at, updated_at
+    #         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    #     """, (
+    #         activity_id,
+    #         data.get("name"),
+    #         data.get("activity_date"),
+    #         data.get("location"),
+    #         data.get("note"),
+    #         int(data.get("is_active", 1)),
+    #         now,
+    #         now
+    #     ))
+    #     self.conn.commit()
+    #     return activity_id
 
     def update_activity(self, activity_id: str, data: dict) -> bool:
         now = self._now()
@@ -969,6 +978,30 @@ class AppController:
         self.conn.commit()
         return cursor.rowcount > 0
     
+    def insert_activity_new(self, data: dict) -> str:
+        """
+        schema: activities
+        data: {name, activity_start_date, activity_end_date, note, status}
+        return: new activity_id (YYYYMMDDHHMMSS)
+        """
+        activity_id = generate_activity_id_safe(self._activity_id_exists)
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO activities (
+                id, name, activity_start_date, activity_end_date,
+                note, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        """, (
+            activity_id,
+            data.get("name"),
+            data.get("activity_start_date"),
+            data.get("activity_end_date"),
+            data.get("note"),
+            int(data.get("status", 1)),
+        ))
+        self.conn.commit()
+        return activity_id
+
 
 
 

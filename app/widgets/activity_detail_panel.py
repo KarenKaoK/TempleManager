@@ -9,6 +9,9 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QGridLayout,
     QSizePolicy, QGroupBox
 )
+from PyQt5.QtWidgets import QMessageBox
+import uuid
+from datetime import datetime
 
 
 # -----------------------------
@@ -47,16 +50,18 @@ class SignupRow:
 # -----------------------------
 class ActivityDetailPanel(QWidget):
     request_back = pyqtSignal()
+    activity_saved = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, controller, parent=None):
         super().__init__(parent)
+        self.controller = controller
         self._current_activity_id: Optional[str] = None
 
         self._plans: List[PlanRow] = []
         self._signups: List[SignupRow] = []
 
         self._build_ui()
-        self.load_mock_activity("2")
+        
 
     # -----------------------------
     # UI
@@ -103,7 +108,7 @@ class ActivityDetailPanel(QWidget):
 
         self.btn_back.clicked.connect(self.request_back.emit)
 
-        self.btn_new.clicked.connect(lambda: self._toast("TODO: 新增活動"))
+        self.btn_new.clicked.connect(self.on_new_activity)
         self.btn_edit.clicked.connect(lambda: self._toast("TODO: 修改活動"))
         self.btn_del.clicked.connect(lambda: self._toast("TODO: 刪除活動"))
 
@@ -159,7 +164,6 @@ class ActivityDetailPanel(QWidget):
         form.setVerticalSpacing(10)
 
         self.f_name = QLineEdit()
-        self.f_code = QLineEdit()
         self.f_start = QLineEdit()
         self.f_end = QLineEdit()
         self.f_status = QComboBox()
@@ -167,7 +171,7 @@ class ActivityDetailPanel(QWidget):
         self.f_note = QLineEdit()
 
         form.addRow("活動名稱", self.f_name)
-        form.addRow("活動編號", self.f_code)
+
 
         date_row = QWidget()
         date_row_l = QHBoxLayout(date_row)
@@ -185,7 +189,7 @@ class ActivityDetailPanel(QWidget):
 
         btn_save = QPushButton("儲存活動資料")
         btn_save.setMinimumHeight(36)
-        btn_save.clicked.connect(lambda: self._toast("Demo: 已儲存活動資料（尚未接 DB）"))
+        btn_save.clicked.connect(self.on_save_activity)
         lf.addWidget(btn_save, 0, Qt.AlignRight)
 
         # 右：方案列表 + 方案操作
@@ -401,8 +405,7 @@ class ActivityDetailPanel(QWidget):
 
         # tab1 form（demo 先帶）
         self.f_name.setText(title)
-        self.f_code.setText(meta.split("｜")[0].strip())
-        # 日期 demo：從 meta 抽字串比較麻煩，先固定；你之後接真實資料即可
+
         self.f_start.setText("2026/01/15")
         self.f_end.setText("2026/01/15")
         self.f_status.setCurrentText("進行中")
@@ -633,3 +636,112 @@ class ActivityDetailPanel(QWidget):
             background: #FFF3DF;
         }
         """)
+
+    def on_new_activity(self):
+        """
+        進入新增模式：清空表單、清空目前 activity_id、更新 header
+        """
+        self._current_activity_id = None
+        self._clear_activity_form()
+        self._plans = []
+        self._signups = []
+        self._render_plans()
+        self._render_signup_stats()
+        self._render_signups_table(select_first=False)
+
+        self.lbl_title.setText("（新增活動）")
+        self.lbl_meta.setText("尚未儲存")
+
+        # 切到 tab1
+        self.tabs.setCurrentIndex(0)
+
+    def on_save_activity(self):
+
+
+        ######################
+        import inspect
+
+        print("controller obj:", self.controller)
+        print("controller type:", type(self.controller))
+        print("controller module:", type(self.controller).__module__)
+        print("controller file:", inspect.getfile(type(self.controller)))
+        print("has insert_activity_new:", hasattr(self.controller, "insert_activity_new"))
+        print("dir contains:", [x for x in dir(self.controller) if "activity" in x])
+        #####################
+
+
+        """
+        儲存活動資料到 activities（新 schema）
+        """
+        data = self._collect_activity_form()
+        if not data:
+            return  # 已顯示錯誤
+
+        try:
+            new_id = self.controller.insert_activity_new(data)
+        except Exception as e:
+            QMessageBox.critical(self, "儲存失敗", f"寫入資料庫失敗：\n{e}")
+            return
+
+        self._current_activity_id = new_id
+
+        # 更新 header 顯示
+        title = data["name"]
+        date_range = self._format_date_range(data["activity_start_date"], data["activity_end_date"])
+        status_text = self._status_int_to_text(data["status"])
+        self.lbl_title.setText(title)
+        self.lbl_meta.setText(f"{new_id} ｜ {date_range} ｜ {status_text}")
+
+        QMessageBox.information(self, "成功", "✅ 活動已新增完成")
+
+        # ✅ 通知外層刷新左側活動清單
+        self.activity_saved.emit(new_id)
+
+    def _collect_activity_form(self) -> Optional[dict]:
+        name = self.f_name.text().strip()
+        start = self.f_start.text().strip()
+        end = self.f_end.text().strip()
+        note = self.f_note.text().strip()
+        status_text = self.f_status.currentText().strip()
+        status = self._status_text_to_int(status_text)
+
+        # 必填檢查
+        if not name:
+            QMessageBox.warning(self, "欄位不足", "請輸入活動名稱")
+            return None
+        if not start:
+            QMessageBox.warning(self, "欄位不足", "請輸入活動開始日期（activity_start_date）")
+            return None
+        if not end:
+            QMessageBox.warning(self, "欄位不足", "請輸入活動結束日期（activity_end_date）")
+            return None
+
+        return {
+            "name": name,
+            "activity_start_date": start,
+            "activity_end_date": end,
+            "note": note,
+            "status": status,
+        }
+
+    def _clear_activity_form(self):
+        self.f_name.clear()
+        self.f_start.clear()
+        self.f_end.clear()
+        self.f_note.clear()
+        self.f_status.setCurrentText("進行中")
+
+    def _status_text_to_int(self, text: str) -> int:
+        # 你新 schema 只有 0/1，先簡化：
+        # 進行中/未開始 -> 1，已結束 -> 0（你想要更細緻再加欄位）
+        if text == "已結束":
+            return 0
+        return 1
+
+    def _status_int_to_text(self, val: int) -> str:
+        return "進行中" if int(val) == 1 else "已結束"
+
+    def _format_date_range(self, start: str, end: str) -> str:
+        if start and end and start != end:
+            return f"{start} ～ {end}"
+        return start or end or ""
