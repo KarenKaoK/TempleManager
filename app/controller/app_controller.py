@@ -590,7 +590,7 @@ class AppController:
     #     return activity_id
 
     def update_activity(self, activity_id: str, data: dict):
-        conn = sqlite3.connect(self.db_name)
+        conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
 
         cursor.execute("""
