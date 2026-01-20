@@ -56,6 +56,9 @@ class ActivityManagePage(QWidget):
         # 新增/儲存活動後 → 刷新左側列表
         self.activity_detail_panel.activity_saved.connect(self.on_activity_saved)
 
+        self.activity_detail_panel.activity_deleted.connect(self.on_activity_deleted)
+
+
 
     def _load_mock_activities(self):
         items = [
@@ -79,8 +82,7 @@ class ActivityManagePage(QWidget):
         self.activity_list_panel.set_activities(items)
 
         pass 
-        # 讓右側先顯示「安座大典」的 mock
-        # self.activity_detail_panel.load_mock_activity(activity_id="2")
+
 
     def on_activity_selected(self, activity_id: str):
         """
@@ -94,4 +96,8 @@ class ActivityManagePage(QWidget):
         self.activity_list_panel.refresh(keyword="")
         # 並選到剛新增的活動
         self.activity_list_panel.set_selected(activity_id)
+
+    def on_activity_deleted(self, activity_id: str):
+        # 刷新左側清單；ActivityListPanel 會 auto_select_first=True
+        self.activity_list_panel.refresh(keyword="")
 

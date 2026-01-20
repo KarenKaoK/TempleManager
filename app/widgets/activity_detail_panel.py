@@ -53,6 +53,8 @@ class SignupRow:
 class ActivityDetailPanel(QWidget):
     request_back = pyqtSignal()
     activity_saved = pyqtSignal(str)
+    activity_deleted = pyqtSignal(str)
+
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -114,7 +116,7 @@ class ActivityDetailPanel(QWidget):
 
         self.btn_new.clicked.connect(self.on_new_activity)
         self.btn_edit.clicked.connect(self.on_edit_activity)
-        self.btn_del.clicked.connect(lambda: self._toast("TODO: 刪除活動"))
+        self.btn_del.clicked.connect(self.on_delete_activity)
 
         for b in (self.btn_back, self.btn_new, self.btn_edit, self.btn_del):
             b.setMinimumHeight(34)
@@ -210,8 +212,8 @@ class ActivityDetailPanel(QWidget):
             b.setMinimumHeight(32)
 
         self.btn_plan_new.clicked.connect(self.on_new_plan)
-        self.btn_plan_edit.clicked.connect(lambda: self._toast("TODO: 修改方案 Dialog"))
-        self.btn_plan_del.clicked.connect(lambda: self._toast("TODO: 刪除方案"))
+        self.btn_plan_edit.clicked.connect(self.on_edit_plan)
+        self.btn_plan_del.clicked.connect(self.on_delete_plan)
 
         plan_btn_row.addWidget(self.btn_plan_new)
         plan_btn_row.addWidget(self.btn_plan_edit)
@@ -617,6 +619,69 @@ class ActivityDetailPanel(QWidget):
         if dlg.exec_() == dlg.Accepted:
             self.activity_saved.emit(self._current_activity_id)
 
+    def on_delete_activity(self):
+        if not self._current_activity_id:
+            QMessageBox.warning(self, "請先選擇活動", "請先從左側清單選擇一筆活動")
+            return
+
+        activity_id = self._current_activity_id
+        data = self.controller.get_activity_by_id(activity_id) or {}
+        name = data.get("name", "")
+        start = data.get("activity_start_date", "")
+        end = data.get("activity_end_date", "")
+
+        # 方案/報名數提示（如果 controller 有這個方法）
+        plan_cnt = None
+        signup_cnt = None
+        if hasattr(self.controller, "get_activity_delete_stats"):
+            stat = self.controller.get_activity_delete_stats(activity_id) or {}
+            plan_cnt = stat.get("plan_cnt", 0)
+            signup_cnt = stat.get("signup_cnt", 0)
+
+        detail_lines = [
+            f"活動名稱：{name}",
+            f"活動ID：{activity_id}",
+            f"活動日期：{start} ～ {end}" if start or end else "活動日期：—",
+        ]
+        if plan_cnt is not None and signup_cnt is not None:
+            detail_lines.append(f"方案數：{plan_cnt}　｜　報名數：{signup_cnt}")
+            if signup_cnt > 0:
+                detail_lines.append("⚠️ 注意：刪除活動會連同「報名資料/明細」一併刪除，無法復原。")
+
+        msg = "確定要刪除這個活動嗎？\n\n" + "\n".join(detail_lines)
+
+        ok = QMessageBox.question(
+            self,
+            "確認刪除活動",
+            msg,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if ok != QMessageBox.Yes:
+            return
+
+        try:
+            deleted = self.controller.delete_activity(activity_id)
+            if not deleted:
+                QMessageBox.warning(self, "刪除失敗", "刪除失敗：找不到活動或已被刪除")
+                return
+
+            # 清空右側顯示（避免還留著舊資料）
+            self._current_activity_id = None
+            self._clear_activity_form()
+            self.tbl_plans.setRowCount(0)
+            self.tbl_signups.setRowCount(0)
+            self._clear_signup_detail()
+
+            QMessageBox.information(self, "刪除完成", "活動已刪除。")
+
+            # 通知外層刷新左側清單
+            self.activity_deleted.emit(activity_id)
+
+        except Exception as e:
+            QMessageBox.critical(self, "刪除失敗", f"刪除活動失敗：\n{e}")
+
+
     def on_new_plan(self):
         if not self._current_activity_id:
             QMessageBox.warning(self, "請先選擇活動", "要新增方案前請先選擇一個活動")
@@ -701,4 +766,93 @@ class ActivityDetailPanel(QWidget):
             return f"{start} ～ {end}"
         return start or end or ""
     
+    # -------------------------
+    # Activity Plans
+    # -------------------------
+
+    def _get_selected_plan_id(self) -> Optional[str]:
+        row = self.tbl_plans.currentRow()
+        if row < 0:
+            return None
+        it = self.tbl_plans.item(row, 0)
+        if it is None:
+            return None
+        pid = it.data(Qt.UserRole)
+        return str(pid) if pid else None
+
+    def on_edit_plan(self):
+        if not self._current_activity_id:
+            QMessageBox.warning(self, "請先選擇活動", "請先在左側選擇一個活動，再修改方案")
+            return
+
+        plan_id = self._get_selected_plan_id()
+        if not plan_id:
+            QMessageBox.information(self, "尚未選擇方案", "請先點選下方方案表格中的一列")
+            return
+
+        # 優先向 controller 取完整資料（含 note）
+        plan_data = None
+        if hasattr(self.controller, "get_activity_plan_by_id"):
+            plan_data = self.controller.get_activity_plan_by_id(plan_id)
+
+        # 若 controller 沒有提供，退回使用目前表格資料
+        if not plan_data:
+            for p in getattr(self, "_plans", []):
+                if str(p.id) == str(plan_id):
+                    plan_data = {
+                        "id": p.id,
+                        "activity_id": self._current_activity_id,
+                        "name": p.name,
+                        "items": p.items,
+                        "fee_type": p.fee_type,
+                        "amount": p.amount,
+                        "note": "",
+                    }
+                    break
+
+        dlg = PlanEditDialog(
+            self.controller,
+            mode="edit",
+            activity_id=self._current_activity_id,
+            plan_id=plan_id,
+            plan_data=plan_data,
+            parent=self,
+        )
+        if dlg.exec_() == dlg.Accepted:
+            self.reload_plans()
+
+    def on_delete_plan(self):
+        if not self._current_activity_id:
+            QMessageBox.warning(self, "請先選擇活動", "請先在左側選擇一個活動，再刪除方案")
+            return
+
+        plan_id = self._get_selected_plan_id()
+        if not plan_id:
+            QMessageBox.information(self, "尚未選擇方案", "請先點選下方方案表格中的一列")
+            return
+
+        plan_name = ""
+        row = self.tbl_plans.currentRow()
+        if row >= 0 and self.tbl_plans.item(row, 0):
+            plan_name = self.tbl_plans.item(row, 0).text()
+
+        ok = QMessageBox.question(
+            self,
+            "確認刪除",
+            f"確定要刪除方案嗎？\n\n方案：{plan_name or plan_id}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ok != QMessageBox.Yes:
+            return
+
+        try:
+            if not hasattr(self.controller, "delete_activity_plan"):
+                raise AttributeError("controller.delete_activity_plan not found")
+            self.controller.delete_activity_plan(plan_id)
+            self.reload_plans()
+        except Exception as e:
+            QMessageBox.critical(self, "刪除失敗", f"刪除方案失敗：\n{e}")
+
+
 

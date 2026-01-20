@@ -615,12 +615,58 @@ class AppController:
         conn.commit()
         conn.close()
 
+    def get_activity_delete_stats(self, activity_id: str) -> dict:
+        """
+        回傳刪除前的統計資訊：方案數 / 報名數
+        """
+        cur = self.conn.cursor()
+
+        cur.execute("SELECT COUNT(*) FROM activity_plans WHERE activity_id = ?", (activity_id,))
+        plan_cnt = int(cur.fetchone()[0] or 0)
+
+        cur.execute("SELECT COUNT(*) FROM activity_signups WHERE activity_id = ?", (activity_id,))
+        signup_cnt = int(cur.fetchone()[0] or 0)
+
+        return {"plan_cnt": plan_cnt, "signup_cnt": signup_cnt}
+
 
     def delete_activity(self, activity_id: str) -> bool:
-        cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM activities WHERE id = ?", (activity_id,))
-        self.conn.commit()
-        return cursor.rowcount > 0
+        """
+        刪除活動（含關聯資料）：
+        1) activity_signup_plans（明細）
+        2) activity_signups（主檔）
+        3) activity_plans
+        4) activities
+        用交易包起來，避免刪到一半。
+        """
+        cur = self.conn.cursor()
+        try:
+            cur.execute("BEGIN;")
+
+            # 1) 刪報名明細（透過 signup_id）
+            cur.execute("""
+                DELETE FROM activity_signup_plans
+                WHERE signup_id IN (
+                    SELECT id FROM activity_signups WHERE activity_id = ?
+                )
+            """, (activity_id,))
+
+            # 2) 刪報名主檔
+            cur.execute("DELETE FROM activity_signups WHERE activity_id = ?", (activity_id,))
+
+            # 3) 刪方案
+            cur.execute("DELETE FROM activity_plans WHERE activity_id = ?", (activity_id,))
+
+            # 4) 刪活動
+            cur.execute("DELETE FROM activities WHERE id = ?", (activity_id,))
+            deleted = cur.rowcount > 0
+
+            cur.execute("COMMIT;")
+            return deleted
+
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
 
     def get_all_activities(self, active_only: bool = False):
         """
@@ -795,36 +841,136 @@ class AppController:
         return plan_id
 
     def update_activity_plan(self, plan_id: str, plan: dict) -> bool:
-        now = self._now()
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            UPDATE activity_plans
-            SET name = ?, description = ?, price_type = ?,
-                fixed_price = ?, suggested_price = ?, min_price = ?,
-                allow_qty = ?, sort_order = ?, is_active = ?,
-                updated_at = ?
-            WHERE id = ?
-        """, (
-            plan.get("name"),
-            plan.get("description"),
-            plan.get("price_type"),
-            int(plan.get("fixed_price", 0) or 0),
-            int(plan.get("suggested_price", 0) or 0),
-            int(plan.get("min_price", 0) or 0),
-            int(plan.get("allow_qty", 1)),
-            int(plan.get("sort_order", 0)),
-            int(plan.get("is_active", 1)),
-            now,
-            plan_id
-        ))
+        """
+        Update a plan.
+
+        Supports TWO payload shapes:
+        1) UI payload (PlanEditDialog): {name, items, fee_type, amount, note}
+        2) DB payload (advanced): keys like {name, description/items, price_type, fixed_price, ...}
+        """
+        cols = self._table_columns("activity_plans")
+
+        # --- normalize payload ---
+        if "fee_type" in (plan or {}):
+            # UI payload
+            name = (plan.get("name") or "").strip()
+            items = (plan.get("items") or "").strip()
+            fee_type = (plan.get("fee_type") or "fixed")
+            amount = plan.get("amount", None)
+            note = plan.get("note") or ""
+
+            if fee_type == "fixed":
+                price_type = "FIXED"
+                fixed_price = int(amount or 0)
+                suggested_price = None
+                min_price = None
+            else:
+                price_type = "FREE"
+                fixed_price = None
+                suggested_price = 0
+                min_price = 0
+
+            payload = {
+                "name": name,
+                "items": items,
+                "description": items,
+                "price_type": price_type,
+                "fixed_price": fixed_price,
+                "suggested_price": suggested_price,
+                "min_price": min_price,
+                "note": note,
+            }
+        else:
+            payload = dict(plan or {})
+
+        # --- build SQL dynamically based on actual columns ---
+        set_parts = []
+        params = []
+
+        def set_if(col, key=None, default=None):
+            if col in cols:
+                set_parts.append(f"{col} = ?")
+                params.append(payload.get(key or col, default))
+
+        set_if("name", "name", "")
+
+        # items/description: support either schema
+        if "items" in cols:
+            set_if("items", "items", "")
+        elif "description" in cols:
+            set_if("description", "description", "")
+
+        set_if("price_type", "price_type", "FREE")
+        set_if("fixed_price", "fixed_price", None)
+        set_if("suggested_price", "suggested_price", 0)
+        set_if("min_price", "min_price", 0)
+        set_if("note", "note", "")
+
+        # optional columns
+        set_if("allow_qty", "allow_qty", 1)
+        set_if("sort_order", "sort_order", 0)
+        set_if("is_active", "is_active", 1)
+
+        if "updated_at" in cols:
+            set_parts.append("updated_at = CURRENT_TIMESTAMP")
+
+        if not set_parts:
+            raise RuntimeError("activity_plans schema has no updatable columns")
+
+        sql = f"UPDATE activity_plans SET {', '.join(set_parts)} WHERE id = ?"
+        params.append(plan_id)
+
+        cur = self.conn.cursor()
+        cur.execute(sql, params)
         self.conn.commit()
-        return cursor.rowcount > 0
+        return cur.rowcount > 0
 
     def delete_activity_plan(self, plan_id: str) -> bool:
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM activity_plans WHERE id = ?", (plan_id,))
         self.conn.commit()
         return cursor.rowcount > 0
+
+    def _table_columns(self, table: str) -> set[str]:
+        """Return a set of column names for a sqlite table."""
+        cur = self.conn.cursor()
+        cur.execute(f"PRAGMA table_info({table})")
+        return {row[1] for row in cur.fetchall()}
+    
+    def get_activity_plan_by_id(self, plan_id: str):
+        """Get a single plan and map it into UI-friendly keys."""
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM activity_plans WHERE id = ? LIMIT 1", (plan_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        r = dict(row)
+
+        price_type = (r.get("price_type") or "").upper()
+        if price_type == "FIXED":
+            fee_type = "fixed"
+            amount = r.get("fixed_price")
+        else:
+            fee_type = "donation"
+            amount = None
+
+        items = r.get("items")
+        if items is None:
+            items = r.get("description")
+        if items is None:
+            items = ""
+
+        return {
+            "id": r.get("id"),
+            "activity_id": r.get("activity_id"),
+            "name": r.get("name") or "",
+            "items": items or "",
+            "fee_type": fee_type,
+            "amount": amount,
+            "note": r.get("note") or "",
+            "_raw": r,
+        }
+
 
     # -------------------------
     # Signups (核心)
