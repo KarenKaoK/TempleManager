@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+import random
 from datetime import datetime
 from PyQt5.QtCore import QDate
 
@@ -38,3 +39,10 @@ def _compute_display_status(self, start_qdate: QDate, end_qdate: QDate) -> str:
     if today > end_qdate:
         return "已結束"
     return "進行中"
+
+def new_plan_id(activity_id: str) -> str:
+    """
+    Generate plan id like: 20260120134458-P0382
+    """
+    rand = f"{random.randint(0, 9999):04d}"
+    return f"{activity_id}-P{rand}"

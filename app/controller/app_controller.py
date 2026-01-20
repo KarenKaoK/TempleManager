@@ -4,7 +4,7 @@ import locale
 import sqlite3
 from app.config import DB_NAME
 from datetime import datetime
-from app.utils.id_utils import generate_activity_id_safe
+from app.utils.id_utils import generate_activity_id_safe, new_plan_id
 
 class AppController:
     def __init__(self, db_path=DB_NAME):
@@ -686,54 +686,112 @@ class AppController:
     # -------------------------
     def get_activity_plans(self, activity_id: str, active_only: bool = True):
         cursor = self.conn.cursor()
-        if active_only:
-            cursor.execute("""
-                SELECT *
-                FROM activity_plans
-                WHERE activity_id = ? AND is_active = 1
-                ORDER BY sort_order ASC, created_at ASC
-            """, (activity_id,))
-        else:
-            cursor.execute("""
-                SELECT *
-                FROM activity_plans
-                WHERE activity_id = ?
-                ORDER BY sort_order ASC, created_at ASC
-            """, (activity_id,))
-        return [dict(row) for row in cursor.fetchall()]
 
-    def create_activity_plan(self, activity_id: str, plan: dict) -> str:
-        """
-        plan:
-          name, description?, price_type ('FIXED'/'FREE'),
-          fixed_price?, suggested_price?, min_price?, allow_qty?, sort_order?, is_active?
-        """
-        plan_id = self._uuid()
-        now = self._now()
-        cursor = self.conn.cursor()
+        where = "WHERE activity_id = ?"
+        params = [activity_id]
+        if active_only:
+            where += " AND is_active = 1"
+
+        cursor.execute(f"""
+            SELECT *
+            FROM activity_plans
+            {where}
+            ORDER BY sort_order ASC, created_at ASC
+        """, params)
+
+        rows = [dict(row) for row in cursor.fetchall()]
+
+        # 轉成 UI 期待的 keys：items / fee_type / amount
+        result = []
+        for r in rows:
+            price_type = (r.get("price_type") or "").upper()
+
+            if price_type == "FIXED":
+                fee_type = "fixed"
+                amount = r.get("fixed_price")
+            elif price_type == "FREE":
+                fee_type = "donation"   # 你的 UI 裡 donation 代表「報名時自由填」
+                amount = None
+            else:
+                fee_type = "other"
+                amount = None
+
+            result.append({
+                "id": r.get("id"),
+                "activity_id": r.get("activity_id"),
+                "name": r.get("name"),
+                # DB 若是 description，就映射成 items 給 UI 用
+                "items": r.get("description") if r.get("description") is not None else r.get("items", ""),
+                "fee_type": fee_type,
+                "amount": amount,
+            })
+
+        return result
+
+
+    def create_activity_plan(
+        self,
+        activity_id: str,
+        name: str,
+        items: str,
+        fee_type: str,
+        amount: int | None,
+        note: str = ""
+    ) -> str:
+
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        # ---- 1. 產生 plan_id（activity_id + 4位數字，含防撞）----
+        plan_id = None
+        for _ in range(20):  # 最多嘗試 20 次，理論上 1 次就會過
+            candidate = new_plan_id(activity_id)
+            cursor.execute(
+                "SELECT 1 FROM activity_plans WHERE id = ? LIMIT 1",
+                (candidate,)
+            )
+            if cursor.fetchone() is None:
+                plan_id = candidate
+                break
+
+        if plan_id is None:
+            conn.close()
+            raise RuntimeError("無法產生唯一的方案 ID")
+
+        # ---- 2. fee_type → DB schema mapping ----
+        if fee_type == "fixed":
+            price_type = "FIXED"
+            fixed_price = int(amount or 0)
+            suggested_price = None
+            min_price = None
+        else:
+            # donation / other
+            price_type = "FREE"
+            fixed_price = None
+            suggested_price = 0
+            min_price = 0
+
+        # ---- 3. 寫入 DB ----
         cursor.execute("""
-            INSERT INTO activity_plans (
-                id, activity_id, name, description, price_type,
-                fixed_price, suggested_price, min_price,
-                allow_qty, sort_order, is_active,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO activity_plans
+            (id, activity_id, name, items,
+             price_type, fixed_price, suggested_price, min_price,
+             note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             plan_id,
             activity_id,
-            plan.get("name"),
-            plan.get("description"),
-            plan.get("price_type"),
-            int(plan.get("fixed_price", 0) or 0),
-            int(plan.get("suggested_price", 0) or 0),
-            int(plan.get("min_price", 0) or 0),
-            int(plan.get("allow_qty", 1)),
-            int(plan.get("sort_order", 0)),
-            int(plan.get("is_active", 1)),
-            now,
-            now
+            name,
+            items,
+            price_type,
+            fixed_price,
+            suggested_price,
+            min_price,
+            note
         ))
-        self.conn.commit()
+
+        conn.commit()
+        conn.close()
         return plan_id
 
     def update_activity_plan(self, plan_id: str, plan: dict) -> bool:

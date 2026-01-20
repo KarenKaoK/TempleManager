@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QGroupBox
 )
 from PyQt5.QtWidgets import QMessageBox, QTextEdit
-import uuid
 from datetime import datetime
 from app.utils.id_utils import _compute_display_status
 from app.dialogs.activity_edit_dialog import ActivityEditDialog

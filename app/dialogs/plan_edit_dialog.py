@@ -219,23 +219,87 @@ class PlanEditDialog(QDialog):
                 if not hasattr(self.controller, "create_activity_plan"):
                     raise AttributeError("controller.create_activity_plan not found")
 
-                new_plan_id = self.controller.create_activity_plan(self.activity_id, payload)
-                self._result_plan_id = new_plan_id
-                QMessageBox.information(self, "新增完成", "方案已新增完成")
+                # 統一用 plan_id 這個變數
+                plan_id = self.controller.create_activity_plan(
+                    self.activity_id,
+                    payload["name"],
+                    payload["items"],
+                    payload["fee_type"],
+                    payload["amount"],
+                    payload.get("note", "")
+                )
+
+                # create_activity_plan 必須 return plan_id，否則會是 None
+                if not plan_id:
+                    raise RuntimeError("create_activity_plan() did not return plan_id")
+
+                self._result_plan_id = plan_id
+                
+
+                # 顯示費用方式文字
+                fee_type = payload.get("fee_type", "")
+                amount = payload.get("amount", None)
+
+                if fee_type == "fixed":
+                    fee_text = f"固定金額：{int(amount or 0)} 元"
+                elif fee_type == "donation":
+                    fee_text = "隨喜（自由填）"
+                else:
+                    fee_text = "其他"
+
+                # 組合顯示內容（把新增內容一起顯示）
+                msg = (
+                    "方案已新增完成 n\n"
+                    f"活動 ID：{self.activity_id}\n"
+                    f"方案 ID：{plan_id}\n"
+                    f"方案名稱：{payload.get('name', '')}\n"
+                    f"方案項目：{payload.get('items', '')}\n"
+                    f"費用方式：{fee_text}\n"
+                )
+
+                note = (payload.get("note") or "").strip()
+                if note:
+                    msg += f"備註：{note}\n"
+
+                QMessageBox.information(self, "新增完成", msg)
                 self.accept()
                 return
 
-            # edit
+            # -------------------------
+            # EDIT
+            # -------------------------
             if not self.plan_id:
                 QMessageBox.warning(self, "無法儲存", "找不到要修改的方案 ID")
                 return
 
-            # 你 controller 目前未必有 update_activity_plan（名稱可能不同）
-            # 我先嘗試常見命名：update_activity_plan(plan_id, payload)
+            # update：盡量相容兩種 controller 寫法
             if hasattr(self.controller, "update_activity_plan"):
-                self.controller.update_activity_plan(self.plan_id, payload)
+                try:
+                    # 嘗試 (plan_id, payload) 的版本
+                    self.controller.update_activity_plan(self.plan_id, payload)
+                except TypeError:
+                    # 改用拆參數
+                    self.controller.update_activity_plan(
+                        self.plan_id,
+                        payload["name"],
+                        payload["items"],
+                        payload["fee_type"],
+                        payload["amount"],
+                        payload.get("note", "")
+                    )
+
             elif hasattr(self.controller, "update_plan"):
-                self.controller.update_plan(self.plan_id, payload)
+                try:
+                    self.controller.update_plan(self.plan_id, payload)
+                except TypeError:
+                    self.controller.update_plan(
+                        self.plan_id,
+                        payload["name"],
+                        payload["items"],
+                        payload["fee_type"],
+                        payload["amount"],
+                        payload.get("note", "")
+                    )
             else:
                 raise AttributeError("No update method found: update_activity_plan / update_plan")
 

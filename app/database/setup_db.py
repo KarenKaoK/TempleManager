@@ -221,11 +221,12 @@ def create_activity_plans_table(db_name=DB_NAME):
     activity_id TEXT NOT NULL,
 
     name TEXT NOT NULL,                 -- 方案名稱
-    description TEXT,                   -- 方案項目文字敘述
+    items TEXT,                   -- 方案項目文字敘述
 
     price_type TEXT NOT NULL CHECK (price_type IN ('FIXED', 'FREE')),
     
     fixed_price INTEGER DEFAULT 0,      -- 固定金額（FIXED 用）
+    note TEXT,
     suggested_price INTEGER DEFAULT 0,  -- 隨喜建議金額（FREE 顯示用）
     min_price INTEGER DEFAULT 0,        -- 隨喜最低金額（可 0）
 
