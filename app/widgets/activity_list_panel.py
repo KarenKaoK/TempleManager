@@ -275,7 +275,7 @@ class ActivityListPanel(QWidget):
         else:
             date_range = start_date or end_date or ""
 
-        status_text = self._compute_display_status(
+        status_text = self.compute_display_status(
             start_date,
             end_date,
             row.get("status", 1),
@@ -344,7 +344,7 @@ class ActivityListPanel(QWidget):
                 pass
         return None
 
-    def _compute_display_status(self, start: str, end: str, status_int) -> str:
+    def compute_display_status(self, start: str, end: str, status_int) -> str:
         # 若 DB 明確標 0：視為已結束/停用（手動結束）
         try:
             if int(status_int) == 0:

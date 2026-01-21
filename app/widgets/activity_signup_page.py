@@ -8,6 +8,10 @@ from PyQt5.QtCore import pyqtSignal, Qt
 
 from app.widgets.activity_person_panel import ActivityPersonPanel
 from app.widgets.activity_plan_panel import ActivityPlanPanel
+from app.utils.id_utils import (
+    compute_display_status,
+    parse_date_str_to_qdate,
+)
 
 
 # -----------------------------
@@ -74,6 +78,38 @@ class _ActivityCard(QFrame):
         self._selected = False
         self._build_ui()
         self._apply_style()
+        self._disabled = False
+
+    def _get_signup_status(self):
+        """
+        回傳 (label_text, is_open, status_key)
+        status_key:
+        - open: 可報名（進行中）
+        - not_started: 未開始（但仍可報名/可點）
+        - expired: 已過期（不可點）
+        """
+        start_s = self.activity.get("activity_start_date")
+        end_s = self.activity.get("activity_end_date")
+
+        if not start_s or not end_s:
+            dr = self.activity.get("date_range", "")
+            if "~" in dr:
+                start_s, end_s = [x.strip() for x in dr.split("~", 1)]
+
+        start_q = parse_date_str_to_qdate(start_s)
+        end_q = parse_date_str_to_qdate(end_s)
+
+        if not start_q or not end_q:
+            return "可報名", True, "open"
+
+        status = compute_display_status(start_q, end_q)  # 未開始 / 進行中 / 已結束
+
+        if status == "未開始":
+            return "未開始", True, "not_started"   # ✅ 仍可點、仍是橘色系
+        if status == "已結束":
+            return "已過期", False, "expired"
+        return "可報名", True, "open"
+
 
     def _build_ui(self):
         self.setCursor(Qt.PointingHandCursor)
@@ -88,7 +124,8 @@ class _ActivityCard(QFrame):
         code = (self.activity.get("code") or self.activity.get("id") or "").strip()
         date_range = (self.activity.get("date_range") or "").strip()
 
-        self.lbl_tag = QLabel("可報名")
+        status_text, is_open, status_key = self._get_signup_status()
+        self.lbl_tag = QLabel(status_text)
         self.lbl_tag.setStyleSheet("""
             QLabel{
                 padding: 2px 8px;
@@ -107,17 +144,95 @@ class _ActivityCard(QFrame):
         self.lbl_meta = QLabel(date_range)
         self.lbl_meta.setStyleSheet("color:#666666; font-size: 12px;")
 
-        root.addWidget(self.lbl_tag, 0, Qt.AlignLeft)
-        root.addWidget(self.lbl_title)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+
+        title_row.addWidget(self.lbl_title, 1)
+        title_row.addStretch(1)
+        title_row.addWidget(self.lbl_tag, 0, Qt.AlignRight | Qt.AlignTop)
+
+        root.addLayout(title_row)
         root.addWidget(self.lbl_meta)
+
 
         self.setMinimumHeight(84)
 
     def set_selected(self, selected: bool):
-        self._selected = bool(selected)
+        if self._disabled:
+            self._selected = False
+        else:
+            self._selected = bool(selected)
         self._apply_style()
 
+
     def _apply_style(self):
+        status_text, is_open, status_key = self._get_signup_status()
+        self.lbl_tag.setText(status_text)
+
+        # 只有 expired 才 disabled
+        self._disabled = (status_key == "expired")
+
+        # --- tag style ---
+        if status_key == "expired":
+            # 灰色（不可點）
+            self.lbl_tag.setStyleSheet("""
+                QLabel{
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                    background: rgba(107,114,128,0.12);
+                    border: 1px solid rgba(107,114,128,0.25);
+                    color: #374151;
+                    font-weight: 800;
+                    font-size: 12px;
+                }
+            """)
+        elif status_key == "not_started":
+            # 未開始：藍色
+            self.lbl_tag.setStyleSheet("""
+                QLabel{
+                    padding: 2px 10px;
+                    border-radius: 12px;
+                    background: rgba(59,130,246,0.10);   /* 淡藍底 */
+                    border: 1px solid rgba(59,130,246,0.25);
+                    color: #1E3A8A;                      /* 深藍字 */
+                    font-weight: 800;
+                    font-size: 12px;
+                }
+            """)
+        else:
+            # open：原本橘色（可報名）
+            self.lbl_tag.setStyleSheet("""
+                QLabel{
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                    background: rgba(251,191,36,0.18);
+                    border: 1px solid rgba(251,191,36,0.35);
+                    color: #7a4a00;
+                    font-weight: 800;
+                    font-size: 12px;
+                }
+            """)
+
+        # --- card style ---
+        if self._disabled:
+            self.setCursor(Qt.ArrowCursor)
+            self.setStyleSheet("""
+                QFrame#activityCard{
+                    background: rgba(249,250,251,1.0);
+                    border: 1px solid #E5E7EB;
+                    border-radius: 12px;
+                }
+                QLabel{
+                    color: #6B7280;
+                }
+            """)
+            self._selected = False
+            return
+
+        # is_open == True（open / not_started 都會到這裡）
+        self.setCursor(Qt.PointingHandCursor)
+
         if self._selected:
             self.setStyleSheet("""
                 QFrame#activityCard{
@@ -138,9 +253,14 @@ class _ActivityCard(QFrame):
                 }
             """)
 
+
+
     def mousePressEvent(self, e):
         super().mousePressEvent(e)
+        if self._disabled:
+            return
         self.clicked.emit(self.activity)
+
 
 
 class ActivitySignupPage(QWidget):
@@ -214,11 +334,6 @@ class ActivitySignupPage(QWidget):
         row1.addWidget(self.btn_clear_activity)
 
         top_layout.addLayout(row1)
-
-        # 第二列：提示文字
-        hint = QLabel("第一步：先選擇活動 → 第二步：搜尋/新增人員 → 第三步：選方案 + 數量 → 自動計算 → 存入")
-        hint.setStyleSheet("color:#666666;")
-        top_layout.addWidget(hint)
 
         # 活動卡片區（Scroll + Grid）
         self.activity_scroll = QScrollArea()
@@ -347,9 +462,13 @@ class ActivitySignupPage(QWidget):
         self._activity_list = activities or []
         self._render_activity_cards(self._activity_list)
 
-        # 如果沒活動：維持鎖定
         has_any = bool(self._activity_list)
         self.btn_clear_activity.setEnabled(has_any)
+
+        # 沒有活動：維持 Step0 狀態
+        if not has_any:
+            self.set_activity({})
+
 
     def _render_activity_cards(self, activities: list):
         # 清空 grid
@@ -387,14 +506,23 @@ class ActivitySignupPage(QWidget):
     def _on_activity_card_clicked(self, activity: dict):
         if not activity:
             return
+
+        if activity.get("is_open") is False:
+            QMessageBox.information(self, "此活動不可報名", "此活動目前狀態為「已結束」，無法新增報名。")
+            return
+
         self.set_activity(activity)
 
+
     def _clear_selected_activity(self):
-        # 取消卡片選取樣式
         for c in self._activity_cards:
             c.set_selected(False)
 
         self.set_activity({})
+
+        # 若列表為空，順手 disable
+        self.btn_clear_activity.setEnabled(bool(self._activity_list))
+
 
     # =========================
     # Lock / Unlock 報名區
@@ -495,3 +623,22 @@ class ActivitySignupPage(QWidget):
                 self.plan_panel.load_activity(selected_id)
             except Exception as e:
                 QMessageBox.warning(self, "載入方案失敗", f"載入方案時發生錯誤：\n{e}")
+    
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 每次這個頁面「顯示出來」就重載活動卡片
+        self.reload_activities()
+
+    def reload_activities(self, keep_selected: bool = True):
+        prev_id = self.activity_data.get("id") if (keep_selected and self.activity_data) else None
+
+        self._load_activities()
+
+        # 重新選回之前選的活動（如果還存在）
+        if prev_id:
+            for a in self._activity_list:
+                if a.get("id") == prev_id:
+                    self.set_activity(a)
+                    break
+
+    

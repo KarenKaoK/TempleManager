@@ -4,7 +4,9 @@ import locale
 import sqlite3
 from app.config import DB_NAME
 from datetime import datetime
+from typing import Optional
 from app.utils.id_utils import generate_activity_id_safe, new_plan_id
+
 
 class AppController:
     def __init__(self, db_path=DB_NAME):
@@ -283,225 +285,6 @@ class AppController:
         ]
         return dict(zip(keys, row))
 
-    # def generate_activity_id(self):
-    #     today_str = datetime.now().strftime("%Y%m%d")
-    #     cursor = self.conn.cursor()
-    #     cursor.execute("""
-    #         SELECT COUNT(DISTINCT activity_id)
-    #         FROM activities
-    #         WHERE activity_id LIKE ?
-    #     """, (f"{today_str}%",))
-    #     count = cursor.fetchone()[0] + 1
-    #     return f"{today_str}-{count:03}"
-
-    # def insert_activity(self, data: dict):
-    #     cursor = self.conn.cursor()
-    #     activity_id = self.generate_activity_id()
-
-    #     for scheme in data.get("scheme_rows", []):
-    #         row_id = "R" + uuid.uuid4().hex[:8]
-
-    #         cursor.execute("""
-    #             INSERT INTO activities (
-    #                 id, activity_id, name, start_date, end_date,
-    #                 scheme_name, scheme_item, amount, note,
-    #                 is_closed, created_at, updated_at
-    #             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    #         """, (
-    #             row_id,
-    #             activity_id,
-    #             data.get("activity_name"),
-    #             data.get("start_date"),
-    #             data.get("end_date"),
-    #             scheme.get("scheme_name"),  # ✅ 這裡要對應你在 get_scheme_data() 傳回的 key
-    #             scheme.get("scheme_item"),
-    #             float(scheme.get("amount") or 0),
-    #             data.get("content"),
-    #             0  # is_closed
-    #         ))
-
-    #     self.conn.commit()
-
-    # def get_all_activities(self):
-    #     cursor = self.conn.cursor()
-    #     cursor.execute("""
-    #         SELECT 
-    #             activity_id,
-    #             name,
-    #             start_date,
-    #             end_date,
-    #             GROUP_CONCAT(scheme_name, CHAR(10)) AS scheme_names,
-    #             GROUP_CONCAT(scheme_item, CHAR(10)) AS scheme_items,
-    #             GROUP_CONCAT(amount, CHAR(10)) AS amounts,
-    #             is_closed
-    #         FROM activities
-    #         GROUP BY activity_id
-    #         ORDER BY MAX(created_at) DESC
-    #     """)
-    #     return cursor.fetchall()
-    
-    # def search_activities(self, keyword):
-    #     cursor = self.conn.cursor()
-    #     like_pattern = f"%{keyword}%"
-
-    #     cursor.execute("""
-    #         SELECT 
-    #             activity_id,
-    #             name,
-    #             start_date,
-    #             end_date,
-    #             GROUP_CONCAT(scheme_name, CHAR(10)) AS scheme_names,
-    #             GROUP_CONCAT(scheme_item, CHAR(10)) AS scheme_items,
-    #             GROUP_CONCAT(amount, CHAR(10)) AS amounts,
-    #             is_closed
-    #         FROM activities
-    #         WHERE 
-    #             activity_id LIKE ? OR
-    #             name LIKE ? OR
-    #             start_date LIKE ?
-    #         GROUP BY activity_id
-    #         ORDER BY MAX(created_at) DESC
-    #     """, (like_pattern, like_pattern, like_pattern))
-
-    #     return cursor.fetchall()
-    
-    # def get_activity_by_id(self, activity_id):
-    #     cursor = self.conn.cursor()
-    #     cursor.execute("""
-    #         SELECT name, start_date, end_date, note
-    #         FROM activities
-    #         WHERE activity_id = ?
-    #         LIMIT 1
-    #     """, (activity_id,))
-    #     basic_info = cursor.fetchone()
-
-    #     cursor.execute("""
-    #         SELECT scheme_name, scheme_item, amount
-    #         FROM activities
-    #         WHERE activity_id = ?
-    #     """, (activity_id,))
-    #     scheme_rows = [
-    #         {
-    #             "scheme_name": row[0],
-    #             "scheme_item": row[1],
-    #             "amount": row[2]
-    #         }
-    #         for row in cursor.fetchall()
-    #     ]
-
-    #     activity_data = {
-    #         "activity_id": activity_id,
-    #         "activity_name": basic_info[0],
-    #         "start_date": basic_info[1],
-    #         "end_date": basic_info[2],
-    #         "content": basic_info[3]
-    #     }
-
-    #     return activity_data, scheme_rows
-    
-    
-
-    # def delete_activity(self, activity_id):
-    #     try:
-    #         cursor = self.conn.cursor()
-    #         cursor.execute("DELETE FROM activities WHERE activity_id = ?", (activity_id,))
-    #         self.conn.commit()
-    #         return cursor.rowcount > 0
-    #     except Exception as e:
-    #         print("❌ 刪除活動時出錯：", e)
-    #         return False
-
-    # def insert_activity_signup(self, signup_data):
-    #     """新增活動報名人員資料"""
-    #     try:
-    #         cursor = self.conn.cursor()
-            
-    #         # 處理活動項目資料
-    #         selected_items = signup_data.get("selected_items", [])
-    #         activity_items_text = ""
-    #         if selected_items:
-    #             items_list = []
-    #             for item in selected_items:
-    #                 items_list.append(f"{item['item_name']} x{item['quantity']}")
-    #             activity_items_text = "; ".join(items_list)
-            
-    #         # 插入報名人員基本資料
-    #         cursor.execute("""
-    #             INSERT INTO activity_signups (
-    #                 activity_id, person_name, gender, birth_ad, birth_lunar,
-    #                 zodiac, birth_time, phone, mobile, identity, identity_number,
-    #                 address, note, activity_items, activity_amount, receipt_number, created_at
-    #             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    #         """, (
-    #             signup_data.get("activity_id"),
-    #             signup_data.get("name"),
-    #             signup_data.get("gender"),
-    #             signup_data.get("gregorian_birthday"),
-    #             signup_data.get("lunar_birthday"),
-    #             signup_data.get("zodiac"),
-    #             signup_data.get("birth_time"),
-    #             signup_data.get("contact_phone"),
-    #             signup_data.get("contact_phone"),  # 使用相同電話號碼
-    #             signup_data.get("identity", ""),
-    #             signup_data.get("identity_number", ""),
-    #             signup_data.get("address"),
-    #             signup_data.get("remarks"),
-    #             activity_items_text,
-    #             signup_data.get("activity_amount", 0),
-    #             signup_data.get("receipt_number", ""),
-    #             signup_data.get("registration_date")
-    #         ))
-            
-    #         self.conn.commit()
-    #         return True
-    #     except Exception as e:
-    #         print(f"❌ 新增報名人員時出錯：{e}")
-    #         return False
-
-    # def get_activity_signups(self, activity_id):
-    #     """取得特定活動的報名人員列表"""
-    #     try:
-    #         cursor = self.conn.cursor()
-    #         cursor.execute("""
-    #             SELECT 
-    #                 id, person_name, gender, birth_ad, birth_lunar,
-    #                 zodiac, birth_time, phone, mobile, identity, identity_number,
-    #                 address, note, activity_items, activity_amount, receipt_number, created_at
-    #             FROM activity_signups
-    #             WHERE activity_id = ?
-    #             ORDER BY created_at DESC
-    #         """, (activity_id,))
-            
-    #         return [dict(row) for row in cursor.fetchall()]
-    #     except Exception as e:
-    #         print(f"❌ 取得報名人員列表時出錯：{e}")
-    #         return []
-
-    # def search_activity_signups(self, activity_id, keyword):
-    #     """搜尋特定活動的報名人員"""
-    #     try:
-    #         cursor = self.conn.cursor()
-    #         like_pattern = f"%{keyword}%"
-    #         cursor.execute("""
-    #             SELECT 
-    #                 id, person_name, gender, birth_ad, birth_lunar,
-    #                 zodiac, birth_time, phone, mobile, identity, identity_number,
-    #                 address, note, activity_items, activity_amount, receipt_number, created_at
-    #             FROM activity_signups
-    #             WHERE activity_id = ? AND (
-    #                 person_name LIKE ? OR 
-    #                 phone LIKE ? OR 
-    #                 mobile LIKE ? OR
-    #                 address LIKE ?
-    #             )
-    #             ORDER BY created_at DESC
-    #         """, (activity_id, like_pattern, like_pattern, like_pattern, like_pattern))
-            
-    #         return [dict(row) for row in cursor.fetchall()]
-    #     except Exception as e:
-    #         print(f"❌ 搜尋報名人員時出錯：{e}")
-    #         return []
-
     def search_people(self, keyword):
         """搜尋人員資料（從 people 表）"""
         try:
@@ -522,37 +305,6 @@ class AppController:
             print(f"❌ 搜尋人員資料時出錯：{e}")
             return []
 
-    # def delete_activity_signup(self, signup_id):
-    #     """刪除特定報名人員資料"""
-    #     try:
-    #         cursor = self.conn.cursor()
-    #         cursor.execute("DELETE FROM activity_signups WHERE id = ?", (signup_id,))
-    #         self.conn.commit()
-    #         return cursor.rowcount > 0
-    #     except Exception as e:
-    #         print(f"❌ 刪除報名人員時出錯：{e}")
-    #         return False
-
-    # def get_activity_signup_by_id(self, signup_id):
-    #     """根據ID取得特定報名人員資料"""
-    #     try:
-    #         cursor = self.conn.cursor()
-    #         cursor.execute("""
-    #             SELECT 
-    #                 id, activity_id, person_name, gender, birth_ad, birth_lunar,
-    #                 zodiac, birth_time, phone, mobile, identity, identity_number,
-    #                 address, note, activity_items, activity_amount, receipt_number, created_at
-    #             FROM activity_signups
-    #             WHERE id = ?
-    #         """, (signup_id,))
-            
-    #         result = cursor.fetchone()
-    #         return dict(result) if result else None
-    #     except Exception as e:
-    #         print(f"❌ 取得報名人員資料時出錯：{e}")
-    #         return None
-
-    
 
 
     # -------------------------
@@ -563,31 +315,6 @@ class AppController:
         cursor.execute("SELECT 1 FROM activities WHERE id = ? LIMIT 1", (activity_id,))
         return cursor.fetchone() is not None
 
-
-    # def create_activity(self, data: dict) -> str:
-    #     """
-    #     data:
-    #       name, activity_date, location?, note?, is_active?
-    #     """
-    #     activity_id = self._uuid()
-    #     now = self._now()
-    #     cursor = self.conn.cursor()
-    #     cursor.execute("""
-    #         INSERT INTO activities (
-    #             id, name, activity_date, location, note, is_active, created_at, updated_at
-    #         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    #     """, (
-    #         activity_id,
-    #         data.get("name"),
-    #         data.get("activity_date"),
-    #         data.get("location"),
-    #         data.get("note"),
-    #         int(data.get("is_active", 1)),
-    #         now,
-    #         now
-    #     ))
-    #     self.conn.commit()
-    #     return activity_id
 
     def update_activity(self, activity_id: str, data: dict):
         conn = sqlite3.connect(DB_NAME)
@@ -1132,6 +859,81 @@ class AppController:
         ))
         self.conn.commit()
         return activity_id
+
+    def _parse_dt(self, s: Optional[str]) -> Optional[datetime]:
+        """
+        支援 'YYYY-MM-DD' / 'YYYY-MM-DD HH:MM' / 'YYYY-MM-DD HH:MM:SS'
+        解析失敗回 None
+        """
+        if not s:
+            return None
+        s = str(s).strip()
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(s, fmt)
+            except ValueError:
+                pass
+        return None
+
+    def _format_date_range(self, start_s: str, end_s: str) -> str:
+        start_s = (start_s or "").strip()
+        end_s = (end_s or "").strip()
+        if start_s and end_s:
+            return f"{start_s} ~ {end_s}"
+        return start_s or end_s or ""
+
+    def _compute_activity_status_for_signup(self, start_s: str, end_s: str):
+        """
+        回傳 (status_text, is_open)
+        is_open: True 表示允許在報名頁「被選取/報名」
+
+        你現在先用時間推導即可：
+        - 未開始：可報名 (True)  —— 如果你想「未開始不能報名」就改 False
+        - 進行中：可報名 (True)
+        - 已結束：不可報名 (False)
+        """
+        now = datetime.now()
+        start_dt = self._parse_dt(start_s)
+        end_dt = self._parse_dt(end_s)
+
+        # 若日期格式不標準，保守回可報名，避免 UI 被鎖死
+        if not start_dt or not end_dt:
+            return ("可報名", True)
+
+        if now < start_dt:
+            return ("未開始", True)
+        if now > end_dt:
+            return ("已結束", False)
+        return ("可報名", True)
+
+    def list_activities_for_signup(self, active_only: bool = True) -> list[dict]:
+        """
+        給 ActivitySignupPage 上方活動卡片用。
+
+        回傳格式（UI 會用到）：
+        - id / code / title(name) / date_range
+        - status_text / is_open（可用來做 tag 顏色與禁用）
+        """
+        activities = self.get_all_activities(active_only=active_only)
+
+        results: list[dict] = []
+        for a in activities:
+            start_s = a.get("activity_start_date", "") or ""
+            end_s = a.get("activity_end_date", "") or ""
+
+            status_text, is_open = self._compute_activity_status_for_signup(start_s, end_s)
+
+            results.append({
+                "id": a.get("id"),
+                "code": a.get("id"),  # 目前你活動編號就用 id 顯示
+                "name": a.get("name") or "",
+                "title": a.get("name") or "",
+                "date_range": self._format_date_range(start_s, end_s),
+                "status_text": status_text,
+                "is_open": bool(is_open),
+            })
+
+        return results
 
 
 

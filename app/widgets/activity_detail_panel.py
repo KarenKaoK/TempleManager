@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtWidgets import QMessageBox, QTextEdit
 from datetime import datetime
-from app.utils.id_utils import _compute_display_status
+from app.utils.id_utils import compute_display_status
 from app.dialogs.activity_edit_dialog import ActivityEditDialog
 from app.dialogs.plan_edit_dialog import PlanEditDialog
 
