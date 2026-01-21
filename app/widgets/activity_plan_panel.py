@@ -127,7 +127,8 @@ class PlanRowWidget(QFrame):
         right.addWidget(self.spin_qty)
         right.addWidget(self.btn_plus)
 
-        root.addLayout(right, 0, Qt.AlignRight)
+        root.addLayout(right, 0)
+        root.setAlignment(right, Qt.AlignRight)     
 
         # initial disable for qty buttons until checked?（跟你圖一致：可不禁用也行）
         self._set_controls_enabled(False)
@@ -210,9 +211,12 @@ class ActivityPlanPanel(QWidget):
     save_exit_clicked = pyqtSignal()
     clear_clicked = pyqtSignal()
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, controller=None, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("activityPlanPanel")
+
+        self.controller = controller 
+        self.activity_id: Optional[str] = None
 
         self._rows: List[PlanRowWidget] = []
 
@@ -336,6 +340,99 @@ class ActivityPlanPanel(QWidget):
     # -------------------------
     # Public API
     # -------------------------
+
+    def set_controller(self, controller):
+        self.controller = controller
+
+    def clear_plans(self):
+        """清空方案列表 + 金額歸零（切換活動時用）"""
+        self.activity_id = None
+        self.set_plans([])  # 會自動 recalculate → 金額變 0
+        self.edt_receipt.clear()
+        self.edt_amount.setText("0")
+
+    def load_activity(self, activity_id: str):
+        """
+        給 ActivitySignupPage 呼叫：
+        1) controller.get_activity_plans(activity_id) 取得 DB 方案
+        2) dict -> PlanItem
+        3) set_plans() 更新 UI
+        """
+        if not self.controller:
+            QMessageBox.warning(self, "載入失敗", "ActivityPlanPanel 尚未設定 controller")
+            return
+
+        self.activity_id = activity_id
+
+        try:
+            plans_raw = self.controller.get_activity_plans(activity_id, active_only=True)
+        except TypeError:
+            # 有些 controller 沒有 active_only 參數就退而求其次
+            plans_raw = self.controller.get_activity_plans(activity_id)
+        except Exception as e:
+            QMessageBox.warning(self, "載入失敗", f"讀取活動方案時發生錯誤：\n{e}")
+            self.set_plans([])
+            return
+
+        plan_items: List[PlanItem] = []
+        for p in (plans_raw or []):
+            plan_items.append(self._to_plan_item(p))
+
+        self.set_plans(plan_items)
+
+    def _to_plan_item(self, p: Dict[str, Any]) -> PlanItem:
+        """
+        將 controller.get_activity_plans() 回來的 dict 轉成你 UI 用的 PlanItem
+        你 controller 現在常見欄位：id, name, items/description, fee_type, amount, price_type, fixed_price...
+        這裡做容錯，避免欄位名不同就炸。
+        """
+        plan_id = str(p.get("id") or p.get("plan_id") or "")
+        name = str(p.get("name") or "")
+
+        # desc：優先用 items/description，沒有就空字串
+        desc = str(p.get("items") or p.get("description") or "")
+
+        # fee_type：你目前 UI 只支援 fixed / donation
+        # controller 若回傳 price_type=FREE 或 fee_type=donation 都當 donation
+        fee_type = (p.get("fee_type") or "").lower().strip()
+        price_type = (p.get("price_type") or "").upper().strip()
+
+        if price_type == "FREE" or fee_type == "donation":
+            ui_fee_type = "donation"
+        else:
+            ui_fee_type = "fixed"
+
+        # unit_price：fixed 用固定金額；donation 用 suggested_price 或 amount(若有)；沒有就 0
+        def _to_int(x, default=0):
+            try:
+                if x is None:
+                    return default
+                return int(float(x))
+            except Exception:
+                return default
+
+        if ui_fee_type == "fixed":
+            unit_price = _to_int(p.get("fixed_price"), None)
+            if unit_price is None:
+                unit_price = _to_int(p.get("amount"), 0)
+        else:
+            unit_price = _to_int(p.get("suggested_price"), None)
+            if unit_price is None:
+                unit_price = _to_int(p.get("amount"), 0)
+
+        # qty：目前你預設 1，min_qty 建議 0（未勾選時也合理），max_qty 99
+        return PlanItem(
+            plan_id=plan_id,
+            name=name,
+            desc=desc,
+            fee_type=ui_fee_type,
+            unit_price=unit_price,
+            default_qty=1,
+            min_qty=0,
+            max_qty=99,
+        )
+
+
 
     def set_plans(self, plans: List[PlanItem]):
         """重新載入方案清單"""

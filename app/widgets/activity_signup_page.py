@@ -138,8 +138,30 @@ class _ActivityCard(QFrame):
             }
         """)
 
-        self.lbl_title = QLabel(f"{title}（{code}）" if code else title)
-        self.lbl_title.setStyleSheet("font-size: 14px; font-weight: 900;")
+        # self.lbl_title = QLabel(f"{title}（{code}）" if code else title)
+        # self.lbl_title.setStyleSheet("font-size: 14px; font-weight: 900;")
+
+
+        self.lbl_title = QLabel()
+        self.lbl_title.setTextFormat(Qt.RichText)
+
+        if code:
+            self.lbl_title.setText(
+                f"""
+                <span style="font-size:14px; font-weight:900; color:#111;">
+                    {title}
+                </span>
+                <span style="font-size:11px; color:#9CA3AF; margin-left:6px;">
+                    （{code}）
+                </span>
+                """
+            )
+        else:
+            self.lbl_title.setText(title)
+
+
+
+
 
         self.lbl_meta = QLabel(date_range)
         self.lbl_meta.setStyleSheet("color:#666666; font-size: 12px;")
@@ -188,7 +210,7 @@ class _ActivityCard(QFrame):
                 }
             """)
         elif status_key == "not_started":
-            # 未開始：藍色
+            # 未開始：藍色（跟你圖一樣的感覺）
             self.lbl_tag.setStyleSheet("""
                 QLabel{
                     padding: 2px 10px;
@@ -438,7 +460,15 @@ class ActivitySignupPage(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(10)
 
-        self.plan_panel = ActivityPlanPanel()
+        # ---- 右：方案面板 ----
+        try:
+            self.plan_panel = ActivityPlanPanel(controller=self.controller)
+        except TypeError:
+            self.plan_panel = ActivityPlanPanel()
+            if hasattr(self.plan_panel, "set_controller"):
+                self.plan_panel.set_controller(self.controller)
+
+
         right_layout.addWidget(self.plan_panel, 1)
 
         splitter.addWidget(right_container)

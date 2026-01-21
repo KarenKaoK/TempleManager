@@ -474,32 +474,47 @@ class AppController:
 
         rows = [dict(row) for row in cursor.fetchall()]
 
-        # 轉成 UI 期待的 keys：items / fee_type / amount
         result = []
         for r in rows:
             price_type = (r.get("price_type") or "").upper()
+            fixed_price = r.get("fixed_price")
+            suggested_price = r.get("suggested_price")
+            min_price = r.get("min_price")
 
             if price_type == "FIXED":
                 fee_type = "fixed"
-                amount = r.get("fixed_price")
+                amount = fixed_price
             elif price_type == "FREE":
-                fee_type = "donation"   # 你的 UI 裡 donation 代表「報名時自由填」
+                fee_type = "donation"   # 你 UI donation 代表「報名時自由填」
                 amount = None
             else:
                 fee_type = "other"
                 amount = None
 
+            items = r.get("description")
+            if items is None:
+                items = r.get("items", "") or ""
+
             result.append({
                 "id": r.get("id"),
                 "activity_id": r.get("activity_id"),
-                "name": r.get("name"),
-                # DB 若是 description，就映射成 items 給 UI 用
-                "items": r.get("description") if r.get("description") is not None else r.get("items", ""),
+                "name": r.get("name") or "",
+                "items": items,
                 "fee_type": fee_type,
                 "amount": amount,
+
+                # ✅ 右半邊會用到的額外資訊（不影響舊 UI）
+                "price_type": price_type,                       # FIXED / FREE
+                "fixed_price": fixed_price,                     # FIXED 用
+                "suggested_price": int(suggested_price or 0),   # FREE 預設值
+                "min_price": int(min_price or 0),               # FREE 驗證底線
+                "allow_qty": int(r.get("allow_qty") or 1),      # 可選：若 DB 有
+                "sort_order": int(r.get("sort_order") or 0),
+                "is_active": int(r.get("is_active") or 1),
             })
 
         return result
+
 
 
     def create_activity_plan(
