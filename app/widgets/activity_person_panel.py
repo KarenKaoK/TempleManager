@@ -82,7 +82,7 @@ class ActivityPersonPanel(QWidget):
 
         outer = QVBoxLayout(form_wrap)
         outer.setContentsMargins(16, 16, 16, 16)
-        outer.setSpacing(0)
+        outer.setSpacing(8)
 
         # ===== 建立欄位元件 =====
         self.edit_name = QLineEdit()
@@ -110,7 +110,7 @@ class ActivityPersonPanel(QWidget):
         ])
 
         self.combo_zodiac = QComboBox()
-        self.combo_zodiac.addItems(["吉時", "鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬"])
+        self.combo_zodiac.addItems(["鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬"])
 
         # ✅ 地址/備註：先用 QLineEdit（最穩、最像單行）
         self.edit_address = QLineEdit()
@@ -152,11 +152,17 @@ class ActivityPersonPanel(QWidget):
             _fix_field(w)
 
         self.edit_birth_lunar.setMinimumWidth(260)
+        
+        MIN_W = 240
+        self.edit_name.setMinimumWidth(MIN_W)
+        self.edit_phone.setMinimumWidth(MIN_W)
+        self.edit_address.setMinimumWidth(MIN_W)
+
 
         # ===== 主 Grid：一個 grid 放完全部（穩定，不會上下兩段打架）=====
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(44)   # ✅ 兩欄中間距離拉開
+        grid.setHorizontalSpacing(18)   # ✅ 兩欄中間距離拉開
         grid.setVerticalSpacing(18)     # ✅ 每列不要擠
 
         LABEL_W = 92
@@ -209,9 +215,13 @@ class ActivityPersonPanel(QWidget):
         grid.addWidget(self.edit_note, 5, 1, 1, 3)
 
         # ✅ 欄位吃空間，label 不擠
-        grid.setColumnStretch(1, 3)
-        grid.setColumnStretch(3, 3)
-        grid.setColumnMinimumWidth(2, LABEL_W + 18)
+        grid.setColumnStretch(0, 0)  # label
+        grid.setColumnStretch(1, 1)  # input
+        grid.setColumnStretch(2, 0)
+        grid.setColumnStretch(3, 1)
+        grid.setColumnMinimumWidth(0, LABEL_W)
+        grid.setColumnMinimumWidth(2, LABEL_W)
+
         grid.setRowStretch(6, 1)
 
         outer.addLayout(grid)
