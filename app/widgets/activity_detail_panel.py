@@ -86,23 +86,6 @@ class ActivityDetailPanel(QWidget):
         header_layout.setContentsMargins(10, 10, 10, 10)
         header_layout.setSpacing(10)
 
-        # 左側：標題 + meta
-        self.lbl_title = QLabel("安座大典")
-        f = QFont()
-        f.setPointSize(14)
-        f.setBold(True)
-        self.lbl_title.setFont(f)
-
-        self.lbl_meta = QLabel("20260115-001 ｜ 2026/01/15 ～ 2026/01/15 ｜ 進行中")
-        self.lbl_meta.setStyleSheet("color:#6B7280;")
-
-        title_box = QVBoxLayout()
-        title_box.setSpacing(2)
-        title_box.addWidget(self.lbl_title)
-        title_box.addWidget(self.lbl_meta)
-
-        header_layout.addLayout(title_box, 1)
-
         # ✅ 中間撐開，右側按鈕自然靠右
         header_layout.addStretch(1)
 
