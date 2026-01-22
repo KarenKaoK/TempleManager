@@ -15,58 +15,6 @@ from app.utils.id_utils import (
 
 
 # -----------------------------
-# 搜尋結果卡片（保留你原本）
-# -----------------------------
-class _SearchResultCard(QWidget):
-    """搜尋結果卡片：姓名/電話/地址 + 帶入按鈕"""
-    def __init__(self, person: dict, on_pick, parent=None):
-        super().__init__(parent)
-        self.person = person
-        self.on_pick = on_pick
-
-        root = QHBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 10)
-        root.setSpacing(10)
-
-        left = QVBoxLayout()
-        left.setContentsMargins(0, 0, 0, 0)
-        left.setSpacing(4)
-
-        name = person.get("name") or "（未命名）"
-        phone = person.get("phone") or ""
-        address = person.get("address") or ""
-
-        lbl_name = QLabel(name)
-        lbl_name.setStyleSheet("font-size: 16px; font-weight: 800;")
-
-        meta = " ｜ ".join([p for p in [phone, address] if p])
-        lbl_meta = QLabel(meta)
-        lbl_meta.setStyleSheet("color:#666666;")
-
-        left.addWidget(lbl_name)
-        left.addWidget(lbl_meta)
-
-        btn_pick = QPushButton("帶入")
-        btn_pick.setFixedSize(90, 36)
-        btn_pick.clicked.connect(self._handle_pick)
-
-        root.addLayout(left, 1)
-        root.addWidget(btn_pick, 0, Qt.AlignRight)
-
-        self.setStyleSheet("""
-            QWidget{
-                background:#FFFFFF;
-                border:1px solid #E6E6E6;
-                border-radius:12px;
-            }
-        """)
-
-    def _handle_pick(self):
-        if callable(self.on_pick):
-            self.on_pick(self.person)
-
-
-# -----------------------------
 # 活動卡片（新）
 # -----------------------------
 class _ActivityCard(QFrame):
@@ -307,8 +255,54 @@ class ActivitySignupPage(QWidget):
         # 預設：鎖住報名區
         self._lock_signup_area(True)
 
-        # 預設顯示空的搜尋結果
-        self._render_search_results([])
+        self._wire_person_panel()
+        self._load_activities()
+
+    # =========================
+    # 左下：人員面板接線（搜尋 / 顯示結果）
+    # =========================
+    def _wire_person_panel(self):
+        """把 ActivityPersonPanel 的搜尋事件接到 controller。"""
+        if not hasattr(self, "person_panel"):
+            return
+
+        # ActivityPersonPanel 建議提供：search_requested = pyqtSignal(str)
+        if hasattr(self.person_panel, "search_requested"):
+            try:
+                self.person_panel.search_requested.connect(self._on_person_search_requested)
+            except Exception:
+                pass
+
+    def _on_person_search_requested(self, keyword: str):
+        """左下搜尋：呼叫 controller.search_people_unified_dedup_name_birthday → 回填到 person_panel.show_search_results。"""
+        kw = (keyword or "").strip()
+
+        # 空字串：清空結果（如果 panel 支援）
+        if not kw:
+            if hasattr(self.person_panel, "show_search_results"):
+                self.person_panel.show_search_results([])
+            return
+
+        try:
+            people = self.controller.search_people_unified_dedup_name_birthday(kw)
+        except Exception as e:
+            QMessageBox.warning(self, "搜尋失敗", f"搜尋人員資料時發生錯誤：\n{e}")
+            people = []
+
+        # 兼容：確保 UI 端至少拿得到 phone_mobile
+        normalized = []
+        for p in (people or []):
+            if not isinstance(p, dict):
+                continue
+            if not p.get("phone_mobile"):
+                p["phone_mobile"] = p.get("phone") or p.get("phone_home") or ""
+            normalized.append(p)
+
+        if hasattr(self.person_panel, "show_search_results"):
+            self.person_panel.show_search_results(normalized)
+        else:
+            QMessageBox.information(self, "尚未支援", "ActivityPersonPanel 尚未提供 show_search_results(people)")
+
 
     # =========================
     # UI
@@ -388,35 +382,6 @@ class ActivitySignupPage(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(10)
 
-        search_row = QHBoxLayout()
-        search_row.setSpacing(10)
-
-        lbl_search = QLabel("快速搜尋")
-        lbl_search.setMinimumWidth(70)
-
-        self.edt_quick_search = QLineEdit()
-        self.edt_quick_search.setPlaceholderText("輸入姓名或電話，例如：李阿姨 / 0912")
-        self.edt_quick_search.returnPressed.connect(self._do_quick_search)
-
-        self.btn_search = QPushButton("搜尋")
-        self.btn_search.setFixedSize(72, 32)
-        self.btn_search.clicked.connect(self._do_quick_search)
-
-        self.btn_clear = QPushButton("清空")
-        self.btn_clear.setFixedSize(72, 32)
-        self.btn_clear.clicked.connect(self._clear_quick_search)
-
-        search_row.addWidget(lbl_search)
-        search_row.addWidget(self.edt_quick_search, 1)
-        search_row.addWidget(self.btn_search)
-        search_row.addWidget(self.btn_clear)
-        left_layout.addLayout(search_row)
-
-        self.result_group = QGroupBox("")
-        rg_layout = QVBoxLayout(self.result_group)
-        rg_layout.setContentsMargins(12, 10, 12, 10)
-        rg_layout.setSpacing(8)
-
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
 
@@ -429,30 +394,11 @@ class ActivitySignupPage(QWidget):
         title_row.addWidget(lbl_title2)
         title_row.addStretch(1)
         title_row.addWidget(lbl_hint2)
-        rg_layout.addLayout(title_row)
-
-        self.lst_results = QListWidget()
-        self.lst_results.setSpacing(8)
-        self.lst_results.setFixedHeight(86)
-        self.lst_results.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.lst_results.setStyleSheet("""
-            QListWidget{
-                background:#FFF7ED;
-                border:1px dashed #E9D5B0;
-                border-radius:12px;
-                padding:10px;
-            }
-            QListWidget::item{ border:none; }
-        """)
-        rg_layout.addWidget(self.lst_results)
-
-        # left_layout.addWidget(self.result_group)
-        self.result_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-
+  
         self.person_panel = ActivityPersonPanel()
         left_layout.addWidget(self.person_panel, 1)
 
-        splitter.addWidget(left_container)
+        splitter.addWidget(self.person_panel)
 
         # ---- 右：方案面板（保持你原本，不拆 Combo 了）----
         right_container = QWidget()
@@ -560,46 +506,6 @@ class ActivitySignupPage(QWidget):
     def _lock_signup_area(self, locked: bool):
         # locked=True → disable 整個報名工作區
         self.signup_group.setEnabled(not locked)
-
-    # =========================
-    # Quick Search（保留你原本）
-    # =========================
-    def _clear_quick_search(self):
-        self.edt_quick_search.setText("")
-        self._render_search_results([])
-
-    def _do_quick_search(self):
-        keyword = (self.edt_quick_search.text() or "").strip()
-        if not keyword:
-            self._render_search_results([])
-            return
-
-        try:
-            results = self.controller.search_people_for_activity(keyword)
-        except Exception as e:
-            QMessageBox.warning(self, "搜尋失敗", f"搜尋時發生錯誤：\n{e}")
-            results = []
-
-        self._render_search_results(results or [])
-
-    def _render_search_results(self, results: list):
-        self.lst_results.clear()
-
-        if not results:
-            item = QListWidgetItem()
-            w = QLabel("尚無搜尋結果（可輸入姓名或電話後按搜尋）")
-            w.setStyleSheet("color:#8A6A3A; padding: 6px;")
-            item.setSizeHint(w.sizeHint())
-            self.lst_results.addItem(item)
-            self.lst_results.setItemWidget(item, w)
-            return
-
-        for person in results[:10]:
-            item = QListWidgetItem()
-            card = _SearchResultCard(person, self._pick_person)
-            item.setSizeHint(card.sizeHint())
-            self.lst_results.addItem(item)
-            self.lst_results.setItemWidget(item, card)
 
     def _pick_person(self, person: dict):
         if hasattr(self.person_panel, "set_person_data"):

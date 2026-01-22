@@ -285,25 +285,207 @@ class AppController:
         ]
         return dict(zip(keys, row))
 
-    def search_people(self, keyword):
-        """搜尋人員資料（從 people 表）"""
+    def search_people_unified_dedup_name_birthday(self, keyword):
+        """
+        搜尋 people + households 戶長
+        去重規則：name + birthday_ad
+        優先保留 people
+        """
+        like_pattern = f"%{keyword}%"
+
+        sql = """
+        WITH unified AS (
+            SELECT
+                'person' AS type,
+                CAST(id AS TEXT) AS source_id,
+                name,
+                birthday_ad,
+                birthday_lunar,
+                birth_time,
+                age,
+                zodiac,
+                phone_home,
+                phone_mobile,
+                email,
+                address,
+                zip_code,
+                identity,
+                note,
+                joined_at,
+                1 AS priority
+            FROM people
+            WHERE name LIKE ? OR phone_home LIKE ? OR phone_mobile LIKE ? OR address LIKE ?
+
+            UNION ALL
+
+            SELECT
+                'household_head' AS type,
+                CAST(id AS TEXT) AS source_id,
+                head_name AS name,
+                head_birthday_ad AS birthday_ad,
+                head_birthday_lunar AS birthday_lunar,
+                head_birth_time AS birth_time,
+                head_age AS age,
+                head_zodiac AS zodiac,
+                head_phone_home AS phone_home,
+                head_phone_mobile AS phone_mobile,
+                head_email AS email,
+                head_address AS address,
+                head_zip_code AS zip_code,
+                head_identity AS identity,
+                head_note AS note,
+                head_joined_at AS joined_at,
+                2 AS priority
+            FROM households
+            WHERE head_name LIKE ? OR head_phone_home LIKE ? OR head_phone_mobile LIKE ? OR head_address LIKE ?
+        ),
+        ranked AS (
+            SELECT *,
+                CASE
+                    WHEN birthday_ad IS NOT NULL AND birthday_ad != ''
+                    THEN name || '|' || birthday_ad
+                    ELSE source_id || '|' || type
+                END AS dedup_key,
+                ROW_NUMBER() OVER (
+                    PARTITION BY
+                        CASE
+                            WHEN birthday_ad IS NOT NULL AND birthday_ad != ''
+                            THEN name || '|' || birthday_ad
+                            ELSE source_id || '|' || type
+                        END
+                    ORDER BY priority
+                ) AS rn
+            FROM unified
+        )
+        SELECT *
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY name
+        LIMIT 50;
+        """
+
         try:
-            cursor = self.conn.cursor()
-            like_pattern = f"%{keyword}%"
-            cursor.execute("""
-                SELECT 
-                    id, name, gender, birthday_ad, birthday_lunar, birth_time,
-                    age, zodiac, phone_home, phone_mobile, email,
-                    address, zip_code, identity, note, joined_at
-                FROM people
-                WHERE name LIKE ? OR phone_home LIKE ? OR phone_mobile LIKE ? OR address LIKE ?
-                ORDER BY name
-            """, (like_pattern, like_pattern, like_pattern, like_pattern))
-            
-            return [dict(row) for row in cursor.fetchall()]
+            cur = self.conn.cursor()
+            cur.execute(
+                sql,
+                (
+                    like_pattern, like_pattern, like_pattern, like_pattern,
+                    like_pattern, like_pattern, like_pattern, like_pattern,
+                ),
+            )
+            rows = [dict(row) for row in cur.fetchall()]
+
+            # 欄位補齊（UI 保證用得到）
+            for r in rows:
+                r.setdefault("phone_mobile", r.get("phone_mobile") or "")
+                r.setdefault("phone", r.get("phone_mobile") or r.get("phone_home") or "")
+
+            return rows
+
         except Exception as e:
-            print(f"❌ 搜尋人員資料時出錯：{e}")
+            print(f"❌ search_people_unified_dedup_name_birthday error: {e}")
             return []
+
+
+    def upsert_person(self, payload: dict) -> str:
+        """
+        新增或更新 people 表的一筆資料，回傳 person_id。
+
+        使用情境：活動報名左下角「參加人員資料」
+        - 若 payload 內有 id 且該 id 存在 → update
+        - 否則 → insert
+
+        注意：這裡「只處理 people 表」，不處理 household_members。
+        """
+        if not isinstance(payload, dict):
+            raise ValueError("payload 必須是 dict")
+
+        cur = self.conn.cursor()
+        person_id = (payload.get("id") or "").strip() or None
+
+        def _now_str():
+            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        data = {
+            "id": person_id or str(uuid.uuid4()),
+            "name": (payload.get("name") or "").strip(),
+            "gender": (payload.get("gender") or "").strip() or None,
+            "birthday_ad": (payload.get("birthday_ad") or "").strip() or None,
+            "birthday_lunar": (payload.get("birthday_lunar") or "").strip() or None,
+            "lunar_is_leap": int(payload.get("lunar_is_leap") or 0),
+            "birth_time": (payload.get("birth_time") or "").strip() or None,
+            "age": payload.get("age"),
+            "zodiac": (payload.get("zodiac") or "").strip() or None,
+            "phone_home": (payload.get("phone_home") or "").strip() or None,
+            "phone_mobile": (payload.get("phone_mobile") or payload.get("phone") or "").strip() or None,
+            "email": (payload.get("email") or "").strip() or None,
+            "address": (payload.get("address") or "").strip() or None,
+            "zip_code": (payload.get("zip_code") or "").strip() or None,
+            "identity": (payload.get("identity") or "").strip() or None,
+            "id_number": (payload.get("id_number") or "").strip() or None,
+            "note": (payload.get("note") or "").strip() or None,
+            "joined_at": (payload.get("joined_at") or _now_str()).strip() if payload.get("joined_at") else _now_str(),
+        }
+
+        if not data["name"]:
+            raise ValueError("name 為必填")
+
+        exists = False
+        if person_id:
+            cur.execute("SELECT 1 FROM people WHERE id = ? LIMIT 1", (person_id,))
+            exists = cur.fetchone() is not None
+
+        if exists:
+            cur.execute(
+                """
+                UPDATE people SET
+                    name = ?,
+                    gender = ?,
+                    birthday_ad = ?,
+                    birthday_lunar = ?,
+                    lunar_is_leap = ?,
+                    birth_time = ?,
+                    age = ?,
+                    zodiac = ?,
+                    phone_home = ?,
+                    phone_mobile = ?,
+                    email = ?,
+                    address = ?,
+                    zip_code = ?,
+                    identity = ?,
+                    id_number = ?,
+                    note = ?,
+                    joined_at = ?
+                WHERE id = ?
+                """,
+                (
+                    data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"],
+                    data["lunar_is_leap"], data["birth_time"], data["age"], data["zodiac"],
+                    data["phone_home"], data["phone_mobile"], data["email"], data["address"],
+                    data["zip_code"], data["identity"], data["id_number"], data["note"],
+                    data["joined_at"],
+                    data["id"],
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO people (
+                    id, name, gender, birthday_ad, birthday_lunar, lunar_is_leap,
+                    birth_time, age, zodiac, phone_home, phone_mobile, email,
+                    address, zip_code, identity, id_number, note, joined_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    data["id"], data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"],
+                    data["lunar_is_leap"], data["birth_time"], data["age"], data["zodiac"],
+                    data["phone_home"], data["phone_mobile"], data["email"], data["address"],
+                    data["zip_code"], data["identity"], data["id_number"], data["note"], data["joined_at"],
+                ),
+            )
+
+        self.conn.commit()
+        return data["id"]
 
 
 
