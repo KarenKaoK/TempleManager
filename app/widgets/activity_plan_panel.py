@@ -432,8 +432,6 @@ class ActivityPlanPanel(QWidget):
             max_qty=99,
         )
 
-
-
     def set_plans(self, plans: List[PlanItem]):
         """重新載入方案清單"""
         # clear existing rows
@@ -479,6 +477,43 @@ class ActivityPlanPanel(QWidget):
         self.edt_amount.setText("0")
         self.recalculate()
         self.clear_clicked.emit()
+
+    def get_selected_plans_payload(self) -> List[Dict[str, Any]]:
+        """
+        給 controller.create_activity_signup() 用的格式：
+        [
+        {"plan_id": "...", "qty": 1, "amount_override": None},   # fixed
+        {"plan_id": "...", "qty": 1, "amount_override": 333},    # donation/free
+        ]
+        """
+        payload: List[Dict[str, Any]] = []
+        for r in self._rows:
+            if not r.is_selected():
+                continue
+
+            plan_id = r.plan.plan_id
+            qty = r.qty()
+
+            if qty <= 0:
+                continue
+
+            if r.plan.fee_type == "donation":
+                # donation：使用者可輸入單價（隨喜金額）
+                unit = r.unit_price()
+                if unit <= 0:
+                    raise ValueError(f"方案「{r.plan.name}」為隨喜金額，請輸入大於 0 的金額")
+                amount_override = unit
+            else:
+                # fixed：用 DB 的固定價，不需要 override
+                amount_override = None
+
+            payload.append({
+                "plan_id": plan_id,
+                "qty": qty,
+                "amount_override": amount_override,
+            })
+
+        return payload
 
     # -------------------------
     # Calculation
@@ -674,6 +709,8 @@ class ActivityPlanPanel(QWidget):
             color: #3B7A3B;
         }
         """
+    
+
 
 # -------------------------
 # (Optional) Quick demo

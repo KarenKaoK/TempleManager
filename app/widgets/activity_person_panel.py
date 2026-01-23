@@ -12,6 +12,7 @@ class ActivityPersonPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._build_ui()
+        self._person_id = None
 
     
     def _build_ui(self):
@@ -248,6 +249,7 @@ class ActivityPersonPanel(QWidget):
             self.search_requested.emit(keyword)
 
     def _clear_form(self):
+        self._person_id = None
         self.edit_quick.clear()
         self.edit_name.clear()
         self.edit_phone.clear()
@@ -266,6 +268,8 @@ class ActivityPersonPanel(QWidget):
     def _on_pick_person(self, item):
         data = item.data(Qt.UserRole)
 
+        self._person_id = data.get("id") or data.get("source_id")
+
         self.edit_name.setText(data.get("name", ""))
         self.edit_phone.setText(data.get("phone_mobile", ""))
         self.edit_birth_lunar.setText(data.get("birthday_lunar", ""))
@@ -276,6 +280,7 @@ class ActivityPersonPanel(QWidget):
 
     def get_person_payload(self) -> dict:
         return {
+            "id": self._person_id,
             "name": self.edit_name.text().strip(),
             "gender": self.combo_gender.currentText(),
             "phone_mobile": self.edit_phone.text().strip(),

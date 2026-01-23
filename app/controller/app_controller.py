@@ -13,6 +13,12 @@ class AppController:
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
 
+    def _uuid(self) -> str:
+        return str(uuid.uuid4())
+    
+    def _now(self) -> str:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     def format_head_data(self, row):
         return {
             "id": row[0],

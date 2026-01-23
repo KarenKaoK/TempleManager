@@ -305,6 +305,63 @@ class ActivitySignupPage(QWidget):
 
 
     # =========================
+    # 右下：存入
+    # =========================
+    def _on_save_clicked(self):
+        # 1) activity_id：你目前右上角有「目前活動」與活動卡片
+        if not self.activity_data or not self.activity_data.get("id"):
+            QMessageBox.warning(self, "無法存入", "請先選擇活動")
+            return
+        activity_id = self.activity_data["id"]
+
+        # 2) person：upsert 拿到 person_id
+        try:
+            person_payload = self.person_panel.get_person_payload()
+            if not person_payload.get("name"):
+                QMessageBox.warning(self, "資料不完整", "請先填寫姓名")
+                return
+
+            person_id = self.controller.upsert_person(person_payload)  # ✅ 已在 controller 寫好
+        except Exception as e:
+            QMessageBox.critical(self, "人員存檔失敗", str(e))
+            return
+
+        # 3) plans：由右邊面板提供（你需要在 plan panel 寫 get_selected_plans_payload）
+        try:
+            selected_plans = self.plan_panel.get_selected_plans_payload()
+            if not selected_plans:
+                QMessageBox.warning(self, "未選方案", "請至少選擇一個方案")
+                return
+        except Exception as e:
+            QMessageBox.critical(self, "方案資料錯誤", str(e))
+            return
+
+        # 4) note：如果你右邊有「收據號碼/備註」之類，拿來當 signup note
+        note = None
+        if hasattr(self, "edit_receipt_no"):
+            note = self.edit_receipt_no.text().strip() or None
+
+        # 5) 寫入 DB：signup + signup_plans（controller 已處理交易）
+        try:
+            signup_id = self.controller.create_activity_signup(
+                activity_id=activity_id,
+                person_id=person_id,
+                selected_plans=selected_plans,
+                note=note
+            )
+            QMessageBox.information(self, "存入成功", f"已完成報名\n報名編號：{signup_id}")
+
+            # 6) 依你 UX 決定：要不要清空右側、清空人員、或保留
+            # self.person_panel._clear_form()
+            # self.plan_panel.clear_all()
+
+        except Exception as e:
+            QMessageBox.critical(self, "存入失敗", str(e))
+            return
+
+
+
+    # =========================
     # UI
     # =========================
     def _build_ui(self):
@@ -400,13 +457,12 @@ class ActivitySignupPage(QWidget):
 
         splitter.addWidget(self.person_panel)
 
-        # ---- 右：方案面板（保持你原本，不拆 Combo 了）----
+        # ---- 右：方案面版
         right_container = QWidget()
         right_layout = QVBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(10)
 
-        # ---- 右：方案面板 ----
         try:
             self.plan_panel = ActivityPlanPanel(controller=self.controller)
         except TypeError:
@@ -414,6 +470,9 @@ class ActivitySignupPage(QWidget):
             if hasattr(self.plan_panel, "set_controller"):
                 self.plan_panel.set_controller(self.controller)
 
+        self.plan_panel.save_clicked.connect(self._on_save_clicked)
+        
+        # self.plan_panel.save_exit_clicked.connect(self._on_save_exit_clicked)
 
         right_layout.addWidget(self.plan_panel, 1)
 
@@ -577,4 +636,82 @@ class ActivitySignupPage(QWidget):
                     self.set_activity(a)
                     break
 
-    
+    def _on_save_clicked(self):
+        # A) activity
+        if not self.activity_data or not self.activity_data.get("id"):
+            QMessageBox.warning(self, "無法存入", "請先選擇活動")
+            return
+        activity_id = self.activity_data["id"]
+
+        # B) person (先 upsert，拿到 person_id)
+        person_payload = self.person_panel.get_person_payload()
+        if not person_payload.get("name"):
+            QMessageBox.warning(self, "資料不完整", "請先填寫姓名")
+            return
+
+        try:
+            person_id = self.controller.upsert_person(person_payload)
+        except Exception as e:
+            QMessageBox.critical(self, "人員存檔失敗", str(e))
+            return
+
+        # C) plans (由 plan_panel 組好 payload)
+        try:
+            selected_plans = self.plan_panel.get_selected_plans_payload()
+        except Exception as e:
+            QMessageBox.warning(self, "方案有誤", str(e))
+            return
+
+        if not selected_plans:
+            QMessageBox.warning(self, "未選方案", "請至少選擇一個方案")
+            return
+
+        # D) note / receipt
+        receipt_no = self.plan_panel.get_receipt_no()  # 你可以存在 note 或另外欄位
+        note = receipt_no or None
+
+        # E) write to DB
+        try:
+            signup_id = self.controller.create_activity_signup(
+                activity_id=activity_id,
+                person_id=person_id,
+                selected_plans=selected_plans,
+                note=note,
+            )
+
+            # 組成功訊息（不要顯示 signup_id）
+            name = (person_payload.get("name") or "").strip()
+            phone = (person_payload.get("phone_mobile") or "").strip()
+
+            selected_items = self.plan_panel.get_selected_items()  # 含 name/qty/amount
+            plan_lines = []
+            for it in selected_items:
+                pname = it.get("name", "")
+                qty = int(it.get("qty", 0) or 0)
+                amt = int(it.get("amount", 0) or 0)
+                plan_lines.append(f"・{pname} × {qty}（{amt} 元）")
+
+            total_amount = self.plan_panel.get_activity_amount()
+
+            msg = (
+                "已完成報名\n\n"
+                f"報名人：{name}\n"
+                f"電話：{phone}\n\n"
+                "報名方案：\n"
+                + ("\n".join(plan_lines) if plan_lines else "（未選擇方案）")
+                + "\n\n"
+                f"總金額：{total_amount} 元"
+            )
+
+            QMessageBox.information(self, "存入成功", msg)
+            self.plan_panel.clear_all()
+
+
+
+
+
+
+        except Exception as e:
+            QMessageBox.critical(self, "存入失敗", str(e))
+            return
+                
