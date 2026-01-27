@@ -208,7 +208,7 @@ class ActivityPlanPanel(QWidget):
 
     amount_changed = pyqtSignal(int)      # total amount changed
     save_clicked = pyqtSignal()
-    save_exit_clicked = pyqtSignal()
+    exit_clicked = pyqtSignal()
     clear_clicked = pyqtSignal()
 
     def __init__(self, controller=None, parent: Optional[QWidget] = None):
@@ -321,16 +321,11 @@ class ActivityPlanPanel(QWidget):
         self.btn_save.setObjectName("primaryButton")
         self.btn_save.clicked.connect(self.save_clicked.emit)
 
-        self.btn_save_exit = QPushButton("存入離開")
-        self.btn_save_exit.setObjectName("secondaryButton")
-        self.btn_save_exit.clicked.connect(self.save_exit_clicked.emit)
-
         self.btn_clear = QPushButton("清空全部")
-        self.btn_clear.setObjectName("ghostButton")
+        self.btn_clear.setObjectName("primaryButton")
         self.btn_clear.clicked.connect(self.clear_all)
 
         btns.addWidget(self.btn_save)
-        btns.addWidget(self.btn_save_exit)
         btns.addWidget(self.btn_clear)
         root.addLayout(btns)
 

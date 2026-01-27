@@ -471,8 +471,6 @@ class ActivitySignupPage(QWidget):
                 self.plan_panel.set_controller(self.controller)
 
         self.plan_panel.save_clicked.connect(self._on_save_clicked)
-        
-        # self.plan_panel.save_exit_clicked.connect(self._on_save_exit_clicked)
 
         right_layout.addWidget(self.plan_panel, 1)
 
@@ -708,10 +706,8 @@ class ActivitySignupPage(QWidget):
 
 
 
-
-
-
         except Exception as e:
             QMessageBox.critical(self, "存入失敗", str(e))
             return
                 
+  
