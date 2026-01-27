@@ -998,40 +998,125 @@ class AppController:
             cursor.execute("ROLLBACK;")
             raise e
 
-    def get_activity_signups(self, activity_id: str):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT s.*, p.name AS person_name, p.phone_mobile AS person_phone
-            FROM activity_signups s
-            JOIN people p ON p.id = s.person_id
-            WHERE s.activity_id = ?
-            ORDER BY s.signup_time DESC
-        """, (activity_id,))
-        return [dict(row) for row in cursor.fetchall()]
+    # def get_activity_signups(self, activity_id: str):
+    #     cursor = self.conn.cursor()
+    #     cursor.execute("""
+    #         SELECT s.*, p.name AS person_name, p.phone_mobile AS person_phone
+    #         FROM activity_signups s
+    #         JOIN people p ON p.id = s.person_id
+    #         WHERE s.activity_id = ?
+    #         ORDER BY s.signup_time DESC
+    #     """, (activity_id,))
+    #     return [dict(row) for row in cursor.fetchall()]
 
-    def get_activity_signup_detail(self, signup_id: str):
-        cursor = self.conn.cursor()
+    def get_activity_signups(self, activity_id):
+        sql = """
+        SELECT
+            s.id AS signup_id,
+            p.name AS person_name,
+            p.phone_mobile AS person_phone,
+            p.address AS person_address,
+            s.total_amount,
+            GROUP_CONCAT(ap.name || '×' || sp.qty, '、') AS plan_summary,
+            MAX(CASE WHEN ap.price_type = 'FREE' THEN 1 ELSE 0 END) AS is_donation
+        FROM activity_signups s
+        JOIN people p ON p.id = s.person_id
+        JOIN activity_signup_plans sp ON sp.signup_id = s.id
+        JOIN activity_plans ap ON ap.id = sp.plan_id
+        WHERE s.activity_id = ?
+        GROUP BY s.id
+        ORDER BY s.created_at ASC
+        """
 
-        cursor.execute("""
-            SELECT s.*, p.name AS person_name
-            FROM activity_signups s
-            JOIN people p ON p.id = s.person_id
-            WHERE s.id = ?
-            LIMIT 1
-        """, (signup_id,))
-        signup = cursor.fetchone()
-        if not signup:
-            return None, []
+        cur = self.conn.cursor()
+        cur.execute(sql, (activity_id,))
+        rows = cur.fetchall()
 
-        cursor.execute("""
-            SELECT sp.*, ap.name AS plan_name, ap.price_type
-            FROM activity_signup_plans sp
-            JOIN activity_plans ap ON ap.id = sp.plan_id
-            WHERE sp.signup_id = ?
-            ORDER BY ap.sort_order ASC, sp.created_at ASC
-        """, (signup_id,))
-        items = [dict(row) for row in cursor.fetchall()]
-        return dict(signup), items
+        # sqlite3 預設回傳 tuple，要轉成 dict 給 UI 用
+        col_names = [desc[0] for desc in cur.description]
+
+        result = []
+        for r in rows:
+            result.append(dict(zip(col_names, r)))
+
+        return result
+
+
+
+    # def get_activity_signup_detail(self, signup_id: str):
+    #     cursor = self.conn.cursor()
+
+    #     cursor.execute("""
+    #         SELECT s.*, p.name AS person_name
+    #         FROM activity_signups s
+    #         JOIN people p ON p.id = s.person_id
+    #         WHERE s.id = ?
+    #         LIMIT 1
+    #     """, (signup_id,))
+    #     signup = cursor.fetchone()
+    #     if not signup:
+    #         return None, []
+
+    #     cursor.execute("""
+    #         SELECT sp.*, ap.name AS plan_name, ap.price_type
+    #         FROM activity_signup_plans sp
+    #         JOIN activity_plans ap ON ap.id = sp.plan_id
+    #         WHERE sp.signup_id = ?
+    #         ORDER BY ap.sort_order ASC, sp.created_at ASC
+    #     """, (signup_id,))
+    #     items = [dict(row) for row in cursor.fetchall()]
+    #     return dict(signup), items
+
+    def get_activity_signup_detail(self, signup_id):
+        # ===== 取得人員基本資料 =====
+        person_sql = """
+        SELECT
+            p.name,
+            p.phone_mobile,
+            p.address
+        FROM activity_signups s
+        JOIN people p ON p.id = s.person_id
+        WHERE s.id = ?
+        """
+
+        cur = self.conn.cursor()
+        cur.execute(person_sql, (signup_id,))
+        row = cur.fetchone()
+
+        if not row:
+            return None
+
+        col_names = [d[0] for d in cur.description]
+        person = dict(zip(col_names, row))
+
+        # ===== 取得方案明細 =====
+        item_sql = """
+        SELECT
+            ap.name AS plan_name,
+            sp.qty,
+            sp.unit_price_snapshot AS unit_price,
+            sp.line_total
+        FROM activity_signup_plans sp
+        JOIN activity_plans ap ON ap.id = sp.plan_id
+        WHERE sp.signup_id = ?
+        """
+
+        cur.execute(item_sql, (signup_id,))
+        rows = cur.fetchall()
+        col_names = [d[0] for d in cur.description]
+
+        items = [dict(zip(col_names, r)) for r in rows]
+
+        return {
+            "person": {
+                "name": person.get("name", ""),
+                "phone": person.get("phone_mobile", ""),
+                "address": person.get("address", ""),
+            },
+            "items": items
+        }
+
+
 
     def delete_activity_signup(self, signup_id: str) -> bool:
         cursor = self.conn.cursor()

@@ -132,6 +132,8 @@ class ActivityDetailPanel(QWidget):
         self.tabs.addTab(self.tab_signup, "② 報名狀況 / 報名名單")
         self._build_tab_signup()
 
+        self.signup_q.textChanged.connect(self._on_signup_search_changed)
+
         # （可選）簡單 QSS，讓整體更接近 HTML 的暖色系
         self._apply_qss()
 
@@ -230,13 +232,11 @@ class ActivityDetailPanel(QWidget):
         stats.setHorizontalSpacing(10)
         stats.setVerticalSpacing(10)
 
-        self.stat_signup_cnt = self._make_stat_card("報名人數", "0", emph=True)
-        self.stat_plan_cnt = self._make_stat_card("方案數量", "0")
+        self.stat_signup_cnt = self._make_stat_card("報名人數", "0")
         self.stat_total = self._make_stat_card("預估總收入", "0")
         self.stat_donation = self._make_stat_card("其中隨喜", "0")
 
         stats.addWidget(self.stat_signup_cnt, 0, 0)
-        stats.addWidget(self.stat_plan_cnt, 0, 1)
         stats.addWidget(self.stat_total, 0, 2)
         stats.addWidget(self.stat_donation, 0, 3)
 
@@ -382,7 +382,6 @@ class ActivityDetailPanel(QWidget):
                     donation_total += int(it.subtotal)
 
         self._set_stat_value(self.stat_signup_cnt, str(signup_cnt))
-        self._set_stat_value(self.stat_plan_cnt, str(plan_cnt))
         self._set_stat_value(self.stat_total, str(total))
         self._set_stat_value(self.stat_donation, str(donation_total))
 
@@ -446,13 +445,6 @@ class ActivityDetailPanel(QWidget):
 
         self.tbl_signup_items.resizeRowsToContents()
         self.d_total.setText(str(total))
-
-    def _clear_signup_detail(self):
-        self.d_name.setText("（尚未選擇）")
-        self.d_phone.setText("-")
-        self.d_address.setText("-")
-        self.tbl_signup_items.setRowCount(0)
-        self.d_total.setText("0")
 
     # -----------------------------
     # Small UI helpers
@@ -684,6 +676,71 @@ class ActivityDetailPanel(QWidget):
         if dlg.exec_() == dlg.Accepted:
             self.reload_plans()
 
+    def _reload_signup_tab(self):
+        if not self._current_activity_id:
+            return
+
+        rows = self.controller.get_activity_signups(self._current_activity_id)
+        self._signup_rows = rows
+        self._signup_rows_filtered = rows
+
+        # ===== 統計卡 =====
+        signup_cnt = len(rows)
+        plan_cnt = len(self._plans) if hasattr(self, "_plans") else 0
+        total = sum(int(r.get("total_amount", 0) or 0) for r in rows)
+        donation_total = sum(int(r.get("total_amount", 0) or 0) for r in rows if r.get("is_donation"))
+
+        self._set_stat_value(self.stat_signup_cnt, str(signup_cnt))
+        self._set_stat_value(self.stat_total, str(total))
+        self._set_stat_value(self.stat_donation, str(donation_total))
+
+
+        # ===== 左表格 =====
+        self.tbl_signups.setRowCount(0)
+        for r in rows:
+            row = self.tbl_signups.rowCount()
+            self.tbl_signups.insertRow(row)
+
+            self.tbl_signups.setItem(row, 0, QTableWidgetItem(r["person_name"]))
+            self.tbl_signups.setItem(row, 1, QTableWidgetItem(r["person_phone"]))
+            self.tbl_signups.setItem(row, 2, QTableWidgetItem(r["plan_summary"]))
+            self.tbl_signups.setItem(row, 3, QTableWidgetItem(str(r["total_amount"])))
+
+            sid = str(r.get("signup_id", ""))
+            for c in range(4):
+                it = self.tbl_signups.item(row, c)
+                if it:
+                    it.setData(Qt.UserRole, sid)
+
+
+        if rows:
+            self.tbl_signups.selectRow(0)
+        else:
+            self._clear_signup_detail()
+
+    def _on_signup_search_changed(self, text):
+        text = text.strip()
+        if not text:
+            self._signup_rows_filtered = self._signup_rows
+        else:
+            self._signup_rows_filtered = [
+                r for r in self._signup_rows
+                if text in r["person_name"] or text in r["person_phone"]
+            ]
+
+        self.tbl_signups.setRowCount(0)
+        for r in self._signup_rows_filtered:
+            row = self.tbl_signups.rowCount()
+            self.tbl_signups.insertRow(row)
+
+            self.tbl_signups.setItem(row, 0, QTableWidgetItem(r["person_name"]))
+            self.tbl_signups.setItem(row, 1, QTableWidgetItem(r["person_phone"]))
+            self.tbl_signups.setItem(row, 2, QTableWidgetItem(r["plan_summary"]))
+            self.tbl_signups.setItem(row, 3, QTableWidgetItem(str(r["total_amount"])))
+
+            self.tbl_signups.item(row, 0).setData(Qt.UserRole, r["signup_id"])
+
+
     def load_activity(self, activity_id: str):
         self._current_activity_id = activity_id
 
@@ -698,6 +755,7 @@ class ActivityDetailPanel(QWidget):
         self.f_end.setText(data.get("activity_end_date", ""))
         self.f_note.setPlainText(data.get("note", ""))
         self.reload_plans()
+        self._reload_signup_tab()
 
     def reload_plans(self):
         if not self._current_activity_id:
@@ -842,4 +900,56 @@ class ActivityDetailPanel(QWidget):
             QMessageBox.critical(self, "刪除失敗", f"刪除方案失敗：\n{e}")
 
 
+    # def _on_signup_row_selected(self):
+    #     items = self.tbl_signup_list.selectedItems()
+    #     if not items:
+    #         return
+
+    #     signup_id = items[0].data(Qt.UserRole)
+    #     self._show_signup_detail(signup_id)
+
+    # def _show_signup_detail(self, signup_id):
+    #     detail = self.controller.get_activity_signup_detail(signup_id)
+
+    #     person = detail["person"]
+    #     self.lbl_person_name.setText(person["name"])
+    #     self.lbl_person_phone.setText(person["phone"])
+    #     self.lbl_person_address.setText(person["address"] or "-")
+
+    #     self.tbl_signup_detail.setRowCount(0)
+    #     total = 0
+
+    #     for item in detail["items"]:
+    #         row = self.tbl_signup_detail.rowCount()
+    #         self.tbl_signup_detail.insertRow(row)
+
+    #         self.tbl_signup_detail.setItem(row, 0, QTableWidgetItem(item["plan_name"]))
+    #         self.tbl_signup_detail.setItem(row, 1, QTableWidgetItem(str(item["qty"])))
+    #         self.tbl_signup_detail.setItem(row, 2, QTableWidgetItem(str(item["unit_price"])))
+    #         self.tbl_signup_detail.setItem(row, 3, QTableWidgetItem(str(item["line_total"])))
+
+    #         total += item["line_total"]
+
+    #     self.lbl_total_amount.setText(str(total))
+
+    # def _on_delete_signup_clicked(self):
+    #     items = self.tbl_signup_list.selectedItems()
+    #     if not items:
+    #         return
+
+    #     signup_id = items[0].data(Qt.UserRole)
+    #     self.controller.delete_activity_signup(signup_id)
+    #     self._reload_signup_tab()
+
+    def _clear_signup_detail(self):
+        # 右側基本資料
+        self.d_name.setText("-")
+        self.d_phone.setText("-")
+        self.d_address.setText("-")
+
+        # 右側方案明細表
+        self.tbl_signup_items.setRowCount(0)
+
+        # 右下角合計
+        self.d_total.setText("0")
 
