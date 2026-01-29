@@ -1116,11 +1116,15 @@ class AppController:
             "items": items
         }
 
+    # app/controller/app_controller.py
+
     def get_activity_signup_for_edit(self, signup_id: str):
         """
         給「修改報名 Dialog」用：
-        - person: name/phone/address（唯讀）
-        - items: 每個方案的 plan_id/plan_name/price_type/qty/unit_price_snapshot/line_total
+        - person: 基本資料（唯讀）
+        - items: 該活動「全部方案」都回傳
+            - 已報名：帶入原本 qty / snapshot / line_total
+            - 未報名：qty=0, line_total=0
         """
         cur = self.conn.cursor()
 
@@ -1149,7 +1153,6 @@ class AppController:
         JOIN people p ON p.id = s.person_id
         WHERE s.id = ?
         """
-
         cur.execute(person_sql, (signup_id,))
         row = cur.fetchone()
         if not row:
@@ -1157,22 +1160,39 @@ class AppController:
 
         col_names = [d[0] for d in cur.description]
         base = dict(zip(col_names, row))
+        activity_id = base["activity_id"]
 
+        # ✅ 改：載入該活動所有方案，並把已報名的明細 LEFT JOIN 上來
         items_sql = """
         SELECT
-            sp.plan_id,
+            ap.id AS plan_id,
             ap.name AS plan_name,
             ap.price_type,
-            sp.qty,
-            sp.unit_price_snapshot,
-            sp.amount_override,
-            sp.line_total
-        FROM activity_signup_plans sp
-        JOIN activity_plans ap ON ap.id = sp.plan_id
-        WHERE sp.signup_id = ?
+            ap.fixed_price,
+            ap.suggested_price,
+            ap.min_price,
+            ap.sort_order,
+
+            COALESCE(sp.qty, 0) AS qty,
+
+            -- 已報名：使用原本快照；未報名：FIXED 用 ap.fixed_price 當預設快照
+            CASE
+                WHEN sp.unit_price_snapshot IS NOT NULL THEN sp.unit_price_snapshot
+                ELSE COALESCE(ap.fixed_price, 0)
+            END AS unit_price_snapshot,
+
+            COALESCE(sp.amount_override, 0) AS amount_override,
+            COALESCE(sp.line_total, 0) AS line_total
+
+        FROM activity_plans ap
+        LEFT JOIN activity_signup_plans sp
+            ON sp.plan_id = ap.id
+        AND sp.signup_id = ?
+        WHERE ap.activity_id = ?
+        AND ap.is_active = 1
         ORDER BY ap.sort_order ASC, ap.created_at ASC
         """
-        cur.execute(items_sql, (signup_id,))
+        cur.execute(items_sql, (signup_id, activity_id))
         rows = cur.fetchall()
         col_names = [d[0] for d in cur.description]
         items = [dict(zip(col_names, r)) for r in rows]
@@ -1272,8 +1292,9 @@ class AppController:
 
     def update_activity_signup_items(self, signup_id: str, qty_by_plan_id: dict, free_amount_by_plan_id: dict) -> bool:
         """
-        - FIXED: qty 可改，line_total = qty * unit_price_snapshot
-        - FREE : 金額可改，line_total = amount_override（qty 固定 1）
+        ✅ 支援新增/刪除：
+        - FIXED: qty=0 刪除明細；qty>0 upsert；line_total = qty * unit_price_snapshot
+        - FREE : qty=0 刪除明細；qty=1 upsert；line_total = amount_override（qty 固定 1）
         """
         cur = self.conn.cursor()
         now = self._now()
@@ -1281,58 +1302,101 @@ class AppController:
         try:
             cur.execute("BEGIN;")
 
-            cur.execute("""
-                SELECT
-                    sp.plan_id, sp.qty, sp.unit_price_snapshot, sp.line_total,
-                    ap.price_type, ap.min_price
-                FROM activity_signup_plans sp
-                JOIN activity_plans ap ON ap.id = sp.plan_id
-                WHERE sp.signup_id = ?
-            """, (signup_id,))
-            rows = cur.fetchall()
-            if not rows:
+            # 1) 取得 activity_id
+            cur.execute("SELECT activity_id FROM activity_signups WHERE id = ? LIMIT 1", (signup_id,))
+            r = cur.fetchone()
+            if not r:
                 cur.execute("ROLLBACK;")
                 return False
+            activity_id = r["activity_id"]
+
+            # 2) 取該活動所有方案（含 FIXED/FREE 規則）
+            cur.execute("""
+                SELECT id AS plan_id, price_type, fixed_price, suggested_price, min_price
+                FROM activity_plans
+                WHERE activity_id = ? AND is_active = 1
+            """, (activity_id,))
+            plans = [dict(x) for x in cur.fetchall()]
+            plan_map = {p["plan_id"]: p for p in plans}
+
+            # 3) 取目前已報名明細（用來判斷 update vs insert vs delete）
+            cur.execute("""
+                SELECT id, plan_id, qty, unit_price_snapshot, amount_override, line_total
+                FROM activity_signup_plans
+                WHERE signup_id = ?
+            """, (signup_id,))
+            existing = [dict(x) for x in cur.fetchall()]
+            existing_by_plan = {e["plan_id"]: e for e in existing}
 
             total_amount = 0
 
-            for r in rows:
-                plan_id = r["plan_id"]
-                price_type = (r["price_type"] or "").upper()
-                unit_price = int(r["unit_price_snapshot"] or 0)
-                min_price = int(r["min_price"] or 0)
+            for plan_id, plan in plan_map.items():
+                price_type = (plan.get("price_type") or "").upper()
+                desired_qty = int(qty_by_plan_id.get(plan_id, 0) or 0)
 
+                ex = existing_by_plan.get(plan_id)
+
+                # ========= qty=0 → 刪除 =========
+                if desired_qty <= 0:
+                    if ex:
+                        cur.execute("DELETE FROM activity_signup_plans WHERE signup_id = ? AND plan_id = ?", (signup_id, plan_id))
+                    continue
+
+                # ========= qty>0 → upsert =========
                 if price_type == "FIXED":
-                    new_qty = int(qty_by_plan_id.get(plan_id, r["qty"]) or 0)
-                    if new_qty < 0:
-                        new_qty = 0
-                    new_line_total = new_qty * unit_price
+                    # 已有明細：沿用 unit_price_snapshot；新增：用目前 fixed_price 當快照
+                    unit_price = int((ex.get("unit_price_snapshot") if ex else plan.get("fixed_price")) or 0)
+                    line_total = desired_qty * unit_price
 
-                    cur.execute("""
-                        UPDATE activity_signup_plans
-                        SET qty = ?, line_total = ?
-                        WHERE signup_id = ? AND plan_id = ?
-                    """, (new_qty, new_line_total, signup_id, plan_id))
+                    if ex:
+                        cur.execute("""
+                            UPDATE activity_signup_plans
+                            SET qty = ?, line_total = ?, amount_override = NULL
+                            WHERE signup_id = ? AND plan_id = ?
+                        """, (desired_qty, line_total, signup_id, plan_id))
+                    else:
+                        item_id = self._uuid()
+                        cur.execute("""
+                            INSERT INTO activity_signup_plans
+                                (id, signup_id, plan_id, qty, unit_price_snapshot, amount_override, line_total, note)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (item_id, signup_id, plan_id, desired_qty, unit_price, None, line_total, None))
+
+                    total_amount += int(line_total)
 
                 else:  # FREE
-                    new_amt = free_amount_by_plan_id.get(plan_id, r["line_total"])
-                    if new_amt is None or str(new_amt).strip() == "":
-                        new_amt = int(r["line_total"] or 0)
-                    new_amt = int(new_amt)
+                    # FREE 只允許 0/1；這裡進來代表要報名，所以固定 qty=1
+                    min_price = int(plan.get("min_price") or 0)
+                    amt = free_amount_by_plan_id.get(plan_id, None)
 
-                    if new_amt < min_price:
+                    if amt is None or str(amt).strip() == "":
+                        # 若 UI 沒帶，嘗試用既有金額；再不行用 suggested_price
+                        if ex and ex.get("amount_override") is not None:
+                            amt = int(ex.get("amount_override") or 0)
+                        else:
+                            amt = int(plan.get("suggested_price") or 0)
+
+                    amt = int(amt)
+                    if amt < min_price:
                         raise ValueError(f"隨喜金額不得低於最低金額 {min_price}")
 
-                    cur.execute("""
-                        UPDATE activity_signup_plans
-                        SET qty = 1, amount_override = ?, line_total = ?
-                        WHERE signup_id = ? AND plan_id = ?
-                    """, (new_amt, new_amt, signup_id, plan_id))
+                    if ex:
+                        cur.execute("""
+                            UPDATE activity_signup_plans
+                            SET qty = 1, unit_price_snapshot = 0, amount_override = ?, line_total = ?
+                            WHERE signup_id = ? AND plan_id = ?
+                        """, (amt, amt, signup_id, plan_id))
+                    else:
+                        item_id = self._uuid()
+                        cur.execute("""
+                            INSERT INTO activity_signup_plans
+                                (id, signup_id, plan_id, qty, unit_price_snapshot, amount_override, line_total, note)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (item_id, signup_id, plan_id, 1, 0, amt, amt, None))
 
-                    new_line_total = new_amt
+                    total_amount += int(amt)
 
-                total_amount += int(new_line_total)
-
+            # 4) 回填總金額
             cur.execute("""
                 UPDATE activity_signups
                 SET total_amount = ?, updated_at = ?
@@ -1345,6 +1409,7 @@ class AppController:
         except Exception:
             cur.execute("ROLLBACK;")
             raise
+
 
 
     def delete_activity_signup(self, signup_id: str) -> bool:

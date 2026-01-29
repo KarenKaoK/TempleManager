@@ -40,6 +40,10 @@ class ActivitySignupEditDialog(QDialog):
         self.le_bday_ad = QLineEdit(); self.le_bday_ad.setReadOnly(True)
         self.le_bday_lunar = QLineEdit(); self.le_bday_lunar.setReadOnly(True)
 
+        self.le_zodiac = QLineEdit(); self.le_zodiac.setReadOnly(True)
+        self.le_birth_time = QLineEdit(); self.le_birth_time.setReadOnly(True)
+
+
         for le in (self.le_name, self.le_phone, self.le_addr):
             le.setStyleSheet("QLineEdit{ background:#F9FAFB; }")
 
@@ -55,8 +59,10 @@ class ActivitySignupEditDialog(QDialog):
         top_lay.addLayout(row("電話", self.le_phone))
         top_lay.addLayout(row("地址", self.le_addr))
         top_lay.addLayout(row("性別", self.le_gender))
+        top_lay.addLayout(row("生肖", self.le_zodiac))
         top_lay.addLayout(row("生日(國曆)", self.le_bday_ad))
         top_lay.addLayout(row("生日(農曆)", self.le_bday_lunar))
+        top_lay.addLayout(row("時辰", self.le_birth_time))
 
         root.addWidget(top)
 
@@ -106,6 +112,9 @@ class ActivitySignupEditDialog(QDialog):
         self.le_gender.setText(p.get("gender", ""))
         self.le_bday_ad.setText(p.get("birthday_ad", ""))
         self.le_bday_lunar.setText(p.get("birthday_lunar", ""))
+        self.le_zodiac.setText(p.get("zodiac", ""))
+        self.le_birth_time.setText(p.get("birth_time", ""))
+
 
         self.tbl.setRowCount(0)
         self._row_plan_id.clear()
@@ -124,22 +133,34 @@ class ActivitySignupEditDialog(QDialog):
 
             self.tbl.setItem(r, 0, QTableWidgetItem(plan_name))
 
+            
             if price_type == "FREE":
                 self.tbl.setItem(r, 1, QTableWidgetItem("隨喜"))
 
-                # qty：通常不重要，可固定 1 並禁用
+                # ✅ qty：0/1（未報名=0）
                 sp_qty = QSpinBox()
-                sp_qty.setRange(1, 1)
-                sp_qty.setValue(1)
-                sp_qty.setEnabled(False)
+                sp_qty.setRange(0, 1)
+                sp_qty.setValue(1 if qty > 0 else 0)
                 self.tbl.setCellWidget(r, 2, sp_qty)
 
-                # ✅ 小計（隨喜金額）可改
+                # ✅ 金額：只有 qty=1 才可改；qty=0 時金額=0 並 disabled
                 sp_amt = QSpinBox()
                 sp_amt.setRange(0, 999999999)
-                sp_amt.setValue(int(line_total or 0))
-                sp_amt.valueChanged.connect(self._recalc_total)
+
+                # 已報名：用 line_total；未報名：先帶 0（或你要帶 suggested_price 也可以）
+                sp_amt.setValue(int(line_total or 0) if qty > 0 else 0)
+                sp_amt.setEnabled(qty > 0)
                 self.tbl.setCellWidget(r, 3, sp_amt)
+
+                def _toggle_amt_enabled(_):
+                    enabled = sp_qty.value() == 1
+                    sp_amt.setEnabled(enabled)
+                    if not enabled:
+                        sp_amt.setValue(0)
+                    self._recalc_total()
+
+                sp_qty.valueChanged.connect(_toggle_amt_enabled)
+                sp_amt.valueChanged.connect(self._recalc_total)
 
             else:
                 self.tbl.setItem(r, 1, QTableWidgetItem(str(unit_price)))
@@ -193,9 +214,16 @@ class ActivitySignupEditDialog(QDialog):
 
             # 隨喜方案：改金額
             if unit_item and unit_item.text() == "隨喜":
-                w = self.tbl.cellWidget(r, 3)  # QSpinBox
-                free_amount_map[plan_id] = int(w.value()) if w else 0
+                sp_qty = self.tbl.cellWidget(r, 2)   # 0/1
+                sp_amt = self.tbl.cellWidget(r, 3)   # amount spin
+
+                q = int(sp_qty.value()) if sp_qty else 0
+                qty_map[plan_id] = q             
+
+                if q == 1:
+                    free_amount_map[plan_id] = int(sp_amt.value()) if sp_amt else 0
                 continue
+
 
             # 固定金額方案：改數量
             sp_qty = self.tbl.cellWidget(r, 2)
