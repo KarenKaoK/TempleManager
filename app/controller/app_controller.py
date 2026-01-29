@@ -1116,13 +1116,249 @@ class AppController:
             "items": items
         }
 
+    def get_activity_signup_for_edit(self, signup_id: str):
+        """
+        給「修改報名 Dialog」用：
+        - person: name/phone/address（唯讀）
+        - items: 每個方案的 plan_id/plan_name/price_type/qty/unit_price_snapshot/line_total
+        """
+        cur = self.conn.cursor()
+
+        person_sql = """
+        SELECT
+            s.id AS signup_id,
+            s.activity_id,
+            p.id AS person_id,
+            p.name,
+            p.gender,
+            p.birthday_ad,
+            p.birthday_lunar,
+            p.lunar_is_leap,
+            p.birth_time,
+            p.age,
+            p.zodiac,
+            p.phone_mobile,
+            p.phone_home,
+            p.email,
+            p.address,
+            p.zip_code,
+            p.identity,
+            p.id_number,
+            p.note
+        FROM activity_signups s
+        JOIN people p ON p.id = s.person_id
+        WHERE s.id = ?
+        """
+
+        cur.execute(person_sql, (signup_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        col_names = [d[0] for d in cur.description]
+        base = dict(zip(col_names, row))
+
+        items_sql = """
+        SELECT
+            sp.plan_id,
+            ap.name AS plan_name,
+            ap.price_type,
+            sp.qty,
+            sp.unit_price_snapshot,
+            sp.amount_override,
+            sp.line_total
+        FROM activity_signup_plans sp
+        JOIN activity_plans ap ON ap.id = sp.plan_id
+        WHERE sp.signup_id = ?
+        ORDER BY ap.sort_order ASC, ap.created_at ASC
+        """
+        cur.execute(items_sql, (signup_id,))
+        rows = cur.fetchall()
+        col_names = [d[0] for d in cur.description]
+        items = [dict(zip(col_names, r)) for r in rows]
+
+        return {
+            "signup_id": base["signup_id"],
+            "activity_id": base["activity_id"],
+            "person_id": base.get("person_id", ""),
+            "person": {
+                "name": base.get("name", "") or "",
+                "gender": base.get("gender", "") or "",
+                "birthday_ad": base.get("birthday_ad", "") or "",
+                "birthday_lunar": base.get("birthday_lunar", "") or "",
+                "lunar_is_leap": int(base.get("lunar_is_leap") or 0),
+                "birth_time": base.get("birth_time", "") or "",
+                "age": base.get("age", "") or "",
+                "zodiac": base.get("zodiac", "") or "",
+                "phone_mobile": base.get("phone_mobile", "") or "",
+                "phone_home": base.get("phone_home", "") or "",
+                "email": base.get("email", "") or "",
+                "address": base.get("address", "") or "",
+                "zip_code": base.get("zip_code", "") or "",
+                "identity": base.get("identity", "") or "",
+                "id_number": base.get("id_number", "") or "",
+                "note": base.get("note", "") or "",
+            },
+            "items": items
+        }
+
+
+    def update_activity_signup_quantities(self, signup_id: str, qty_by_plan_id: dict) -> bool:
+        """
+        qty_by_plan_id: {plan_id: new_qty}
+        - FIXED: line_total = qty * unit_price_snapshot
+        - FREE : 維持 line_total（隨喜金額），qty 更新與否不影響總額（這裡仍可更新 qty 但不改 line_total）
+        """
+        cur = self.conn.cursor()
+        now = self._now()
+
+        try:
+            cur.execute("BEGIN;")
+
+            # 取目前明細（含 price_type）
+            cur.execute("""
+                SELECT
+                    sp.plan_id, sp.qty, sp.unit_price_snapshot, sp.line_total,
+                    ap.price_type
+                FROM activity_signup_plans sp
+                JOIN activity_plans ap ON ap.id = sp.plan_id
+                WHERE sp.signup_id = ?
+            """, (signup_id,))
+            rows = cur.fetchall()
+
+            if not rows:
+                cur.execute("ROLLBACK;")
+                return False
+
+            total_amount = 0
+
+            for r in rows:
+                plan_id = r["plan_id"]
+                price_type = r["price_type"]
+                unit_price = int(r["unit_price_snapshot"] or 0)
+                old_line_total = int(r["line_total"] or 0)
+
+                new_qty = int(qty_by_plan_id.get(plan_id, r["qty"]) or 0)
+                if new_qty < 0:
+                    new_qty = 0
+
+                if price_type == "FIXED":
+                    new_line_total = new_qty * unit_price
+                else:
+                    # FREE(隨喜)：維持原本隨喜金額（line_total）
+                    new_line_total = old_line_total
+
+                cur.execute("""
+                    UPDATE activity_signup_plans
+                    SET qty = ?, line_total = ?
+                    WHERE signup_id = ? AND plan_id = ?
+                """, (new_qty, new_line_total, signup_id, plan_id))
+
+                total_amount += int(new_line_total)
+
+            # 回填總金額
+            cur.execute("""
+                UPDATE activity_signups
+                SET total_amount = ?, updated_at = ?
+                WHERE id = ?
+            """, (total_amount, now, signup_id))
+
+            cur.execute("COMMIT;")
+            return True
+
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+
+    def update_activity_signup_items(self, signup_id: str, qty_by_plan_id: dict, free_amount_by_plan_id: dict) -> bool:
+        """
+        - FIXED: qty 可改，line_total = qty * unit_price_snapshot
+        - FREE : 金額可改，line_total = amount_override（qty 固定 1）
+        """
+        cur = self.conn.cursor()
+        now = self._now()
+
+        try:
+            cur.execute("BEGIN;")
+
+            cur.execute("""
+                SELECT
+                    sp.plan_id, sp.qty, sp.unit_price_snapshot, sp.line_total,
+                    ap.price_type, ap.min_price
+                FROM activity_signup_plans sp
+                JOIN activity_plans ap ON ap.id = sp.plan_id
+                WHERE sp.signup_id = ?
+            """, (signup_id,))
+            rows = cur.fetchall()
+            if not rows:
+                cur.execute("ROLLBACK;")
+                return False
+
+            total_amount = 0
+
+            for r in rows:
+                plan_id = r["plan_id"]
+                price_type = (r["price_type"] or "").upper()
+                unit_price = int(r["unit_price_snapshot"] or 0)
+                min_price = int(r["min_price"] or 0)
+
+                if price_type == "FIXED":
+                    new_qty = int(qty_by_plan_id.get(plan_id, r["qty"]) or 0)
+                    if new_qty < 0:
+                        new_qty = 0
+                    new_line_total = new_qty * unit_price
+
+                    cur.execute("""
+                        UPDATE activity_signup_plans
+                        SET qty = ?, line_total = ?
+                        WHERE signup_id = ? AND plan_id = ?
+                    """, (new_qty, new_line_total, signup_id, plan_id))
+
+                else:  # FREE
+                    new_amt = free_amount_by_plan_id.get(plan_id, r["line_total"])
+                    if new_amt is None or str(new_amt).strip() == "":
+                        new_amt = int(r["line_total"] or 0)
+                    new_amt = int(new_amt)
+
+                    if new_amt < min_price:
+                        raise ValueError(f"隨喜金額不得低於最低金額 {min_price}")
+
+                    cur.execute("""
+                        UPDATE activity_signup_plans
+                        SET qty = 1, amount_override = ?, line_total = ?
+                        WHERE signup_id = ? AND plan_id = ?
+                    """, (new_amt, new_amt, signup_id, plan_id))
+
+                    new_line_total = new_amt
+
+                total_amount += int(new_line_total)
+
+            cur.execute("""
+                UPDATE activity_signups
+                SET total_amount = ?, updated_at = ?
+                WHERE id = ?
+            """, (total_amount, now, signup_id))
+
+            cur.execute("COMMIT;")
+            return True
+
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
 
 
     def delete_activity_signup(self, signup_id: str) -> bool:
-        cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM activity_signups WHERE id = ?", (signup_id,))
-        self.conn.commit()
-        return cursor.rowcount > 0
+        cur = self.conn.cursor()
+        try:
+            cur.execute("BEGIN;")
+            cur.execute("DELETE FROM activity_signup_plans WHERE signup_id = ?", (signup_id,))
+            cur.execute("DELETE FROM activity_signups WHERE id = ?", (signup_id,))
+            self.conn.commit()
+            return cur.rowcount > 0
+        except Exception:
+            self.conn.rollback()
+            raise
+
     
     def insert_activity_new(self, data: dict) -> str:
         """

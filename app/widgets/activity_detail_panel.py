@@ -14,6 +14,7 @@ from datetime import datetime
 from app.utils.id_utils import compute_display_status
 from app.dialogs.activity_edit_dialog import ActivityEditDialog
 from app.dialogs.plan_edit_dialog import PlanEditDialog
+from app.dialogs.activity_signup_edit_dialog import ActivitySignupEditDialog
 
 
 # -----------------------------
@@ -227,42 +228,40 @@ class ActivityDetailPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(12)
 
-        # 統計卡片（4格）
+        # 統計卡片（3格）
         stats = QGridLayout()
         stats.setHorizontalSpacing(10)
         stats.setVerticalSpacing(10)
 
+        # ⚠️ 你之前有把報名人數設 emph=True 會變橘色
+        # 這裡統一用一般 statCard，避免「突兀」的高亮
         self.stat_signup_cnt = self._make_stat_card("報名人數", "0")
         self.stat_total = self._make_stat_card("預估總收入", "0")
         self.stat_donation = self._make_stat_card("其中隨喜", "0")
 
         stats.addWidget(self.stat_signup_cnt, 0, 0)
-        stats.addWidget(self.stat_total, 0, 2)
-        stats.addWidget(self.stat_donation, 0, 3)
+        stats.addWidget(self.stat_total, 0, 1)
+        stats.addWidget(self.stat_donation, 0, 2)
 
         layout.addLayout(stats)
 
-        # 下半部：左名單、右明細
-        bottom = QHBoxLayout()
-        bottom.setSpacing(12)
-        layout.addLayout(bottom, 1)
+        # 報名名單（唯一區塊）
+        grp = QGroupBox("報名名單")
+        g = QVBoxLayout(grp)
+        g.setContentsMargins(12, 12, 12, 12)
+        g.setSpacing(10)
 
-        # 左：報名名單
-        left = QGroupBox("報名名單（點選一筆 → 右側顯示明細）")
-        lf = QVBoxLayout(left)
-        lf.setContentsMargins(12, 12, 12, 12)
-        lf.setSpacing(10)
-
+        # 搜尋列
         search_row = QHBoxLayout()
         search_row.setSpacing(8)
         self.signup_q = QLineEdit()
         self.signup_q.setPlaceholderText("搜尋姓名 / 電話")
- 
         search_row.addWidget(self.signup_q, 1)
-        lf.addLayout(search_row)
+        g.addLayout(search_row)
 
+        # 表格：姓名、電話、方案、費用
         self.tbl_signups = QTableWidget(0, 4)
-        self.tbl_signups.setHorizontalHeaderLabels(["姓名", "電話", "方案", "應收"])
+        self.tbl_signups.setHorizontalHeaderLabels(["姓名", "電話", "方案", "費用"])
         self.tbl_signups.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_signups.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_signups.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -270,64 +269,30 @@ class ActivityDetailPanel(QWidget):
         self.tbl_signups.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl_signups.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_signups.setAlternatingRowColors(True)
-        self.tbl_signups.itemSelectionChanged.connect(self._on_signup_selected)
 
-        lf.addWidget(self.tbl_signups, 1)
+        # ✅ 改成：雙擊直接開修改 dialog（之後你再接 dialog）
+        self.tbl_signups.itemDoubleClicked.connect(lambda _it: self.on_edit_signup())
 
-        # 右：報名明細
-        right = QGroupBox("報名明細")
-        rf = QVBoxLayout(right)
-        rf.setContentsMargins(12, 12, 12, 12)
-        rf.setSpacing(10)
+        g.addWidget(self.tbl_signups, 1)
 
-        info = QFormLayout()
-        info.setLabelAlignment(Qt.AlignRight)
-        info.setHorizontalSpacing(10)
-        info.setVerticalSpacing(10)
+        # 右下角按鈕：修改 / 刪除（不再需要右側明細區）
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
 
-        self.d_name = QLabel("（尚未選擇）")
-        self.d_phone = QLabel("-")
-        self.d_address = QLabel("-")
-        self.d_name.setFont(self._bold_font())
+        self.btn_signup_edit = QPushButton("修改報名")
+        self.btn_signup_delete = QPushButton("刪除報名")
+        for b in (self.btn_signup_edit, self.btn_signup_delete):
+            b.setMinimumHeight(32)
 
-        info.addRow("姓名", self.d_name)
-        info.addRow("電話", self.d_phone)
-        info.addRow("地址", self.d_address)
+        self.btn_signup_edit.clicked.connect(self.on_edit_signup)
+        self.btn_signup_delete.clicked.connect(self.on_delete_signup)
 
-        rf.addLayout(info)
+        btn_row.addWidget(self.btn_signup_edit)
+        btn_row.addWidget(self.btn_signup_delete)
+        g.addLayout(btn_row)
 
-        self.tbl_signup_items = QTableWidget(0, 4)
-        self.tbl_signup_items.setHorizontalHeaderLabels(["方案", "數量", "單價", "小計"])
-        self.tbl_signup_items.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.tbl_signup_items.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tbl_signup_items.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tbl_signup_items.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.tbl_signup_items.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tbl_signup_items.setAlternatingRowColors(True)
-        rf.addWidget(self.tbl_signup_items, 1)
+        layout.addWidget(grp, 1)
 
-        foot = QHBoxLayout()
-        self.d_total = QLabel("0")
-        self.d_total.setFont(self._bold_font())
-        foot.addStretch(1)
-        foot.addWidget(QLabel("合計"))
-        foot.addWidget(self.d_total)
-        rf.addLayout(foot)
-
-        action_row = QHBoxLayout()
-        action_row.addStretch(1)
-        btn_edit = QPushButton("修改報名")
-        btn_del = QPushButton("刪除報名")
-        btn_edit.clicked.connect(lambda: self._toast("TODO: 編輯報名"))
-        btn_del.clicked.connect(lambda: self._toast("TODO: 刪除報名"))
-        btn_edit.setMinimumHeight(32)
-        btn_del.setMinimumHeight(32)
-        action_row.addWidget(btn_edit)
-        action_row.addWidget(btn_del)
-        rf.addLayout(action_row)
-
-        bottom.addWidget(left, 6)
-        bottom.addWidget(right, 4)
 
 
     # -----------------------------
@@ -371,7 +336,6 @@ class ActivityDetailPanel(QWidget):
 
     def _render_signup_stats(self):
         signup_cnt = len(self._signups)
-        plan_cnt = len(self._plans)
 
         total = 0
         donation_total = 0
@@ -384,6 +348,7 @@ class ActivityDetailPanel(QWidget):
         self._set_stat_value(self.stat_signup_cnt, str(signup_cnt))
         self._set_stat_value(self.stat_total, str(total))
         self._set_stat_value(self.stat_donation, str(donation_total))
+
 
     def _render_signups_table(self, select_first: bool = False):
         self.tbl_signups.setRowCount(0)
@@ -398,7 +363,7 @@ class ActivityDetailPanel(QWidget):
             self.tbl_signups.setItem(r, 2, QTableWidgetItem(plans_text))
             self.tbl_signups.setItem(r, 3, QTableWidgetItem(str(total)))
 
-            # 存 id 到 UserRole（選到 row 時可以取回）
+            # 存 signup_id 到 UserRole（修改/刪除要用）
             for c in range(4):
                 self.tbl_signups.item(r, c).setData(Qt.UserRole, s.id)
 
@@ -406,45 +371,82 @@ class ActivityDetailPanel(QWidget):
 
         if select_first and self.tbl_signups.rowCount() > 0:
             self.tbl_signups.selectRow(0)
-        else:
-            self._clear_signup_detail()
 
-    def _on_signup_selected(self):
+    def _get_selected_signup_id(self):
+        items = self.tbl_signups.selectedItems()
+        if items:
+            sid = items[0].data(Qt.UserRole)
+            return str(sid) if sid else None
+
         row = self.tbl_signups.currentRow()
         if row < 0:
-            self._clear_signup_detail()
+            return None
+        it = self.tbl_signups.item(row, 0)
+        if not it:
+            return None
+        sid = it.data(Qt.UserRole)
+        return str(sid) if sid else None
+
+
+
+    # def _on_signup_selected(self):
+    #     row = self.tbl_signups.currentRow()
+    #     if row < 0:
+    #         self._clear_signup_detail()
+    #         return
+
+    #     item0 = self.tbl_signups.item(row, 0)
+    #     if not item0:
+    #         self._clear_signup_detail()
+    #         return
+
+    #     sid = item0.data(Qt.UserRole)
+    #     signup = next((x for x in self._signups if x.id == sid), None)
+    #     if not signup:
+    #         self._clear_signup_detail()
+    #         return
+
+    #     self.d_name.setText(signup.name)
+    #     self.d_phone.setText(signup.phone)
+    #     self.d_address.setText(signup.address)
+
+    #     self.tbl_signup_items.setRowCount(0)
+    #     total = 0
+    #     for r, it in enumerate(signup.items):
+    #         self.tbl_signup_items.insertRow(r)
+    #         self.tbl_signup_items.setItem(r, 0, QTableWidgetItem(it.plan_name))
+    #         self.tbl_signup_items.setItem(r, 1, QTableWidgetItem(str(it.qty)))
+
+    #         unit_text = f"隨喜 {it.unit_price}" if it.is_donation else str(it.unit_price)
+    #         self.tbl_signup_items.setItem(r, 2, QTableWidgetItem(unit_text))
+
+    #         self.tbl_signup_items.setItem(r, 3, QTableWidgetItem(str(it.subtotal)))
+    #         total += int(it.subtotal)
+
+    #     self.tbl_signup_items.resizeRowsToContents()
+    #     self.d_total.setText(str(total))
+
+    def on_edit_signup(self):
+        sid = self._get_selected_signup_id()
+        if not sid:
+            QMessageBox.information(self, "請先選擇", "請先在報名名單中選擇一筆資料。")
             return
 
-        item0 = self.tbl_signups.item(row, 0)
-        if not item0:
-            self._clear_signup_detail()
+        dlg = ActivitySignupEditDialog(self.controller, sid, parent=self)
+        if dlg.exec_() == dlg.Accepted:
+            # ✅ 更新完要刷新報名名單 + 統計卡
+            self._reload_signup_tab()
+
+    def on_delete_signup(self):
+        sid = self._get_selected_signup_id()
+        if not sid:
+            QMessageBox.information(self, "請先選擇", "請先在報名名單中選擇一筆資料。")
             return
 
-        sid = item0.data(Qt.UserRole)
-        signup = next((x for x in self._signups if x.id == sid), None)
-        if not signup:
-            self._clear_signup_detail()
-            return
+        # TODO: 這裡下一步接 controller.delete_signup(sid)
+        QMessageBox.information(self, "刪除報名", f"TODO: 執行刪除\nsignup_id = {sid}")
 
-        self.d_name.setText(signup.name)
-        self.d_phone.setText(signup.phone)
-        self.d_address.setText(signup.address)
 
-        self.tbl_signup_items.setRowCount(0)
-        total = 0
-        for r, it in enumerate(signup.items):
-            self.tbl_signup_items.insertRow(r)
-            self.tbl_signup_items.setItem(r, 0, QTableWidgetItem(it.plan_name))
-            self.tbl_signup_items.setItem(r, 1, QTableWidgetItem(str(it.qty)))
-
-            unit_text = f"隨喜 {it.unit_price}" if it.is_donation else str(it.unit_price)
-            self.tbl_signup_items.setItem(r, 2, QTableWidgetItem(unit_text))
-
-            self.tbl_signup_items.setItem(r, 3, QTableWidgetItem(str(it.subtotal)))
-            total += int(it.subtotal)
-
-        self.tbl_signup_items.resizeRowsToContents()
-        self.d_total.setText(str(total))
 
     # -----------------------------
     # Small UI helpers
