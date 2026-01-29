@@ -443,8 +443,45 @@ class ActivityDetailPanel(QWidget):
             QMessageBox.information(self, "請先選擇", "請先在報名名單中選擇一筆資料。")
             return
 
-        # TODO: 這裡下一步接 controller.delete_signup(sid)
-        QMessageBox.information(self, "刪除報名", f"TODO: 執行刪除\nsignup_id = {sid}")
+        # 從目前選取列拿姓名/電話（比較直覺）
+        row = self.tbl_signups.currentRow()
+        name = ""
+        phone = ""
+        if row >= 0:
+            it_name = self.tbl_signups.item(row, 0)
+            it_phone = self.tbl_signups.item(row, 1)
+            name = (it_name.text().strip() if it_name else "")
+            phone = (it_phone.text().strip() if it_phone else "")
+
+        # 確認視窗
+        msg = f"確定要刪除以下報名資料嗎？\n\n{name} {phone}".strip()
+        ok = QMessageBox.question(
+            self,
+            "確認刪除報名",
+            msg,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if ok != QMessageBox.Yes:
+            return
+
+        # 執行刪除
+        try:
+            deleted = self.controller.delete_activity_signup(sid)
+            if not deleted:
+                QMessageBox.warning(self, "刪除失敗", "刪除失敗：找不到該筆報名資料，或已被刪除。")
+                return
+
+            QMessageBox.information(self, "刪除完成", f"已刪除：{name} {phone}".strip())
+
+            # 刷新名單 + 統計卡（你現成的）
+            self._reload_signup_tab()
+
+            # （可選）把搜尋框清掉，避免刪完還卡在過濾結果
+            # self.signup_q.setText("")
+
+        except Exception as e:
+            QMessageBox.critical(self, "刪除失敗", f"刪除報名失敗：\n{e}")
 
 
 
@@ -740,7 +777,12 @@ class ActivityDetailPanel(QWidget):
             self.tbl_signups.setItem(row, 2, QTableWidgetItem(r["plan_summary"]))
             self.tbl_signups.setItem(row, 3, QTableWidgetItem(str(r["total_amount"])))
 
-            self.tbl_signups.item(row, 0).setData(Qt.UserRole, r["signup_id"])
+            sid = str(r.get("signup_id", ""))
+            for c in range(4):
+                it = self.tbl_signups.item(row, c)
+                if it:
+                    it.setData(Qt.UserRole, sid)
+
 
 
     def load_activity(self, activity_id: str):
