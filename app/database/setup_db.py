@@ -194,17 +194,17 @@ def create_activities_table(db_name=DB_NAME):
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS activities (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,                 -- 活動名稱
-    activity_start_date TEXT NOT NULL,        -- YYYY-MM-DD 或 YYYY-MM-DD HH:MM
-    activity_end_date TEXT NOT NULL,   
-    note TEXT,
-    status INTEGER DEFAULT 1,         -- 0/1
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        id TEXT PRIMARY KEY,                 -- YYYYMMDDHHMMSS（由程式產生）
+        name TEXT NOT NULL,
+        activity_start_date TEXT NOT NULL,
+        activity_end_date TEXT NOT NULL,
+        note TEXT,
+        status INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
-
     """)
+
 
     conn.commit()
     conn.close()
@@ -221,11 +221,12 @@ def create_activity_plans_table(db_name=DB_NAME):
     activity_id TEXT NOT NULL,
 
     name TEXT NOT NULL,                 -- 方案名稱
-    description TEXT,                   -- 方案項目文字敘述
+    items TEXT,                   -- 方案項目文字敘述
 
     price_type TEXT NOT NULL CHECK (price_type IN ('FIXED', 'FREE')),
     
     fixed_price INTEGER DEFAULT 0,      -- 固定金額（FIXED 用）
+    note TEXT,
     suggested_price INTEGER DEFAULT 0,  -- 隨喜建議金額（FREE 顯示用）
     min_price INTEGER DEFAULT 0,        -- 隨喜最低金額（可 0）
 

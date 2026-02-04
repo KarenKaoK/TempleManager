@@ -1,15 +1,18 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QComboBox, QTextEdit, QDateEdit, QFormLayout, QFrame, QSizePolicy,
-    QGridLayout
+    QGridLayout, QListWidget, QListWidgetItem
 )
-from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtCore import Qt, QDate, pyqtSignal
 
 
 class ActivityPersonPanel(QWidget):
+    search_requested = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._build_ui()
+        self._person_id = None
 
     
     def _build_ui(self):
@@ -22,22 +25,9 @@ class ActivityPersonPanel(QWidget):
         title = QLabel("參加人員資料")
         title.setStyleSheet("font-size: 14px; font-weight: 700;")
 
-        self.lbl_activity_badge = QLabel("安座大典（20260115-001）")
-        self.lbl_activity_badge.setStyleSheet("""
-            QLabel {
-                padding: 6px 10px;
-                border-radius: 14px;
-                background: #FFF2E2;
-                border: 1px solid #F1D3B3;
-                color: #8A4B10;
-                font-weight: 600;
-            }
-        """)
-        self.lbl_activity_badge.setAlignment(Qt.AlignCenter)
-
         header_row.addWidget(title)
         header_row.addStretch(1)
-        header_row.addWidget(self.lbl_activity_badge)
+
         root.addLayout(header_row)
 
         # ===== Divider line =====
@@ -69,6 +59,29 @@ class ActivityPersonPanel(QWidget):
         quick_row.addWidget(self.btn_clear)
         root.addLayout(quick_row)
 
+        self.btn_search.clicked.connect(self._emit_search)
+        self.btn_clear.clicked.connect(self._clear_form)
+
+        # ===== 搜尋結果清單（點選後帶入資料）=====
+
+        self.list_results = QListWidget()
+
+        # 🔑 關鍵：限制搜尋結果高度（約 5 列）
+        self.list_results.setMaximumHeight(160)
+        self.list_results.setMinimumHeight(0)
+
+        # 出現 scrollbar，而不是撐開畫面
+        self.list_results.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # 預設不顯示
+        self.list_results.hide()
+
+        self.list_results.itemClicked.connect(self._on_pick_person)
+
+        root.addWidget(self.list_results)
+
+
+
         # ===== Form wrapper =====
         form_wrap = QFrame()
         form_wrap.setStyleSheet("""
@@ -82,7 +95,7 @@ class ActivityPersonPanel(QWidget):
 
         outer = QVBoxLayout(form_wrap)
         outer.setContentsMargins(16, 16, 16, 16)
-        outer.setSpacing(0)
+        outer.setSpacing(8)
 
         # ===== 建立欄位元件 =====
         self.edit_name = QLineEdit()
@@ -110,7 +123,7 @@ class ActivityPersonPanel(QWidget):
         ])
 
         self.combo_zodiac = QComboBox()
-        self.combo_zodiac.addItems(["吉時", "鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬"])
+        self.combo_zodiac.addItems(["鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬"])
 
         # ✅ 地址/備註：先用 QLineEdit（最穩、最像單行）
         self.edit_address = QLineEdit()
@@ -152,11 +165,17 @@ class ActivityPersonPanel(QWidget):
             _fix_field(w)
 
         self.edit_birth_lunar.setMinimumWidth(260)
+        
+        MIN_W = 240
+        self.edit_name.setMinimumWidth(MIN_W)
+        self.edit_phone.setMinimumWidth(MIN_W)
+        self.edit_address.setMinimumWidth(MIN_W)
+
 
         # ===== 主 Grid：一個 grid 放完全部（穩定，不會上下兩段打架）=====
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(44)   # ✅ 兩欄中間距離拉開
+        grid.setHorizontalSpacing(18)   # ✅ 兩欄中間距離拉開
         grid.setVerticalSpacing(18)     # ✅ 每列不要擠
 
         LABEL_W = 92
@@ -209,18 +228,69 @@ class ActivityPersonPanel(QWidget):
         grid.addWidget(self.edit_note, 5, 1, 1, 3)
 
         # ✅ 欄位吃空間，label 不擠
-        grid.setColumnStretch(1, 3)
-        grid.setColumnStretch(3, 3)
-        grid.setColumnMinimumWidth(2, LABEL_W + 18)
+        grid.setColumnStretch(0, 0)  # label
+        grid.setColumnStretch(1, 1)  # input
+        grid.setColumnStretch(2, 0)
+        grid.setColumnStretch(3, 1)
+        grid.setColumnMinimumWidth(0, LABEL_W)
+        grid.setColumnMinimumWidth(2, LABEL_W)
 
-        # ✅ 如果下半部變高，讓多的空間往下，不要把欄位擠在一起
         grid.setRowStretch(6, 1)
 
         outer.addLayout(grid)
         root.addWidget(form_wrap, 1)
 
+    
 
 
-    # ===== 可選：提供方法讓外部更新 badge =====
-    def set_activity_badge(self, text: str):
-        self.lbl_activity_badge.setText(text)
+    def _emit_search(self):
+        keyword = self.edit_quick.text().strip()
+        if keyword:
+            self.search_requested.emit(keyword)
+
+    def _clear_form(self):
+        self._person_id = None
+        self.edit_quick.clear()
+        self.edit_name.clear()
+        self.edit_phone.clear()
+        self.edit_birth_lunar.clear()
+        self.edit_address.clear()
+        self.edit_note.clear()
+
+    def show_search_results(self, people: list[dict]):
+        self.list_results.clear()
+        for p in people:
+            item = QListWidgetItem(f"{p['name']}（{p.get('phone_mobile','')}）")
+            item.setData(Qt.UserRole, p)
+            self.list_results.addItem(item)
+        self.list_results.setVisible(bool(people))
+
+    def _on_pick_person(self, item):
+        data = item.data(Qt.UserRole)
+
+        self._person_id = data.get("id") or data.get("source_id")
+
+        self.edit_name.setText(data.get("name", ""))
+        self.edit_phone.setText(data.get("phone_mobile", ""))
+        self.edit_birth_lunar.setText(data.get("birthday_lunar", ""))
+        self.edit_address.setText(data.get("address", ""))
+        self.edit_note.setText(data.get("note", ""))
+
+        self.list_results.hide()
+
+    def get_person_payload(self) -> dict:
+        return {
+            "id": self._person_id,
+            "name": self.edit_name.text().strip(),
+            "gender": self.combo_gender.currentText(),
+            "phone_mobile": self.edit_phone.text().strip(),
+            "birthday_ad": self.date_birth_ad.date().toString("yyyy-MM-dd"),
+            "birthday_lunar": self.edit_birth_lunar.text().strip(),
+            "birth_time": self.combo_birth_time.currentText(),
+            "zodiac": self.combo_zodiac.currentText(),
+            "address": self.edit_address.text().strip(),
+            "note": self.edit_note.text().strip(),
+        }
+
+
+
