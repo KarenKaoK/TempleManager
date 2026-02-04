@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QScrollArea, QFrame
 )
-
+from datetime import datetime, date
 
 @dataclass
 class ActivityListItem:
@@ -15,7 +15,7 @@ class ActivityListItem:
     title: str
     code: str
     date_range: str
-    status: str = "進行中"
+    status: str = "—"
     plan_count: int = 0
     signup_count: int = 0
 
@@ -45,6 +45,7 @@ class ActivityCard(QFrame):
 
         self.lbl_status = QLabel(self.item.status)
         self.lbl_status.setObjectName("activityStatus")
+        self.lbl_status.setProperty("status", self.item.status)
 
         row1.addWidget(self.lbl_title, 1)
         row1.addWidget(self.lbl_status, 0, Qt.AlignRight)
@@ -78,6 +79,37 @@ class ActivityCard(QFrame):
                                 border: 1px solid #E6D8C7; border-radius: 10px; background: #FFF7EE; }
         QLabel#activityMeta { font-size: 12px; color: #666666; }
         QLabel#activityCounts { font-size: 12px; color: #666666; }
+
+                QLabel#activityStatus {
+            font-size: 12px;
+            padding: 2px 10px;
+            border-radius: 10px;
+            border: 1px solid #E6D8C7;
+            background: #FFF7EE;
+            color: #8A6A3B;
+        }
+
+        /* 未開始：偏灰/藍灰（冷色、提醒還沒開始） */
+        QLabel#activityStatus[status="未開始"] {
+            border: 1px solid #D7DDE6;
+            background: #F4F6F9;
+            color: #5A6B7A;
+        }
+
+        /* 進行中：偏橘金（目前的主色） */
+        QLabel#activityStatus[status="進行中"] {
+            border: 1px solid #F0B060;
+            background: #FFF7EE;
+            color: #8A6A3B;
+        }
+
+        /* 已結束：偏灰棕（降低存在感） */
+        QLabel#activityStatus[status="已結束"] {
+            border: 1px solid #E3D7C8;
+            background: #F7F2EA;
+            color: #8A7B6A;
+        }
+
         """
         selected = """
         QFrame#activityCard {
@@ -87,6 +119,7 @@ class ActivityCard(QFrame):
         }
         """
         self.setStyleSheet(base + (selected if self._selected else ""))
+        
 
     def set_selected(self, selected: bool):
         self._selected = selected
@@ -242,9 +275,12 @@ class ActivityListPanel(QWidget):
         else:
             date_range = start_date or end_date or ""
 
-        # 狀態：status=1 -> 進行中；0 -> 停用/結束（你要改字也行）
-        status_val = int(row.get("status", 1) or 1)
-        status_text = "進行中" if status_val == 1 else "停用"
+        status_text = self.compute_display_status(
+            start_date,
+            end_date,
+            row.get("status", 1),
+        )
+
 
         # code：你新表沒有活動編號，我先用 id 前 8 碼（之後想要正式編號再加欄位）
         code = (activity_id[:8] if activity_id else "—")
@@ -296,3 +332,33 @@ class ActivityListPanel(QWidget):
             return
 
         self.search_requested.emit("")
+
+    def _parse_date_any(self, s: str) -> Optional[date]:
+        if not s:
+            return None
+        s = str(s).strip()
+        for fmt in ("%Y/%m/%d", "%Y-%m-%d", "%Y/%m/%d %H:%M", "%Y-%m-%d %H:%M"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return None
+
+    def compute_display_status(self, start: str, end: str, status_int) -> str:
+        # 若 DB 明確標 0：視為已結束/停用（手動結束）
+        try:
+            if int(status_int) == 0:
+                return "已結束"
+        except Exception:
+            pass
+
+        d0 = self._parse_date_any(start)
+        d1 = self._parse_date_any(end)
+        today = date.today()
+
+        if d0 and today < d0:
+            return "未開始"
+        if d1 and today > d1:
+            return "已結束"
+        return "進行中"
+
