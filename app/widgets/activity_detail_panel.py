@@ -388,44 +388,6 @@ class ActivityDetailPanel(QWidget):
         return str(sid) if sid else None
 
 
-
-    # def _on_signup_selected(self):
-    #     row = self.tbl_signups.currentRow()
-    #     if row < 0:
-    #         self._clear_signup_detail()
-    #         return
-
-    #     item0 = self.tbl_signups.item(row, 0)
-    #     if not item0:
-    #         self._clear_signup_detail()
-    #         return
-
-    #     sid = item0.data(Qt.UserRole)
-    #     signup = next((x for x in self._signups if x.id == sid), None)
-    #     if not signup:
-    #         self._clear_signup_detail()
-    #         return
-
-    #     self.d_name.setText(signup.name)
-    #     self.d_phone.setText(signup.phone)
-    #     self.d_address.setText(signup.address)
-
-    #     self.tbl_signup_items.setRowCount(0)
-    #     total = 0
-    #     for r, it in enumerate(signup.items):
-    #         self.tbl_signup_items.insertRow(r)
-    #         self.tbl_signup_items.setItem(r, 0, QTableWidgetItem(it.plan_name))
-    #         self.tbl_signup_items.setItem(r, 1, QTableWidgetItem(str(it.qty)))
-
-    #         unit_text = f"隨喜 {it.unit_price}" if it.is_donation else str(it.unit_price)
-    #         self.tbl_signup_items.setItem(r, 2, QTableWidgetItem(unit_text))
-
-    #         self.tbl_signup_items.setItem(r, 3, QTableWidgetItem(str(it.subtotal)))
-    #         total += int(it.subtotal)
-
-    #     self.tbl_signup_items.resizeRowsToContents()
-    #     self.d_total.setText(str(total))
-
     def on_edit_signup(self):
         sid = self._get_selected_signup_id()
         if not sid:
@@ -690,7 +652,6 @@ class ActivityDetailPanel(QWidget):
             self._clear_activity_form()
             self.tbl_plans.setRowCount(0)
             self.tbl_signups.setRowCount(0)
-            self._clear_signup_detail()
 
             QMessageBox.information(self, "刪除完成", "活動已刪除。")
 
@@ -755,7 +716,7 @@ class ActivityDetailPanel(QWidget):
         if rows:
             self.tbl_signups.selectRow(0)
         else:
-            self._clear_signup_detail()
+            self.tbl_signups.clearSelection()
 
     def _on_signup_search_changed(self, text):
         text = text.strip()
@@ -985,15 +946,5 @@ class ActivityDetailPanel(QWidget):
     #     self.controller.delete_activity_signup(signup_id)
     #     self._reload_signup_tab()
 
-    def _clear_signup_detail(self):
-        # 右側基本資料
-        self.d_name.setText("-")
-        self.d_phone.setText("-")
-        self.d_address.setText("-")
 
-        # 右側方案明細表
-        self.tbl_signup_items.setRowCount(0)
-
-        # 右下角合計
-        self.d_total.setText("0")
 

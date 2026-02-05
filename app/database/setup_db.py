@@ -100,91 +100,67 @@ def add_default_users(db_name=DB_NAME):
     print("✅ 預設使用者建立完成！")
 
 def create_people_table(db_name=DB_NAME):
-    """建立 people 表，儲存個人基本資料"""
+    """
+    建立 people 表（單表版）
+    - 所有人（戶長/會員）都存在 people
+    - 用 household_id 將同戶的人歸在一起
+    - 用 role_in_household 區分 HEAD / MEMBER
+    """
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.executescript("""
     CREATE TABLE IF NOT EXISTS people (
-        id TEXT PRIMARY KEY,
+        -- 角色/戶籍
+        id TEXT PRIMARY KEY,                           -- person UUID
+        household_id TEXT NOT NULL,                    -- household UUID (同戶共用)
+        role_in_household TEXT NOT NULL CHECK(role_in_household IN ('HEAD','MEMBER')),
+        status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','INACTIVE')),
+
+        -- 基本資料
         name TEXT NOT NULL,
         gender TEXT,
         birthday_ad TEXT,
         birthday_lunar TEXT,
-        lunar_is_leap INTEGER DEFAULT 0,   -- ✅ 是否為農曆閏月（0/1）
+        lunar_is_leap INTEGER DEFAULT 0,               -- 0/1
         birth_time TEXT,
         age INTEGER,
         zodiac TEXT,
+
+        -- 聯絡資訊
         phone_home TEXT,
         phone_mobile TEXT,
-        email TEXT,
         address TEXT,
         zip_code TEXT,
-        identity TEXT,
-        id_number TEXT,                   -- ✅ 身分證字號
+
+        -- 身份/備註
         note TEXT,
         joined_at TEXT
-    )
+    );
+
+    -- 常用查詢 index
+    CREATE INDEX IF NOT EXISTS idx_people_household_id
+    ON people(household_id);
+
+    CREATE INDEX IF NOT EXISTS idx_people_name
+    ON people(name);
+
+    CREATE INDEX IF NOT EXISTS idx_people_phone_mobile
+    ON people(phone_mobile);
+
+    -- 同一戶只能有一位戶長（SQLite partial index）
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_people_one_head_per_household
+    ON people(household_id)
+    WHERE role_in_household = 'HEAD';
     """)
 
     conn.commit()
     conn.close()
-    print("✅ `people` 資料表檢查完成（含 lunar_is_leap, id_number）")
+    print("✅ `people` 資料表檢查完成（單表：含 household_id / role / status）")
 
 
-def create_households_table(db_name=DB_NAME):
-    """建立 households 表"""
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS households (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    
-    -- 原本只有 head_person_id，現在展開成戶長個資欄位：
-    head_name TEXT NOT NULL,
-    head_gender TEXT,
-    head_birthday_ad TEXT,
-    head_birthday_lunar TEXT,
-    head_birth_time TEXT,
-    head_age INTEGER,
-    head_zodiac TEXT,
-    head_phone_home TEXT,
-    head_phone_mobile TEXT,
-    head_email TEXT,
-    head_address TEXT,
-    head_zip_code TEXT,
-    head_identity TEXT,
-    head_note TEXT,
-    head_joined_at TEXT,
-    
-    household_note TEXT  -- 這是戶本身的備註
-                   )
-    """)
 
-    conn.commit()
-    conn.close()
-    print("✅ `households` 資料表檢查完成")
-
-def create_household_members_table(db_name=DB_NAME):
-    """建立 household_members 表"""
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS household_members (
-        id TEXT PRIMARY KEY,
-        household_id TEXT NOT NULL,
-        person_id TEXT NOT NULL,
-        relationship TEXT,
-        FOREIGN KEY(household_id) REFERENCES households(id),
-        FOREIGN KEY(person_id) REFERENCES people(id)
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-    print("✅ `household_members` 資料表檢查完成")
 
 
 def create_activities_table(db_name=DB_NAME):
@@ -331,10 +307,9 @@ if __name__ == "__main__":
     create_member_identity_table()
     add_default_users()
 
-    create_people_table() # 所有人的基本資料表
-    create_households_table() # 戶長表
-    create_household_members_table() # 戶長和戶員關係表
 
+
+    create_people_table() # 所有人的基本資料表
     create_activities_table() # 活動主檔
     create_activity_plans_table() # 活動方案
     create_activity_signups_table() # 活動報名
