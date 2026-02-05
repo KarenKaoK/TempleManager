@@ -298,7 +298,7 @@ class AppController:
 
         FROM people p
         WHERE {where_sql}
-        ORDER BY p.joined_at DESC
+        ORDER BY p.joined_at ASC
         LIMIT ? OFFSET ?;
         """
 

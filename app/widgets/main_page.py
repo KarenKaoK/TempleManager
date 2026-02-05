@@ -315,13 +315,13 @@ class MainPageWidget(QWidget):
             addr = head.get("address", "") or ""
             addr_item = QTableWidgetItem(addr)
             addr_item.setToolTip(addr)
-            self.household_table.setItem(r, 10, addr_item)
+            self.household_table.setItem(r, 9, addr_item)
 
             # 11 備註（加 tooltip）
             note = head.get("note", "") or ""
             note_item = QTableWidgetItem(note)
             note_item.setToolTip(note)
-            self.household_table.setItem(r, 11, note_item)
+            self.household_table.setItem(r, 10, note_item)
 
 
 
