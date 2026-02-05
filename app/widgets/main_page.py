@@ -516,7 +516,10 @@ class MainPageWidget(QWidget):
         dialog = EditMemberDialog(self.controller, person, self)
         if dialog.exec_() == QDialog.Accepted:
             # 用新流程刷新（不要用 refresh_member_table）
-            self._load_household(self.selected_household_id, self.selected_head_person_id)
+            self.refresh_all_panels(
+                select_household_id=self.selected_household_id,
+                select_head_person_id=self.selected_head_person_id
+            )
 
 
     def on_delete_member_clicked(self):
@@ -633,6 +636,6 @@ class MainPageWidget(QWidget):
             self.fill_person_detail(head)
 
         # stats（用 member_count 比較準：controller list_household 才有）
-        self.stats_label.setText(f"戶號：{household_id}　戶長：{head.get('name','') if head else ''}　家庭人數：{len(people)}")
+        self.stats_label.setText(f"戶長：{head.get('name','') if head else ''}　家庭人數：{len(people)}")
 
     
