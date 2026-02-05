@@ -57,6 +57,15 @@ class MainPageWidget(QWidget):
         
         header = self.household_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
+        header.resizeSection(1, 50) # 性別
+        header.resizeSection(2, 100) # 國曆生日
+        header.resizeSection(3, 100) # 農曆生日
+        header.resizeSection(4, 50) # 時辰
+        header.resizeSection(5, 50) # 生肖
+        header.resizeSection(6, 50) # 年齡
+
+        header.resizeSection(7, 130) # 聯絡電話
+        header.resizeSection(8, 130) # 手機號碼
         header.resizeSection(9, 380)
         header.setStretchLastSection(True)
 
@@ -95,6 +104,16 @@ class MainPageWidget(QWidget):
 
         header = self.member_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
+
+        header.resizeSection(1, 50) # 性別
+        header.resizeSection(2, 100) # 國曆生日
+        header.resizeSection(3, 100) # 農曆生日
+        header.resizeSection(4, 50) # 時辰
+        header.resizeSection(5, 50) # 生肖
+        header.resizeSection(6, 50) # 年齡
+
+        header.resizeSection(7, 130) # 聯絡電話
+        header.resizeSection(8, 130) # 手機號碼
         header.resizeSection(9, 380)
         header.setStretchLastSection(True)
 
@@ -226,7 +245,7 @@ class MainPageWidget(QWidget):
 
            
             self.stats_label.setText(
-                f"戶號：{household_id}　戶長：{first_head.get('name','')}　家庭人數：{len(members)}"
+                f"戶長：{first_head.get('name','')}　家庭人數：{len(members)}"
             )
 
     def refresh_all_panels(self, select_household_id: str = None, select_head_person_id: str = None):
@@ -337,7 +356,7 @@ class MainPageWidget(QWidget):
 
     def update_member_table(self, people):
         """
-        member_table header (12 cols):
+        member_table header (10 cols):
         0 姓名
         1 性別
         2 國曆生日
@@ -455,8 +474,6 @@ class MainPageWidget(QWidget):
     
     
 
-    
-
     def show_household_members_by_id(self, household_id):
         people = self.controller.list_people_by_household(household_id)
         members = [p for p in people if p.get("role_in_household") == "MEMBER"]
@@ -473,7 +490,6 @@ class MainPageWidget(QWidget):
 
         head_person_id = self.selected_head_person_id
 
-        # ✅ 這裡第二參數要傳 head_person_id（不是 household_id）
         dialog = NewMemberDialog(self.controller, head_person_id, self)
 
         if dialog.exec_() == QDialog.Accepted:
@@ -481,8 +497,6 @@ class MainPageWidget(QWidget):
 
             try:
                 self.controller.create_people(head_person_id, member_data)
-
-                # ✅ 刷新：用你新的 _load_household（不要用 refresh_member_table，那支還沒改好）
                 self._load_household(self.selected_household_id, head_person_id)
 
             except Exception as e:
