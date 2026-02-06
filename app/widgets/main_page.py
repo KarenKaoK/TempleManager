@@ -9,6 +9,7 @@ from app.widgets.search_bar import SearchBarWidget
 from app.widgets.auto_resizing_table import AutoResizingTableWidget
 from app.dialogs.new_member_dialog import NewMemberDialog
 from app.dialogs.edit_member_dialog import EditMemberDialog
+from app.dialogs.transfer_household_dialog import TransferHouseholdDialog
 
 
 class MainPageWidget(QWidget):
@@ -156,9 +157,7 @@ class MainPageWidget(QWidget):
             self.member_buttons[label] = btn  # 儲存參考
             member_btn_layout.addWidget(btn)
             
-            if label == "🔄 戶籍變更":
-                btn.setEnabled(False)
-                btn.setToolTip("Phase 1 暫不支援戶籍變更（避免誤操作）")
+         
 
         right_btn_box = QWidget()
         right_btn_box.setLayout(member_btn_layout)
@@ -585,16 +584,67 @@ class MainPageWidget(QWidget):
 
 
     def on_transfer_household_clicked(self):
-        """戶籍變更"""
-        selected_row = self.member_table.currentRow()
-        if selected_row < 0:
-            QMessageBox.warning(self, "未選取成員", "請選擇一位成員進行戶籍變更")
+        """戶籍變更：把選取的 MEMBER 移到另一位戶長底下"""
+        member_person_id = self._get_selected_person_id()
+        if not member_person_id:
+            QMessageBox.warning(self, "未選取成員", "請先選擇一位成員進行戶籍變更")
             return
 
-        person_id = self.member_table.item(selected_row, 13).text()
-        dialog = TransferHouseholdDialog(self.controller, person_id, self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.refresh_all_panels()
+        people = getattr(self, "current_people", []) or []
+        member = next((p for p in people if p.get("id") == member_person_id), None)
+        if not member:
+            QMessageBox.warning(self, "資料錯誤", "找不到該成員資料，請重新選取戶籍")
+            return
+
+        if member.get("role_in_household") != "MEMBER":
+            QMessageBox.information(self, "提示", "戶籍變更只適用於成員（MEMBER），戶長請用變更戶長流程")
+            return
+
+        current_head = next((p for p in people if p.get("role_in_household") == "HEAD"), None)
+        if not current_head:
+            QMessageBox.warning(self, "資料錯誤", "找不到目前戶長資料（資料完整性異常）")
+            return
+
+        # 1) 跳 dialog 讓你選目標戶長
+        dlg = TransferHouseholdDialog(self.controller, member, current_head, self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        target_head_person_id = dlg.get_target_head_person_id()
+        if not target_head_person_id:
+            return
+
+        # 2) 再做一次確認（避免誤操作）
+        target_text = dlg.cmb_heads.currentText()
+        name = member.get("name", "")
+        confirm = QMessageBox.question(
+            self,
+            "確認戶籍變更",
+            f"確定要將「{name}」移至：\n{target_text}\n\n此動作會把該成員搬到目標戶長的戶籍底下。",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        # 3) 執行搬家
+        try:
+            target_household_id = self.controller.transfer_member_to_head(
+                member_person_id=member_person_id,
+                target_head_person_id=target_head_person_id,
+                require_active=True
+            )
+
+            # 4) 刷新，並切到新戶籍（讓使用者立即看到結果）
+            self.refresh_all_panels(
+                select_household_id=target_household_id,
+                select_head_person_id=target_head_person_id
+            )
+
+            QMessageBox.information(self, "完成", f"戶籍變更完成：{name} 已移至目標戶長底下")
+
+        except Exception as e:
+            QMessageBox.critical(self, "❌ 變更失敗", str(e))
+
 
     def on_move_up_clicked(self):
         """成員上移"""

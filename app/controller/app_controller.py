@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
 from app.utils.id_utils import generate_activity_id_safe, new_plan_id
 from app.config import DB_NAME
 
+
+
 class AppController:
     def __init__(self, db_path=DB_NAME):
         self.conn = sqlite3.connect(db_path)
@@ -623,6 +625,124 @@ class AppController:
         )
         self.conn.commit()
         return cur.rowcount
+
+    def list_active_heads(self, *, exclude_household_id: Optional[str] = None) -> List[Dict]:
+        """
+        列出所有 ACTIVE 戶長（HEAD），給 UI 下拉選單用
+        - exclude_household_id: 可排除某一戶（避免選到同戶）
+        """
+        exclude_household_id = (exclude_household_id or "").strip()
+
+        params = []
+        where = [
+            "role_in_household = 'HEAD'",
+            "status = 'ACTIVE'",
+        ]
+        if exclude_household_id:
+            where.append("household_id != ?")
+            params.append(exclude_household_id)
+
+        where_sql = " AND ".join(where)
+
+        sql = f"""
+        SELECT
+            id AS head_person_id,
+            household_id,
+            name,
+            phone_mobile
+        FROM people
+        WHERE {where_sql}
+        ORDER BY joined_at ASC;
+        """
+
+        cur = self.conn.cursor()
+        rows = cur.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
+
+    def transfer_member_to_head(
+        self,
+        member_person_id: str,
+        target_head_person_id: str,
+        *,
+        require_active: bool = True,
+    ) -> str:
+        """
+        戶籍變更：把 member 搬到 target_head 的 household
+        - member 必須是 MEMBER（不能拿 HEAD 去搬）
+        - target 必須是 ACTIVE HEAD
+        - return: target_household_id（方便 UI 切換）
+        """
+        member_person_id = (member_person_id or "").strip()
+        target_head_person_id = (target_head_person_id or "").strip()
+
+        if not member_person_id:
+            raise ValueError("member_person_id is required")
+        if not target_head_person_id:
+            raise ValueError("target_head_person_id is required")
+
+        cur = self.conn.cursor()
+
+        # 1) member 檢查
+        m = cur.execute(
+            """
+            SELECT id, household_id, role_in_household, status, name
+            FROM people
+            WHERE id = ?
+            """,
+            (member_person_id,),
+        ).fetchone()
+        if not m:
+            raise ValueError("member not found")
+
+        if m["role_in_household"] != "MEMBER":
+            raise ValueError("only MEMBER can be transferred")
+
+        if require_active and m["status"] != "ACTIVE":
+            raise ValueError("only ACTIVE member can be transferred")
+
+        source_household_id = m["household_id"]
+
+        # 2) target head 檢查 + 取 household_id
+        t = cur.execute(
+            """
+            SELECT id AS head_person_id, household_id, status, name
+            FROM people
+            WHERE id = ?
+            AND role_in_household = 'HEAD'
+            """,
+            (target_head_person_id,),
+        ).fetchone()
+        if not t:
+            raise ValueError("target head not found")
+
+        if require_active and t["status"] != "ACTIVE":
+            raise ValueError("target head is not ACTIVE")
+
+        target_household_id = t["household_id"]
+
+        if target_household_id == source_household_id:
+            raise ValueError("member already belongs to this household")
+
+        # 3) 交易更新
+        try:
+            cur.execute("BEGIN")
+            cur.execute(
+                """
+                UPDATE people
+                SET household_id = ?
+                WHERE id = ?
+                AND role_in_household = 'MEMBER'
+                """,
+                (target_household_id, member_person_id),
+            )
+            if cur.rowcount != 1:
+                raise RuntimeError("transfer failed")
+            self.conn.commit()
+            return target_household_id
+        except Exception:
+            self.conn.rollback()
+            raise
 
 
 
