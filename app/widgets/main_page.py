@@ -30,14 +30,10 @@ class MainPageWidget(QWidget):
         top_layout.addWidget(self.search_bar)
     
 
-        self.add_btn = QPushButton("➕ 新增戶籍資料")
+        self.add_btn = QPushButton("➕ 新增戶長資料")
         self.add_btn.clicked.connect(self.new_household_triggered.emit)
 
-        self.delete_btn = QPushButton("❌ 刪除戶籍資料")
-        self.delete_btn.setEnabled(False)
-        self.delete_btn.setToolTip("目前版本尚未支援刪除戶籍")
-        
-
+        self.delete_btn = QPushButton("❌ 刪除戶長資料")
         self.delete_btn.clicked.connect(self.delete_selected_household)
 
         self.print_btn = QPushButton("🖨️ 資料列印")
@@ -76,7 +72,7 @@ class MainPageWidget(QWidget):
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
 
 
-        household_group = QGroupBox("信眾戶籍戶長資料")
+        household_group = QGroupBox("信眾戶長戶員資料")
         household_group.setStyleSheet("font-size: 14px;")
         group_layout = QVBoxLayout()
         group_layout.addWidget(self.household_table)
@@ -249,7 +245,7 @@ class MainPageWidget(QWidget):
 
     def refresh_all_panels(self, select_household_id: str = None, select_head_person_id: str = None):
         """
-        新增/修改完戶籍後，用這支統一刷新：
+        新增/修改完戶長後，用這支統一刷新：
         1) reload 戶長清單
         2) 更新戶長 table
         3) 視需要自動選取某一戶並載入 members + 右側詳情
@@ -261,7 +257,7 @@ class MainPageWidget(QWidget):
             self.member_table.setRowCount(0)
             return
 
-        # 優先選指定戶籍（例如新增成功後）
+        # 優先選指定戶長（例如新增成功後）
         if select_household_id and select_head_person_id:
             self._load_household(select_household_id, select_head_person_id)
             return
@@ -272,12 +268,51 @@ class MainPageWidget(QWidget):
 
 
     def delete_selected_household(self):
-            QMessageBox.information(
-                self,
-                "尚未支援",
-                "目前版本尚未提供刪除戶籍功能"
-            )
+        # 必須先選到一戶（_load_household 會把 selected_* 存起來）
+        household_id = getattr(self, "selected_household_id", None)
+        head_person_id = getattr(self, "selected_head_person_id", None)
+
+        if not household_id or not head_person_id:
+            QMessageBox.information(self, "提示", "請先從上方戶長清單選取一筆戶長資料")
             return
+
+        # 取戶長名字（從 current_people 裡找 HEAD）
+        people = getattr(self, "current_people", []) or []
+        head = next((p for p in people if p.get("role_in_household") == "HEAD"), None)
+        head_name = head.get("name", "") if head else ""
+
+        msg = (
+            f"確定要刪除戶長嗎？\n\n"
+            f"戶長：{head_name}\n\n"
+            "規則：此戶底下必須沒有戶員，才允許刪除戶長。"
+        )
+
+        confirm = QMessageBox.question(self, "確認刪除戶長", msg, QMessageBox.Yes | QMessageBox.No)
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            affected = self.controller.deactivate_household_head_if_no_members(
+                household_id=household_id,
+                head_person_id=head_person_id,
+                require_active=True
+            )
+
+            if affected <= 0:
+                QMessageBox.information(self, "提示", "此戶長可能已是停用狀態，未更新任何資料。")
+            else:
+                QMessageBox.information(self, "完成", f"已刪除戶長：{head_name}")
+
+            # ✅ 刷新整頁：戶長清單 + 預設選第一戶
+            self.refresh_all_panels()
+
+            # 若刷新後完全沒戶長，順便把刪除鈕關掉
+            if not getattr(self, "current_households", None):
+                self.delete_btn.setEnabled(False)
+
+        except Exception as e:
+            QMessageBox.warning(self, "刪除失敗", str(e))
+
 
     def _get_selected_person_id(self):
         row = self.member_table.currentRow()
@@ -484,7 +519,7 @@ class MainPageWidget(QWidget):
     def on_add_member_clicked(self):
         """處理新增成員操作"""
         if not self.selected_household_id or not getattr(self, "selected_head_person_id", None):
-            QMessageBox.warning(self, "尚未選取戶籍", "請先選擇一筆戶籍資料")
+            QMessageBox.warning(self, "尚未選取戶長", "請先選擇一筆戶長資料")
             return
 
         head_person_id = self.selected_head_person_id
@@ -509,7 +544,7 @@ class MainPageWidget(QWidget):
 
         person = next((p for p in getattr(self, "current_people", []) if p.get("id") == person_id), None)
         if not person:
-            QMessageBox.warning(self, "資料錯誤", "找不到該成員資料，請重新選取戶籍")
+            QMessageBox.warning(self, "資料錯誤", "找不到該成員資料，請重新選取戶長")
             return
 
         dialog = EditMemberDialog(self.controller, person, self)
@@ -560,8 +595,8 @@ class MainPageWidget(QWidget):
         confirm = QMessageBox.question(
             self,
             "分戶確認",
-            f"確定要將「{name}」分戶成為新戶籍的戶長嗎？\n\n"
-            "此動作會建立一個新的戶籍，並將此人移到新戶籍。",
+            f"確定要將「{name}」分戶成為新戶長嗎？\n\n"
+            "此動作會建立一個新的戶長，並將此人移到新戶長。",
             QMessageBox.Yes | QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
@@ -571,7 +606,7 @@ class MainPageWidget(QWidget):
             # ✅ controller 會回傳 new_household_id
             new_household_id = self.controller.split_member_to_new_household(person_id)
 
-            # ✅ 分戶後：刷新戶長清單 + 直接切到新戶籍（新戶長就是 person_id）
+            # ✅ 分戶後：刷新戶長清單 + 直接切到新戶長（新戶長就是 person_id）
             self.refresh_all_panels(
                 select_household_id=new_household_id,
                 select_head_person_id=person_id
@@ -593,7 +628,7 @@ class MainPageWidget(QWidget):
         people = getattr(self, "current_people", []) or []
         member = next((p for p in people if p.get("id") == member_person_id), None)
         if not member:
-            QMessageBox.warning(self, "資料錯誤", "找不到該成員資料，請重新選取戶籍")
+            QMessageBox.warning(self, "資料錯誤", "找不到該成員資料，請重新選取戶長")
             return
 
         if member.get("role_in_household") != "MEMBER":
@@ -620,7 +655,7 @@ class MainPageWidget(QWidget):
         confirm = QMessageBox.question(
             self,
             "確認變更戶長",
-            f"確定要將「{name}」移至：\n{target_text}\n\n此動作會把該成員搬到目標戶長的戶籍底下。",
+            f"確定要將「{name}」移至：\n{target_text}\n\n此動作會把該成員搬到目標戶長的戶長底下。",
             QMessageBox.Yes | QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
@@ -634,7 +669,7 @@ class MainPageWidget(QWidget):
                 require_active=True
             )
 
-            # 4) 刷新，並切到新戶籍（讓使用者立即看到結果）
+            # 4) 刷新，並切到新戶長戶員（讓使用者立即看到結果）
             self.refresh_all_panels(
                 select_household_id=target_household_id,
                 select_head_person_id=target_head_person_id

@@ -576,55 +576,6 @@ class AppController:
             raise
 
         return new_household_id
-    
-    def deactivate_person(self, person_id: str, *, allow_head: bool = False) -> int:
-        """
-        停用一個人（status -> INACTIVE）
-        - 預設不允許停用 HEAD（避免一戶沒戶長）
-        - return: 影響筆數 rowcount（正常 1）
-        """
-
-        person_id = (person_id or "").strip()
-        if not person_id:
-            raise ValueError("person_id is required")
-
-        cur = self.conn.cursor()
-
-        # 1) 先確認存在並取得角色/狀態/household
-        row = cur.execute(
-            """
-            SELECT role_in_household, status, household_id
-            FROM people
-            WHERE id = ?
-            """,
-            (person_id,),
-        ).fetchone()
-
-        if not row:
-            raise ValueError("person not found")
-
-        role, status, household_id = row
-
-        # 2) 若已停用，直接回傳 0（你也可以選擇回傳 1 視為 idempotent）
-        if status == "INACTIVE":
-            return 0
-
-        # 3) 安全：預設不允許停用戶長
-        if role == "HEAD" and not allow_head:
-            raise ValueError("cannot deactivate HEAD (use change_head / dissolve household flow)")
-
-        # 4) 更新狀態
-        cur.execute(
-            """
-            UPDATE people
-            SET status = 'INACTIVE'
-            WHERE id = ?
-            AND status = 'ACTIVE'
-            """,
-            (person_id,),
-        )
-        self.conn.commit()
-        return cur.rowcount
 
     def list_active_heads(self, *, exclude_household_id: Optional[str] = None) -> List[Dict]:
         """
@@ -658,7 +609,6 @@ class AppController:
         cur = self.conn.cursor()
         rows = cur.execute(sql, tuple(params)).fetchall()
         return [dict(r) for r in rows]
-
 
     def transfer_member_to_head(
         self,
@@ -744,7 +694,125 @@ class AppController:
             self.conn.rollback()
             raise
 
+    def deactivate_person(self, person_id: str, *, allow_head: bool = False) -> int:
+        """
+        停用一個人（status -> INACTIVE）
+        - 預設不允許停用 HEAD（避免一戶沒戶長）
+        - return: 影響筆數 rowcount（正常 1）
+        """
 
+        person_id = (person_id or "").strip()
+        if not person_id:
+            raise ValueError("person_id is required")
+
+        cur = self.conn.cursor()
+
+        # 1) 先確認存在並取得角色/狀態/household
+        row = cur.execute(
+            """
+            SELECT role_in_household, status, household_id
+            FROM people
+            WHERE id = ?
+            """,
+            (person_id,),
+        ).fetchone()
+
+        if not row:
+            raise ValueError("person not found")
+
+        role, status, household_id = row
+
+        # 2) 若已停用，直接回傳 0（你也可以選擇回傳 1 視為 idempotent）
+        if status == "INACTIVE":
+            return 0
+
+        # 3) 安全：預設不允許停用戶長
+        if role == "HEAD" and not allow_head:
+            raise ValueError("cannot deactivate HEAD (use change_head / dissolve household flow)")
+
+        # 4) 更新狀態
+        cur.execute(
+            """
+            UPDATE people
+            SET status = 'INACTIVE'
+            WHERE id = ?
+            AND status = 'ACTIVE'
+            """,
+            (person_id,),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def deactivate_household_head_if_no_members(
+        self,
+        household_id: str,
+        head_person_id: str,
+        *,
+        require_active: bool = True,
+    ) -> int:
+        """
+        刪除戶籍（= 停用戶長）：
+        1) 檢查該 household 底下是否還有 ACTIVE MEMBER
+        2) 沒有才允許把 HEAD 設為 INACTIVE
+
+        return: rowcount（正常 1；已是 INACTIVE 可能 0）
+        """
+        household_id = (household_id or "").strip()
+        head_person_id = (head_person_id or "").strip()
+        if not household_id:
+            raise ValueError("household_id is required")
+        if not head_person_id:
+            raise ValueError("head_person_id is required")
+
+        cur = self.conn.cursor()
+
+        # 0) 確認戶長存在且屬於該 household
+        head = cur.execute(
+            """
+            SELECT id, status
+            FROM people
+            WHERE id = ?
+            AND household_id = ?
+            AND role_in_household = 'HEAD'
+            """,
+            (head_person_id, household_id),
+        ).fetchone()
+
+        if not head:
+            raise ValueError("head person not found in this household")
+
+        if require_active and head["status"] != "ACTIVE":
+            raise ValueError("head person is not ACTIVE")
+
+        # 1) 檢查是否有 ACTIVE MEMBER
+        cnt = cur.execute(
+            """
+            SELECT COUNT(1)
+            FROM people
+            WHERE household_id = ?
+            AND role_in_household = 'MEMBER'
+            AND status = 'ACTIVE'
+            """,
+            (household_id,),
+        ).fetchone()[0]
+
+        if int(cnt or 0) > 0:
+            raise ValueError("此戶籍底下仍有會員，請先刪除/移轉/分戶所有會員後才能刪除戶長")
+
+        # 2) 停用戶長
+        cur.execute(
+            """
+            UPDATE people
+            SET status = 'INACTIVE'
+            WHERE id = ?
+            AND household_id = ?
+            AND role_in_household = 'HEAD'
+            AND status = 'ACTIVE'
+            """,
+            (head_person_id, household_id),
+        )
+        self.conn.commit()
+        return cur.rowcount
 
     # -------------------------
     # Activities
