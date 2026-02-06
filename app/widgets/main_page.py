@@ -137,7 +137,7 @@ class MainPageWidget(QWidget):
             ("🖊 修改成員", "blue", self.on_edit_member_clicked),
             ("❌ 刪除成員", "red", self.on_delete_member_clicked),
             ("🧾 分戶成新戶長", None, self.on_set_head_clicked),
-            ("🔄 戶籍變更", None, self.on_transfer_household_clicked),
+            ("🔄 變更戶長", None, self.on_transfer_household_clicked),
             ("⬆ 上移", None, self.on_move_up_clicked),
             ("⬇ 下移", None, self.on_move_down_clicked),
             ("⛔ 關閉退出", "darkred", self.on_close_clicked),
@@ -584,10 +584,10 @@ class MainPageWidget(QWidget):
 
 
     def on_transfer_household_clicked(self):
-        """戶籍變更：把選取的 MEMBER 移到另一位戶長底下"""
+        """戶長變更：把選取的 MEMBER 移到另一位戶長底下"""
         member_person_id = self._get_selected_person_id()
         if not member_person_id:
-            QMessageBox.warning(self, "未選取成員", "請先選擇一位成員進行戶籍變更")
+            QMessageBox.warning(self, "未選取成員", "請先選擇一位成員進行戶長變更")
             return
 
         people = getattr(self, "current_people", []) or []
@@ -597,7 +597,7 @@ class MainPageWidget(QWidget):
             return
 
         if member.get("role_in_household") != "MEMBER":
-            QMessageBox.information(self, "提示", "戶籍變更只適用於成員（MEMBER），戶長請用變更戶長流程")
+            QMessageBox.information(self, "提示", "變更戶長只適用於成員（MEMBER），戶長請用變更戶長流程")
             return
 
         current_head = next((p for p in people if p.get("role_in_household") == "HEAD"), None)
@@ -619,7 +619,7 @@ class MainPageWidget(QWidget):
         name = member.get("name", "")
         confirm = QMessageBox.question(
             self,
-            "確認戶籍變更",
+            "確認變更戶長",
             f"確定要將「{name}」移至：\n{target_text}\n\n此動作會把該成員搬到目標戶長的戶籍底下。",
             QMessageBox.Yes | QMessageBox.No
         )
@@ -640,7 +640,7 @@ class MainPageWidget(QWidget):
                 select_head_person_id=target_head_person_id
             )
 
-            QMessageBox.information(self, "完成", f"戶籍變更完成：{name} 已移至目標戶長底下")
+            QMessageBox.information(self, "完成", f"變更戶長完成：{name} 已移至目標戶長底下")
 
         except Exception as e:
             QMessageBox.critical(self, "❌ 變更失敗", str(e))
