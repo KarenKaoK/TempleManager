@@ -1,13 +1,15 @@
+# edit_member_dialog.py
 from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
 from .base_person_dialog import BasePersonDialog
-from PyQt5.QtCore import QDate
 
 class EditMemberDialog(BasePersonDialog):
-    def __init__(self, controller, person_id, parent=None):
+    def __init__(self, controller, person: dict, parent=None):
         super().__init__(controller, parent)
-        self.setWindowTitle("戶籍家庭成員資料修改作業")
-        self.person_id = person_id
-        self.fill_data()
+        self.setWindowTitle("修改成員資料")
+        self.person = person
+        self.person_id = person["id"]
+
+        self._fill(person)
 
         btn_layout = QHBoxLayout()
         self.confirm_btn = QPushButton("💾 儲存修改")
@@ -19,44 +21,24 @@ class EditMemberDialog(BasePersonDialog):
         self.confirm_btn.clicked.connect(self.on_save_clicked)
         self.cancel_btn.clicked.connect(lambda: self.done(QDialog.Rejected))
 
-    def fill_data(self):
-        person = self.controller.get_member_by_id(self.person_id)
-        if not person:
-            return
-        date_obj = QDate.fromString(person["joined_at"], "yyyy-MM-dd")
-        self.name_input.setText(person["name"])
-        self.gender_input.setCurrentText(person["gender"])
-        self.joined_at_input.setDate(date_obj)
-        self.birthday_ad_input.setText(person["birthday_ad"])
-        self.birthday_lunar_input.setText(person["birthday_lunar"])
-        self.lunar_leap_checkbox.setChecked(person["lunar_is_leap"])
-        self.identity_input.setCurrentText(person["identity"])
-        self.zodiac_input.setText(person["zodiac"])
-        self.age_input.setText(str(person["age"]))
-        self.birth_time_input.setCurrentText(person["birth_time"])
-        self.phone_home_input.setText(person["phone_home"])
-        self.phone_mobile_input.setText(person["phone_mobile"])
-        self.address_input.setText(person["address"])
-        self.zip_code_input.setText(person["zip_code"])
-        self.id_input.setText(person["id_number"])
-        self.note_input.setText(person["note"])
-        self.email_input.setText(person["email"])
+    def _fill(self, p: dict):
+        self.name_input.setText(p.get("name", ""))
+        self.gender_input.setCurrentText(p.get("gender", "男"))
+        self.birthday_ad_input.setText(p.get("birthday_ad", ""))
+        self.birthday_lunar_input.setText(p.get("birthday_lunar", ""))
+        self.lunar_leap_checkbox.setChecked(bool(p.get("lunar_is_leap", 0)))
+        self.birth_time_input.setCurrentText(p.get("birth_time", "子"))
+        self.phone_home_input.setText(p.get("phone_home", ""))
+        self.phone_mobile_input.setText(p.get("phone_mobile", ""))
+        self.address_input.setText(p.get("address", ""))
+        self.zip_code_input.setText(p.get("zip_code", ""))
+        self.note_input.setText(p.get("note", ""))
 
-    def get_member_data(self):
-        data = super().get_data()
-        data["id"] = self.person_id
-        return data
-    
     def on_save_clicked(self):
-        data = self.get_member_data()  # ✅ 你寫好的方法終於用到了
-
-        # （可選）防呆：避免 checkbox/欄位是 None
-        data["lunar_is_leap"] = 1 if data.get("lunar_is_leap") else 0
-        data["id_number"] = data.get("id_number") or ""
-
+        payload = self.get_data()
         try:
-            self.controller.update_member(data)  # ✅ 真正寫回 DB
-            QMessageBox.information(self, "成功", "成員資料已更新！")
+            self.controller.update_person(self.person_id, payload)
+            QMessageBox.information(self, "成功", "資料已更新")
             self.accept()
         except Exception as e:
             QMessageBox.warning(self, "錯誤", f"更新失敗：{e}")

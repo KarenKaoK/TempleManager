@@ -5,11 +5,12 @@ from PyQt5.QtWidgets import (
 from app.dialogs.income_dialog import IncomeSetupDialog
 from app.dialogs.expense_dialog import ExpenseSetupDialog
 from app.dialogs.member_identity_dialog import MemberIdentityDialog
-from app.dialogs.household_dialog import NewHouseholdDialog
 
+from app.dialogs.new_household_dialog import NewHouseholdDialog
 from app.widgets.main_page import MainPageWidget
 from app.widgets.activity_manage_page import ActivityManagePage
 from app.widgets.activity_signup_page import ActivitySignupPage
+
 
 
 
@@ -127,12 +128,18 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "查無結果", f"找不到關鍵字：{keyword}")
 
     def open_new_household_dialog(self):
-        dialog = NewHouseholdDialog(self.controller)
+        dialog = NewHouseholdDialog(self.controller, self)
         if dialog.exec_() == QDialog.Accepted:
-            data = dialog.get_data()
-            self.controller.insert_household(data)
-            QMessageBox.information(self, "新增成功", f"已新增戶長：{data['head_name']}")
-            self.perform_search(data["head_name"])
+            payload = dialog.get_data()
+            try:
+                person_id, household_id = self.controller.create_household(payload)
+                QMessageBox.information(self, "成功", f"已新增戶籍\n戶號：{household_id}\n戶長ID：{person_id}")
+
+                # 建議：新增成功後刷新主畫面戶籍清單（看你目前怎麼做 refresh）
+                if hasattr(self, "main_page") and self.main_page:
+                    self.main_page.refresh_all_panels()  # 若你有這支
+            except Exception as e:
+                QMessageBox.critical(self, "錯誤", f"新增戶籍失敗：{e}")
 
     # -------------------------
     # Activity pages
