@@ -135,7 +135,7 @@ class MainPageWidget(QWidget):
             ("➕ 新增成員", "green", self.on_add_member_clicked),
             ("🖊 修改成員", "blue", self.on_edit_member_clicked),
             ("❌ 刪除成員", "red", self.on_delete_member_clicked),
-            ("☑ 設為戶長", None, self.on_set_head_clicked),
+            ("🧾 分戶成新戶長", None, self.on_set_head_clicked),
             ("🔄 戶籍變更", None, self.on_transfer_household_clicked),
             ("⬆ 上移", None, self.on_move_up_clicked),
             ("⬇ 下移", None, self.on_move_down_clicked),
@@ -558,11 +558,30 @@ class MainPageWidget(QWidget):
             return
 
         name = person.get("name", "")
-        confirm = QMessageBox.question(self, "分戶確認", f"確定要將 {name} 分戶成為新戶長嗎？", QMessageBox.Yes | QMessageBox.No)
-        if confirm == QMessageBox.Yes:
-            self.controller.split_member_to_new_household(person_id)
-            # 分戶後：重新載入目前戶籍
-            self._load_household(self.selected_household_id, self.selected_head_person_id)
+        confirm = QMessageBox.question(
+            self,
+            "分戶確認",
+            f"確定要將「{name}」分戶成為新戶籍的戶長嗎？\n\n"
+            "此動作會建立一個新的戶籍，並將此人移到新戶籍。",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            # ✅ controller 會回傳 new_household_id
+            new_household_id = self.controller.split_member_to_new_household(person_id)
+
+            # ✅ 分戶後：刷新戶長清單 + 直接切到新戶籍（新戶長就是 person_id）
+            self.refresh_all_panels(
+                select_household_id=new_household_id,
+                select_head_person_id=person_id
+            )
+
+            QMessageBox.information(self, "完成", f"已分戶：{name} 已成為新戶長")
+
+        except Exception as e:
+            QMessageBox.critical(self, "❌ 分戶失敗", f"{e}")
 
 
     def on_transfer_household_clicked(self):
