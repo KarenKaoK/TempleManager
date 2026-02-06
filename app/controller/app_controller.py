@@ -2,10 +2,15 @@
 import uuid
 import locale
 import sqlite3
-from app.config import DB_NAME
+from typing import Tuple, Optional,  List, Dict, Any
+
 from datetime import datetime
-from typing import Optional
+
+
+from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
 from app.utils.id_utils import generate_activity_id_safe, new_plan_id
+from app.config import DB_NAME
+
 
 
 class AppController:
@@ -13,171 +18,19 @@ class AppController:
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
 
+    # -------------------------
+    # Helpers 
+    # -------------------------
     def _uuid(self) -> str:
         return str(uuid.uuid4())
     
     def _now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    def format_head_data(self, row):
-        return {
-            "id": row[0],
-            "head_name": row[1],
-            "head_gender": row[2],
-            "head_birthday_ad": row[3],
-            "head_birthday_lunar": row[4],
-            "head_birth_time": row[5],
-            "head_age": row[6],
-            "head_zodiac": row[7],
-            "head_phone_home": row[8],
-            "head_phone_mobile": row[9],
-            "head_email": row[10],
-            "head_address": row[11],
-            "head_zip_code": row[12],
-            "head_identity": row[13],
-            "head_note": row[14],
-            "head_joined_at": row[15],
-            "household_note": row[16],
-        }
 
-    def search_households(self, keyword):
-        cursor = self.conn.cursor()
-        like_value = f"%{keyword}%"
-        query = """
-            SELECT * FROM households
-            WHERE head_name LIKE ? OR head_phone_home LIKE ? OR head_phone_mobile LIKE ?
-        """
-        cursor.execute(query, (like_value, like_value, like_value))
-        return [dict(row) for row in cursor.fetchall()]
-    def get_household_members(self, household_id):
-        cursor = self.conn.cursor()
-        query = """
-            SELECT p.*
-            FROM household_members hm
-            JOIN people p ON hm.person_id = p.id
-            WHERE hm.household_id = ?
-        """
-        cursor.execute(query, (household_id,))
-        return [dict(row) for row in cursor.fetchall()]
-    
-    def search_by_any_name(self, keyword):
-        cursor = self.conn.cursor()
-
-        # 搜尋戶長
-        cursor.execute("""
-            SELECT * FROM households
-            WHERE head_name LIKE ?
-            LIMIT 1
-        """, (f"%{keyword}%",))
-        head_row = cursor.fetchone()
-
-        if head_row:
-            household_id = head_row[0]  # 假設 household.id 在第 0 欄
-        else:
-            # 沒找到戶長 → 查 household_members 對應的 people.name
-            cursor.execute("""
-                SELECT hm.household_id
-                FROM household_members hm
-                JOIN people p ON hm.person_id = p.id
-                WHERE p.name LIKE ?
-                LIMIT 1
-            """, (f"%{keyword}%",))
-            row = cursor.fetchone()
-            if row:
-                household_id = row[0]
-                cursor.execute("SELECT * FROM households WHERE id = ?", (household_id,))
-                head_row = cursor.fetchone()
-            else:
-                return None, []
-
-        # 查 household_id 對應的戶員
-        members = self.get_household_members(household_id)
-        return head_row, members
-    def add_new_household(self, data):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT INTO households (
-                head_name, head_gender, head_birthday_ad, head_birthday_lunar,
-                head_birth_time, head_age, head_zodiac, head_phone_home,
-                head_phone_mobile, head_email, head_address, head_zip_code,
-                head_identity, head_note, head_joined_at, household_note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data.get("head_name"), data.get("head_gender"), data.get("head_birthday_ad"),
-            data.get("head_birthday_lunar"), data.get("head_birth_time"), data.get("head_age"),
-            data.get("head_zodiac"), data.get("head_phone_home"), data.get("head_phone_mobile"),
-            data.get("head_email"), data.get("head_address"), data.get("head_zip_code"),
-            data.get("head_identity"), data.get("head_note"), data.get("head_joined_at"),
-            data.get("household_note")
-        ))
-        self.conn.commit()
-
-    def insert_household(self, data):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT INTO households (
-                head_name, head_gender, head_birthday_ad, head_birthday_lunar, head_birth_time,
-                head_age, head_zodiac, head_phone_home, head_phone_mobile, head_email,
-                head_address, head_zip_code, head_identity, head_note, head_joined_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data["head_name"],
-            data["head_gender"],
-            data["head_birthday_ad"],
-            data["head_birthday_lunar"],
-            data["head_birth_time"],
-            data["head_age"],
-            data["head_zodiac"],
-            data["head_phone_home"],
-            data["head_phone_mobile"],
-            data["head_email"],
-            data["head_address"],
-            data["head_zip_code"],
-            data["head_identity"],
-            data["head_note"],
-            data["head_joined_at"]
-        ))
-        self.conn.commit()
-    
-    def get_all_households_ordered(self):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM households")
-        rows = [dict(row) for row in cursor.fetchall()]
-
-        # 設定locale（注意: 要在支援中文排序的系統）
-        locale.setlocale(locale.LC_COLLATE, "zh_TW.UTF-8")
-
-        # 排序
-        rows.sort(key=lambda x: locale.strxfrm(x["head_name"]))
-
-        return rows
-    
-    def household_has_members(self, household_id):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT COUNT(*) FROM household_members
-            WHERE household_id = ?
-        """, (household_id,))
-        count = cursor.fetchone()[0]
-        return count > 0
-
-    def delete_household(self, household_id):
-        cursor = self.conn.cursor()
-
-        # 先刪 household_members（避免外鍵違反）
-        cursor.execute("""
-            DELETE FROM household_members
-            WHERE household_id = ?
-        """, (household_id,))
-
-        # 再刪 households
-        cursor.execute("""
-            DELETE FROM households
-            WHERE id = ?
-        """, (household_id,))
-
-        self.conn.commit()
-
+    # -------------------------
+    # Identity 
+    # -------------------------
     def get_all_member_identities(self):
         cursor = self.conn.cursor()
         cursor.execute("""
@@ -211,289 +64,755 @@ class AppController:
         """, (identity_id,))
         self.conn.commit()
 
-    def insert_member(self, data):
-        data["id"] = str(uuid.uuid4())
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT INTO people (
-                id, name, gender, birthday_ad, birthday_lunar, birth_time,
-                age, zodiac, phone_home, phone_mobile, email,
-                address, zip_code, identity, note, joined_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data["id"], data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"],
-            data["birth_time"], data["age"], data["zodiac"], data["phone_home"], data["phone_mobile"],
-            data["email"], data["address"], data["zip_code"], data["identity"], data["note"], 
-            data["joined_at"]
-        ))
-        cursor.execute("""
-            INSERT INTO household_members (household_id, person_id)
-            VALUES (?, ?)
-        """, (
-            data["household_id"],
-            data["id"]
-        ))
-        self.conn.commit()
 
-    def update_member(self, data):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            UPDATE people SET
-                name=?, gender=?, birthday_ad=?, birthday_lunar=?, birth_time=?,
-                age=?, zodiac=?, phone_home=?, phone_mobile=?, email=?,
-                address=?, zip_code=?, identity=?, note=?, joined_at=?,
-                lunar_is_leap=?, id_number=?
-            WHERE id=?
-        """, (
-            data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"], data["birth_time"],
-            data["age"], data["zodiac"], data["phone_home"], data["phone_mobile"], data["email"],
-            data["address"], data["zip_code"], data["identity"], data["note"], data["joined_at"],
-            data["lunar_is_leap"], data["id_number"], data["id"]
-        ))
-        self.conn.commit()
-
-    def delete_member_by_id(self, person_id):
-        cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM people WHERE id = ?", (person_id,))
-        self.conn.commit()
-
-    def get_member_by_id(self, person_id):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM people WHERE id = ?", (person_id,))
-        row = cursor.fetchone()
-        if row:
-            columns = [col[0] for col in cursor.description]
-            return dict(zip(columns, row))
-        return None
-    
+    # -------------------------
+    # Household / Person
+    # -------------------------
 
 
-    def get_household_by_id(self, household_id):
-        """根據 household_id 取得戶長資料"""
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT id, head_name, head_gender, head_birthday_ad, head_birthday_lunar,
-                head_birth_time, head_age, head_zodiac, head_phone_home, head_phone_mobile,
-                head_email, head_address, head_zip_code, head_identity, head_note, head_joined_at
-            FROM households
-            WHERE id = ?
-        """, (household_id,))
-        row = cursor.fetchone()
-
-        if row is None:
-            return {}
-
-        # 欄位順序需與 SELECT 對應
-        keys = [
-            "id", "head_name", "head_gender", "head_birthday_ad", "head_birthday_lunar",
-            "head_birth_time", "head_age", "head_zodiac", "head_phone_home", "head_phone_mobile",
-            "head_email", "head_address", "head_zip_code", "head_identity", "head_note", "head_joined_at"
-        ]
-        return dict(zip(keys, row))
-
-    def search_people_unified_dedup_name_birthday(self, keyword):
+    def create_household(self, person_payload: dict) -> Tuple[str, str]:
         """
-        搜尋 people + households 戶長
-        去重規則：name + birthday_ad
-        優先保留 people
-        """
-        like_pattern = f"%{keyword}%"
-
-        sql = """
-        WITH unified AS (
-            SELECT
-                'person' AS type,
-                CAST(id AS TEXT) AS source_id,
-                name,
-                birthday_ad,
-                birthday_lunar,
-                birth_time,
-                age,
-                zodiac,
-                phone_home,
-                phone_mobile,
-                email,
-                address,
-                zip_code,
-                identity,
-                note,
-                joined_at,
-                1 AS priority
-            FROM people
-            WHERE name LIKE ? OR phone_home LIKE ? OR phone_mobile LIKE ? OR address LIKE ?
-
-            UNION ALL
-
-            SELECT
-                'household_head' AS type,
-                CAST(id AS TEXT) AS source_id,
-                head_name AS name,
-                head_birthday_ad AS birthday_ad,
-                head_birthday_lunar AS birthday_lunar,
-                head_birth_time AS birth_time,
-                head_age AS age,
-                head_zodiac AS zodiac,
-                head_phone_home AS phone_home,
-                head_phone_mobile AS phone_mobile,
-                head_email AS email,
-                head_address AS address,
-                head_zip_code AS zip_code,
-                head_identity AS identity,
-                head_note AS note,
-                head_joined_at AS joined_at,
-                2 AS priority
-            FROM households
-            WHERE head_name LIKE ? OR head_phone_home LIKE ? OR head_phone_mobile LIKE ? OR head_address LIKE ?
-        ),
-        ranked AS (
-            SELECT *,
-                CASE
-                    WHEN birthday_ad IS NOT NULL AND birthday_ad != ''
-                    THEN name || '|' || birthday_ad
-                    ELSE source_id || '|' || type
-                END AS dedup_key,
-                ROW_NUMBER() OVER (
-                    PARTITION BY
-                        CASE
-                            WHEN birthday_ad IS NOT NULL AND birthday_ad != ''
-                            THEN name || '|' || birthday_ad
-                            ELSE source_id || '|' || type
-                        END
-                    ORDER BY priority
-                ) AS rn
-            FROM unified
-        )
-        SELECT *
-        FROM ranked
-        WHERE rn = 1
-        ORDER BY name
-        LIMIT 50;
+        建立新戶籍 + 新增戶長 (people: role=HEAD)
+        return: (person_id, household_id)
         """
 
-        try:
-            cur = self.conn.cursor()
-            cur.execute(
-                sql,
-                (
-                    like_pattern, like_pattern, like_pattern, like_pattern,
-                    like_pattern, like_pattern, like_pattern, like_pattern,
-                ),
-            )
-            rows = [dict(row) for row in cur.fetchall()]
-
-            # 欄位補齊（UI 保證用得到）
-            for r in rows:
-                r.setdefault("phone_mobile", r.get("phone_mobile") or "")
-                r.setdefault("phone", r.get("phone_mobile") or r.get("phone_home") or "")
-
-            return rows
-
-        except Exception as e:
-            print(f"❌ search_people_unified_dedup_name_birthday error: {e}")
-            return []
-
-
-    def upsert_person(self, payload: dict) -> str:
-        """
-        新增或更新 people 表的一筆資料，回傳 person_id。
-
-        使用情境：活動報名左下角「參加人員資料」
-        - 若 payload 內有 id 且該 id 存在 → update
-        - 否則 → insert
-
-        注意：這裡「只處理 people 表」，不處理 household_members。
-        """
-        if not isinstance(payload, dict):
-            raise ValueError("payload 必須是 dict")
-
-        cur = self.conn.cursor()
-        person_id = (payload.get("id") or "").strip() or None
-
-        def _now_str():
-            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        data = {
-            "id": person_id or str(uuid.uuid4()),
-            "name": (payload.get("name") or "").strip(),
-            "gender": (payload.get("gender") or "").strip() or None,
-            "birthday_ad": (payload.get("birthday_ad") or "").strip() or None,
-            "birthday_lunar": (payload.get("birthday_lunar") or "").strip() or None,
-            "lunar_is_leap": int(payload.get("lunar_is_leap") or 0),
-            "birth_time": (payload.get("birth_time") or "").strip() or None,
-            "age": payload.get("age"),
-            "zodiac": (payload.get("zodiac") or "").strip() or None,
-            "phone_home": (payload.get("phone_home") or "").strip() or None,
-            "phone_mobile": (payload.get("phone_mobile") or payload.get("phone") or "").strip() or None,
-            "email": (payload.get("email") or "").strip() or None,
-            "address": (payload.get("address") or "").strip() or None,
-            "zip_code": (payload.get("zip_code") or "").strip() or None,
-            "identity": (payload.get("identity") or "").strip() or None,
-            "id_number": (payload.get("id_number") or "").strip() or None,
-            "note": (payload.get("note") or "").strip() or None,
-            "joined_at": (payload.get("joined_at") or _now_str()).strip() if payload.get("joined_at") else _now_str(),
+        # 1) 先做必填檢查
+        required_fields = {
+            "name": "name is required",
+            "gender": "gender is required",
+            "phone_mobile": "phone_mobile is required",
+            "birthday_ad": "birthday_ad is required",
+            "birthday_lunar": "birthday_lunar is required",
+            "birth_time": "birth_time is required",
+            "address": "address is required",
         }
 
-        if not data["name"]:
-            raise ValueError("name 為必填")
+        cleaned_required = {}
+        missing = []
 
-        exists = False
-        if person_id:
-            cur.execute("SELECT 1 FROM people WHERE id = ? LIMIT 1", (person_id,))
-            exists = cur.fetchone() is not None
+        for field, err_msg in required_fields.items():
+            v = person_payload.get(field, None)
 
-        if exists:
-            cur.execute(
-                """
-                UPDATE people SET
-                    name = ?,
-                    gender = ?,
-                    birthday_ad = ?,
-                    birthday_lunar = ?,
-                    lunar_is_leap = ?,
-                    birth_time = ?,
-                    age = ?,
-                    zodiac = ?,
-                    phone_home = ?,
-                    phone_mobile = ?,
-                    email = ?,
-                    address = ?,
-                    zip_code = ?,
-                    identity = ?,
-                    id_number = ?,
-                    note = ?,
-                    joined_at = ?
-                WHERE id = ?
-                """,
-                (
-                    data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"],
-                    data["lunar_is_leap"], data["birth_time"], data["age"], data["zodiac"],
-                    data["phone_home"], data["phone_mobile"], data["email"], data["address"],
-                    data["zip_code"], data["identity"], data["id_number"], data["note"],
-                    data["joined_at"],
-                    data["id"],
-                ),
-            )
-        else:
-            cur.execute(
-                """
-                INSERT INTO people (
-                    id, name, gender, birthday_ad, birthday_lunar, lunar_is_leap,
-                    birth_time, age, zodiac, phone_home, phone_mobile, email,
-                    address, zip_code, identity, id_number, note, joined_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    data["id"], data["name"], data["gender"], data["birthday_ad"], data["birthday_lunar"],
-                    data["lunar_is_leap"], data["birth_time"], data["age"], data["zodiac"],
-                    data["phone_home"], data["phone_mobile"], data["email"], data["address"],
-                    data["zip_code"], data["identity"], data["id_number"], data["note"], data["joined_at"],
-                ),
-            )
+            if isinstance(v, str):
+                v = v.strip()
 
+            if v is None or v == "":
+                missing.append(err_msg)
+            else:
+                cleaned_required[field] = v
+
+        if missing:
+            raise ValueError(" / ".join(missing))
+
+        # 2) 檢查通過後，才開始組資料（填寫輸入）
+        person_id = self._uuid()
+        household_id = self._uuid()
+
+        data = {
+            "id": person_id,
+            "household_id": household_id,
+            "role_in_household": "HEAD",
+            "status": "ACTIVE",
+            "name": cleaned_required["name"],
+            "gender": cleaned_required["gender"],
+            "birthday_ad": cleaned_required["birthday_ad"],
+            "birthday_lunar": cleaned_required["birthday_lunar"],
+            "birth_time": cleaned_required["birth_time"],
+            "phone_mobile": cleaned_required["phone_mobile"],
+            "address": cleaned_required["address"],
+            "joined_at": self._now(),
+        }
+
+        # 選填欄位：payload 有帶、且不是空字串/None 才寫入
+        optional_cols = {"phone_home", "zip_code", "note"}
+        for col in optional_cols:
+            v = person_payload.get(col, None)
+            if isinstance(v, str):
+                v = v.strip()
+            if v not in (None, ""):
+                data[col] = v
+
+        # 3) 寫入 DB
+        cur = self.conn.cursor()
+        keys = list(data.keys())
+        cur.execute(
+            f"INSERT INTO people ({', '.join(keys)}) VALUES ({', '.join(['?'] * len(keys))})",
+            tuple(data[k] for k in keys),
+        )
         self.conn.commit()
-        return data["id"]
+        return person_id, household_id
+
+    def create_people(self, household_id: str, person_payload: dict) -> str:
+        """
+        在指定戶長底下新增成員 (people: role=MEMBER)
+        return: person_id
+        """
+
+        household_id = (household_id or "").strip()
+        if not household_id:
+            raise ValueError("household_id is required")
+
+        cur = self.conn.cursor()
+
+        # 0) 先確認戶長存在，且是 HEAD，並取 household_id
+        row = cur.execute(
+            """
+            SELECT household_id
+            FROM people
+            WHERE id = ?
+            AND role_in_household = 'HEAD'
+            AND status = 'ACTIVE'
+            """,
+            (household_id,),
+        ).fetchone()
+
+        if not row:
+            raise ValueError("head person not found or not ACTIVE HEAD")
+
+        household_id = row[0]
+
+        # 1) 先做必填檢查（跟 create_household 一樣的欄位）
+        required_fields = {
+            "name": "name is required",
+            "gender": "gender is required",
+            "phone_mobile": "phone_mobile is required",
+            "birthday_ad": "birthday_ad is required",
+            "birthday_lunar": "birthday_lunar is required",
+            "birth_time": "birth_time is required",
+            "address": "address is required",
+        }
+
+        cleaned_required = {}
+        missing = []
+
+        for field, err_msg in required_fields.items():
+            v = person_payload.get(field, None)
+            if isinstance(v, str):
+                v = v.strip()
+
+            if v is None or v == "":
+                missing.append(err_msg)
+            else:
+                cleaned_required[field] = v
+
+        if missing:
+            raise ValueError(" / ".join(missing))
+
+        # 2) 檢查通過後，才開始組資料
+        person_id = self._uuid()
+
+        data = {
+            "id": person_id,
+            "household_id": household_id,
+            "role_in_household": "MEMBER",
+            "status": "ACTIVE",
+
+            "name": cleaned_required["name"],
+            "gender": cleaned_required["gender"],
+            "birthday_ad": cleaned_required["birthday_ad"],
+            "birthday_lunar": cleaned_required["birthday_lunar"],
+            "birth_time": cleaned_required["birth_time"],
+
+            "phone_mobile": cleaned_required["phone_mobile"],
+            "address": cleaned_required["address"],
+
+            "joined_at": self._now(),
+        }
+
+        # 3) 選填欄位：payload 有帶、且不是空字串/None 才寫入
+        optional_cols = {
+            "phone_home",
+            "zip_code",
+            "note",
+            "lunar_is_leap",
+            "age",
+            "zodiac",
+        }
+        for col in optional_cols:
+            v = person_payload.get(col, None)
+            if isinstance(v, str):
+                v = v.strip()
+            if v not in (None, ""):
+                data[col] = v
+
+        # 4) 寫入 DB
+        keys = list(data.keys())
+        cur.execute(
+            f"INSERT INTO people ({', '.join(keys)}) VALUES ({', '.join(['?'] * len(keys))})",
+            tuple(data[k] for k in keys),
+        )
+        self.conn.commit()
+
+        return person_id
 
 
+
+    def list_household(
+        self,
+        keyword: Optional[str] = None,
+        status: str = "ACTIVE",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict]:
+        """
+        列出戶籍清單（以戶長 HEAD 為代表）
+        Phase 1（方案 B）：
+        - 回傳「戶長完整資訊」供 household_table 12 欄顯示
+        - keyword：戶長姓名 / 手機
+        - status 篩選、limit/offset 分頁
+        """
+
+        kw = (keyword or "").strip()
+        status = (status or "").strip().upper()
+
+        params = []
+        where = ["p.role_in_household = 'HEAD'"]
+
+        if status and status != "ALL":
+            where.append("p.status = ?")
+            params.append(status)
+
+        if kw:
+            where.append("(p.name LIKE ? OR p.phone_mobile LIKE ?)")
+            like_kw = f"%{kw}%"
+            params.extend([like_kw, like_kw])
+
+        where_sql = " AND ".join(where)
+
+        sql = f"""
+        SELECT
+            p.household_id,
+            p.id AS head_person_id,
+
+            -- 戶長完整欄位
+            p.name,
+            p.gender,
+            p.birthday_ad,
+            p.birthday_lunar,
+            p.lunar_is_leap,
+            p.birth_time,
+            p.zodiac,
+            p.age,
+            p.phone_home,
+            p.phone_mobile,
+            p.address,
+            p.note
+
+        FROM people p
+        WHERE {where_sql}
+        ORDER BY p.joined_at ASC
+        LIMIT ? OFFSET ?;
+        """
+
+        params.extend([int(limit), int(offset)])
+
+        cur = self.conn.cursor()
+        rows = cur.execute(sql, tuple(params)).fetchall()
+
+        result = []
+        for r in rows:
+            result.append({
+                "household_id": r[0],
+
+                # 兼容：兩個 key 都給，避免其他舊 code 還在用 head_person_id
+                "id": r[1],
+                "head_person_id": r[1],
+
+                "name": r[2],
+                "gender": r[3],
+                "birthday_ad": r[4],
+                "birthday_lunar": r[5],
+                "lunar_is_leap": r[6],
+                "birth_time": r[7],
+                "zodiac": r[8],
+                "age": r[9],
+                "phone_home": r[10],
+                "phone_mobile": r[11],
+                "address": r[12],
+                "note": r[13],
+            })
+
+        return result
+
+
+    def list_people_by_household(self, household_id: str, status: str = "ACTIVE") -> List[Dict]:
+        """
+        列出指定 household_id 底下的所有 people（含 HEAD / MEMBER）
+        預設只列 ACTIVE，可用 status='ALL' 取消篩選
+        回傳：List[dict]
+        """
+
+        household_id = (household_id or "").strip()
+        if not household_id:
+            raise ValueError("household_id is required")
+
+        status = (status or "").strip().upper()
+
+        params = [household_id]
+        where = ["household_id = ?"]
+
+        if status and status != "ALL":
+            where.append("status = ?")
+            params.append(status)
+
+        where_sql = " AND ".join(where)
+
+        sql = f"""
+        SELECT
+            id,
+            household_id,
+            role_in_household,
+            status,
+            name,
+            gender,
+            birthday_ad,
+            birthday_lunar,
+            lunar_is_leap,
+            birth_time,
+            age,
+            zodiac,
+            phone_home,
+            phone_mobile,
+            address,
+            zip_code,
+            note,
+            joined_at
+        FROM people
+        WHERE {where_sql}
+        ORDER BY
+            CASE role_in_household
+                WHEN 'HEAD' THEN 0
+                ELSE 1
+            END,
+            joined_at ASC;
+        """
+
+        cur = self.conn.cursor()
+        rows = cur.execute(sql, tuple(params)).fetchall()
+
+        result = []
+        for r in rows:
+            result.append({
+                "id": r[0],
+                "household_id": r[1],
+                "role_in_household": r[2],
+                "status": r[3],
+                "name": r[4],
+                "gender": r[5],
+                "birthday_ad": r[6],
+                "birthday_lunar": r[7],
+                "lunar_is_leap": r[8],
+                "birth_time": r[9],
+                "age": r[10],
+                "zodiac": r[11],
+                "phone_home": r[12],
+                "phone_mobile": r[13],
+                "address": r[14],
+                "zip_code": r[15],
+                "note": r[16],
+                "joined_at": r[17],
+            })
+
+        return result
+
+    def update_person(self, person_id: str, payload: Dict[str, Any]) -> int:
+
+        """
+        更新 people 表某一筆 person 資料（白名單欄位）
+        - 只允許更新 UPDATABLE_FIELDS 內的欄位
+        - 會自動 strip 字串
+        - 若 payload 沒有任何可更新欄位 -> raise
+        return: 影響筆數 rowcount（正常應為 1）
+        """
+
+        UPDATABLE_FIELDS = {
+            "name",
+            "gender",
+            "birthday_ad",
+            "birthday_lunar",
+            "lunar_is_leap",
+            "birth_time",
+            "phone_home",
+            "phone_mobile",
+            "address",
+            "zip_code",
+            "note",
+        }
+        person_id = (person_id or "").strip()
+        if not person_id:
+            raise ValueError("person_id is required")
+
+        if payload is None or not isinstance(payload, dict):
+            raise ValueError("payload must be a dict")
+
+        # 1) 過濾出允許更新的欄位
+        updates: Dict[str, Any] = {}
+        for k, v in payload.items():
+            if k not in UPDATABLE_FIELDS:
+                continue
+
+            # 統一處理字串
+            if isinstance(v, str):
+                v = v.strip()
+
+            # 你也可以選擇：不允許把欄位更新成空字串
+            if v == "":
+                continue
+
+            # lunar_is_leap 建議確保是 0/1（但不強制也可）
+            if k == "lunar_is_leap" and v not in (None, ""):
+                try:
+                    v = int(v)
+                except Exception:
+                    raise ValueError("lunar_is_leap must be 0 or 1")
+                if v not in (0, 1):
+                    raise ValueError("lunar_is_leap must be 0 or 1")
+
+            updates[k] = v
+
+        if not updates:
+            raise ValueError("no updatable fields in payload")
+
+        # 2) 先確認 person 存在（避免 rowcount=0 你不好判斷）
+        cur = self.conn.cursor()
+        exists = cur.execute("SELECT 1 FROM people WHERE id = ?", (person_id,)).fetchone()
+        if not exists:
+            raise ValueError("person not found")
+
+        # 3) 組 SQL
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        sql = f"UPDATE people SET {set_clause} WHERE id = ?"
+
+        params = list(updates.values()) + [person_id]
+        cur.execute(sql, tuple(params))
+        self.conn.commit()
+
+        return cur.rowcount
+
+    def split_member_to_new_household(
+        self,
+        member_person_id: str,
+        *,
+        require_active: bool = True,
+    ) -> str:
+        """
+        分戶：把一位 MEMBER 移到新 household，並升為新戶的 HEAD
+
+        - 只允許 MEMBER 分戶（HEAD 不在這支處理）
+        - 會產生新的 household_id
+        - 會把此人的 role_in_household 改為 'HEAD'
+        - 會把此人的 household_id 更新為新的 household_id
+        return: new_household_id
+        """
+
+        member_person_id = (member_person_id or "").strip()
+        if not member_person_id:
+            raise ValueError("member_person_id is required")
+
+        cur = self.conn.cursor()
+
+        # 1) 先抓出該人目前狀態
+        row = cur.execute(
+            """
+            SELECT id, household_id, role_in_household, status
+            FROM people
+            WHERE id = ?
+            """,
+            (member_person_id,),
+        ).fetchone()
+
+        if not row:
+            raise ValueError("person not found")
+
+        _id, old_household_id, role, status = row
+
+        if role != "MEMBER":
+            raise ValueError("only MEMBER can be split to a new household")
+
+        if require_active and status != "ACTIVE":
+            raise ValueError("only ACTIVE person can be split")
+
+        # 2) 確認原 household 的 HEAD 存在（避免資料已壞）
+        head = cur.execute(
+            """
+            SELECT 1
+            FROM people
+            WHERE household_id = ?
+            AND role_in_household = 'HEAD'
+            LIMIT 1
+            """,
+            (old_household_id,),
+        ).fetchone()
+
+        if not head:
+            raise ValueError("source household has no HEAD (data integrity issue)")
+
+        new_household_id = self._uuid()
+
+        # 3) 交易：更新該 member -> 新戶 + HEAD
+        try:
+            cur.execute("BEGIN")
+
+            # 把此人搬到新 household，並升為 HEAD
+            # （partial unique index 會確保新 household 只有一位 HEAD）
+            cur.execute(
+                """
+                UPDATE people
+                SET household_id = ?,
+                    role_in_household = 'HEAD'
+                WHERE id = ?
+                AND role_in_household = 'MEMBER'
+                """,
+                (new_household_id, member_person_id),
+            )
+
+            if cur.rowcount != 1:
+                raise ValueError("split failed (person role changed concurrently?)")
+
+            self.conn.commit()
+
+        except Exception:
+            self.conn.rollback()
+            raise
+
+        return new_household_id
+
+    def list_active_heads(self, *, exclude_household_id: Optional[str] = None) -> List[Dict]:
+        """
+        列出所有 ACTIVE 戶長（HEAD），給 UI 下拉選單用
+        - exclude_household_id: 可排除某一戶（避免選到同戶）
+        """
+        exclude_household_id = (exclude_household_id or "").strip()
+
+        params = []
+        where = [
+            "role_in_household = 'HEAD'",
+            "status = 'ACTIVE'",
+        ]
+        if exclude_household_id:
+            where.append("household_id != ?")
+            params.append(exclude_household_id)
+
+        where_sql = " AND ".join(where)
+
+        sql = f"""
+        SELECT
+            id AS head_person_id,
+            household_id,
+            name,
+            phone_mobile
+        FROM people
+        WHERE {where_sql}
+        ORDER BY joined_at ASC;
+        """
+
+        cur = self.conn.cursor()
+        rows = cur.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
+    def transfer_member_to_head(
+        self,
+        member_person_id: str,
+        target_head_person_id: str,
+        *,
+        require_active: bool = True,
+    ) -> str:
+        """
+        戶籍變更：把 member 搬到 target_head 的 household
+        - member 必須是 MEMBER（不能拿 HEAD 去搬）
+        - target 必須是 ACTIVE HEAD
+        - return: target_household_id（方便 UI 切換）
+        """
+        member_person_id = (member_person_id or "").strip()
+        target_head_person_id = (target_head_person_id or "").strip()
+
+        if not member_person_id:
+            raise ValueError("member_person_id is required")
+        if not target_head_person_id:
+            raise ValueError("target_head_person_id is required")
+
+        cur = self.conn.cursor()
+
+        # 1) member 檢查
+        m = cur.execute(
+            """
+            SELECT id, household_id, role_in_household, status, name
+            FROM people
+            WHERE id = ?
+            """,
+            (member_person_id,),
+        ).fetchone()
+        if not m:
+            raise ValueError("member not found")
+
+        if m["role_in_household"] != "MEMBER":
+            raise ValueError("only MEMBER can be transferred")
+
+        if require_active and m["status"] != "ACTIVE":
+            raise ValueError("only ACTIVE member can be transferred")
+
+        source_household_id = m["household_id"]
+
+        # 2) target head 檢查 + 取 household_id
+        t = cur.execute(
+            """
+            SELECT id AS head_person_id, household_id, status, name
+            FROM people
+            WHERE id = ?
+            AND role_in_household = 'HEAD'
+            """,
+            (target_head_person_id,),
+        ).fetchone()
+        if not t:
+            raise ValueError("target head not found")
+
+        if require_active and t["status"] != "ACTIVE":
+            raise ValueError("target head is not ACTIVE")
+
+        target_household_id = t["household_id"]
+
+        if target_household_id == source_household_id:
+            raise ValueError("member already belongs to this household")
+
+        # 3) 交易更新
+        try:
+            cur.execute("BEGIN")
+            cur.execute(
+                """
+                UPDATE people
+                SET household_id = ?
+                WHERE id = ?
+                AND role_in_household = 'MEMBER'
+                """,
+                (target_household_id, member_person_id),
+            )
+            if cur.rowcount != 1:
+                raise RuntimeError("transfer failed")
+            self.conn.commit()
+            return target_household_id
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def deactivate_person(self, person_id: str, *, allow_head: bool = False) -> int:
+        """
+        停用一個人（status -> INACTIVE）
+        - 預設不允許停用 HEAD（避免一戶沒戶長）
+        - return: 影響筆數 rowcount（正常 1）
+        """
+
+        person_id = (person_id or "").strip()
+        if not person_id:
+            raise ValueError("person_id is required")
+
+        cur = self.conn.cursor()
+
+        # 1) 先確認存在並取得角色/狀態/household
+        row = cur.execute(
+            """
+            SELECT role_in_household, status, household_id
+            FROM people
+            WHERE id = ?
+            """,
+            (person_id,),
+        ).fetchone()
+
+        if not row:
+            raise ValueError("person not found")
+
+        role, status, household_id = row
+
+        # 2) 若已停用，直接回傳 0（你也可以選擇回傳 1 視為 idempotent）
+        if status == "INACTIVE":
+            return 0
+
+        # 3) 安全：預設不允許停用戶長
+        if role == "HEAD" and not allow_head:
+            raise ValueError("cannot deactivate HEAD (use change_head / dissolve household flow)")
+
+        # 4) 更新狀態
+        cur.execute(
+            """
+            UPDATE people
+            SET status = 'INACTIVE'
+            WHERE id = ?
+            AND status = 'ACTIVE'
+            """,
+            (person_id,),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def deactivate_household_head_if_no_members(
+        self,
+        household_id: str,
+        head_person_id: str,
+        *,
+        require_active: bool = True,
+    ) -> int:
+        """
+        刪除戶籍（= 停用戶長）：
+        1) 檢查該 household 底下是否還有 ACTIVE MEMBER
+        2) 沒有才允許把 HEAD 設為 INACTIVE
+
+        return: rowcount（正常 1；已是 INACTIVE 可能 0）
+        """
+        household_id = (household_id or "").strip()
+        head_person_id = (head_person_id or "").strip()
+        if not household_id:
+            raise ValueError("household_id is required")
+        if not head_person_id:
+            raise ValueError("head_person_id is required")
+
+        cur = self.conn.cursor()
+
+        # 0) 確認戶長存在且屬於該 household
+        head = cur.execute(
+            """
+            SELECT id, status
+            FROM people
+            WHERE id = ?
+            AND household_id = ?
+            AND role_in_household = 'HEAD'
+            """,
+            (head_person_id, household_id),
+        ).fetchone()
+
+        if not head:
+            raise ValueError("head person not found in this household")
+
+        if require_active and head["status"] != "ACTIVE":
+            raise ValueError("head person is not ACTIVE")
+
+        # 1) 檢查是否有 ACTIVE MEMBER
+        cnt = cur.execute(
+            """
+            SELECT COUNT(1)
+            FROM people
+            WHERE household_id = ?
+            AND role_in_household = 'MEMBER'
+            AND status = 'ACTIVE'
+            """,
+            (household_id,),
+        ).fetchone()[0]
+
+        if int(cnt or 0) > 0:
+            raise ValueError("此戶籍底下仍有會員，請先刪除/移轉/分戶所有會員後才能刪除戶長")
+
+        # 2) 停用戶長
+        cur.execute(
+            """
+            UPDATE people
+            SET status = 'INACTIVE'
+            WHERE id = ?
+            AND household_id = ?
+            AND role_in_household = 'HEAD'
+            AND status = 'ACTIVE'
+            """,
+            (head_person_id, household_id),
+        )
+        self.conn.commit()
+        return cur.rowcount
 
     # -------------------------
     # Activities

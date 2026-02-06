@@ -1,11 +1,12 @@
+# new_household_dialog.py
 from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout
+
 from .base_person_dialog import BasePersonDialog
 
-class NewMemberDialog(BasePersonDialog):
-    def __init__(self, controller, household_id, parent=None):
+class NewHouseholdDialog(BasePersonDialog):
+    def __init__(self, controller, parent=None):
         super().__init__(controller, parent)
-        self.setWindowTitle("戶籍家庭成員資料新增作業")
-        self.household_id = household_id
+        self.setWindowTitle("新增戶籍資料（戶長資料）")
 
         btn_layout = QHBoxLayout()
         self.confirm_btn = QPushButton("✅ 存入")
@@ -16,6 +17,3 @@ class NewMemberDialog(BasePersonDialog):
 
         self.confirm_btn.clicked.connect(self.accept)
         self.cancel_btn.clicked.connect(lambda: self.done(QDialog.Rejected))
-
-    def get_payload(self):
-        return super().get_data()
