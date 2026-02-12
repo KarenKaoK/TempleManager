@@ -277,8 +277,10 @@ def create_transactions_table(db_name=DB_NAME):
         amount INTEGER DEFAULT 0,
         payer_person_id TEXT, -- 強制關聯 people.id (僅 income 需要)
         payer_name TEXT, -- 冗餘儲存姓名(Snapshot)
+        handler TEXT, -- 經手人
         receipt_number TEXT, -- 收據號碼
         note TEXT,
+        is_deleted INTEGER DEFAULT 0, -- 軟刪除標記 (0=正常, 1=已刪除)
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         
         -- 確保 payer_person_id 有對應的人 (雖 SQLite 預設不開 FK，但宣告有好處)
