@@ -262,6 +262,36 @@ def create_activity_signups_table(db_name=DB_NAME):
     conn.close()
     print("✅ `activity_signups` 資料表檢查完成")
 
+def create_transactions_table(db_name=DB_NAME):
+    """建立 transactions 表，儲存收支明細"""
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
+        category_id TEXT NOT NULL, -- 強制關聯 income_items 或 expense_items
+        category_name TEXT, -- 冗餘儲存項目名稱(Snapshot)
+        amount INTEGER DEFAULT 0,
+        payer_person_id TEXT, -- 強制關聯 people.id (僅 income 需要)
+        payer_name TEXT, -- 冗餘儲存姓名(Snapshot)
+        handler TEXT, -- 經手人
+        receipt_number TEXT, -- 收據號碼
+        note TEXT,
+        is_deleted INTEGER DEFAULT 0, -- 軟刪除標記 (0=正常, 1=已刪除)
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        
+        -- 確保 payer_person_id 有對應的人 (雖 SQLite 預設不開 FK，但宣告有好處)
+        FOREIGN KEY (payer_person_id) REFERENCES people(id)
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+    print("✅ `transactions` 資料表檢查完成")
+
 def create_activity_signup_plans_table(db_name=DB_NAME):
     """建立 activity_signup_plans 表"""
     conn = sqlite3.connect(db_name)
@@ -314,6 +344,7 @@ if __name__ == "__main__":
     create_activity_plans_table() # 活動方案
     create_activity_signups_table() # 活動報名
     create_activity_signup_plans_table() # 活動報名方案
+    create_transactions_table() # 收支明細表
 
 
     print("🎉 資料庫初始化完成！")
