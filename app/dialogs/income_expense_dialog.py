@@ -33,6 +33,29 @@ class IncomeExpenseDialog(QDialog):
         self.tabs.setCurrentIndex(initial_tab)
         
         layout.addWidget(self.tabs)
+        
+        # 底部關閉按鈕
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        close_btn = QPushButton("關閉返回")
+        close_btn.setMinimumWidth(120)
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(close_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        layout.addWidget(self.tabs)
+        
+        # 底部關閉按鈕
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        close_btn = QPushButton("關閉返回")
+        close_btn.setMinimumWidth(120)
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(close_btn)
+        
+        layout.addLayout(btn_layout)
+        
         self.setLayout(layout)
 
 class TransactionTab(QWidget):
@@ -239,6 +262,7 @@ class TransactionTab(QWidget):
         
         # 編輯模式狀態
         self.editing_transaction_id = None
+        self.selected_person_data = None
         self.save_btn = save_btn # 存引用以便改文字
         
         # 增加取消編輯按鈕 (預設隱藏)
@@ -287,6 +311,7 @@ class TransactionTab(QWidget):
         self.set_person(person_data)
         
     def set_person(self, person_data):
+        self.selected_person_data = person_data # Store full data for address
         self.selected_person_id = person_data['id']
         self.payer_name_display.setText(person_data['name'])
         self.payer_phone_display.setText(person_data['phone_mobile'] or person_data['phone_home'])
@@ -365,7 +390,7 @@ class TransactionTab(QWidget):
         menu = QMenu(self)
         
         if self.t_type == "income":
-            print_action = QAction("🖨️ 補印收據", self)
+            print_action = QAction("🖨️ 列印收據", self)
             print_action.triggered.connect(lambda: self.on_print_receipt(data))
             menu.addAction(print_action)
             menu.addSeparator()
@@ -428,6 +453,7 @@ class TransactionTab(QWidget):
             if data['payer_person_id']:
                 # 簡單設定，不重新 Search
                 self.selected_person_id = data['payer_person_id']
+                self.selected_person_data = data # Store for address (from get_transactions)
                 self.payer_name_display.setText(data['payer_name'])
                 # 電話沒在 transactions 裡，若要顯示要去撈，或是從 list join 來的資料裡拿
                 # get_transactions 有 JOIN phone_mobile
@@ -454,6 +480,7 @@ class TransactionTab(QWidget):
         if self.t_type == "income":
             # 清空選定的人?? 看需求，通常清空以免誤修
             self.selected_person_id = None
+            self.selected_person_data = None
             self.payer_name_display.clear()
             self.payer_phone_display.clear()
         else:
@@ -514,6 +541,12 @@ class TransactionTab(QWidget):
             else:
                 # New
                 receipt_num = self.controller.generate_receipt_number(date_str)
+                
+                # 住址 (for printing)
+                payer_address = ""
+                if self.t_type == "income" and hasattr(self, 'selected_person_data') and self.selected_person_data:
+                    payer_address = self.selected_person_data.get('address', '')
+                
                 payload = {
                     "date": date_str,
                     "type": self.t_type,
@@ -522,6 +555,7 @@ class TransactionTab(QWidget):
                     "amount": int(amount_str),
                     "payer_person_id": payer_person_id,
                     "payer_name": payer_name,
+                    "address": payer_address,
                     "handler": handler,
                     "receipt_number": receipt_num,
                     "note": note

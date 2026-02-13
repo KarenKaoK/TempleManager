@@ -1877,36 +1877,47 @@ class AppController:
 
     def generate_receipt_number(self, date_str):
         """
-        產生收據號碼：YYYYMMDD-NNN
-        例如：20231024-001
+        產生收據號碼：民國年 + 4碼流水號
+        例如：1130001 (113年第1張)
         """
         # date_str 格式預期為 "YYYY-MM-DD"
         try:
-            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-            prefix = date_obj.strftime("%Y%m%d")
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            roc_year = dt.year - 1911
+            prefix = f"{roc_year}"
         except ValueError:
-            # Fallback if date format is weird
-            prefix = datetime.now().strftime("%Y%m%d")
+            # Fallback
+            dt = datetime.now()
+            roc_year = dt.year - 1911
+            prefix = f"{roc_year}"
         
         cursor = self.conn.cursor()
-        # 查詢當天已有的最後一筆收據號碼
+        # 查詢該民國年開頭的最後一筆收據號碼
+        # 注意：要確保只抓到符合 "prefix + 數字" 格式的
         cursor.execute("""
             SELECT receipt_number FROM transactions 
             WHERE receipt_number LIKE ? 
             ORDER BY receipt_number DESC LIMIT 1
-        """, (f"{prefix}-%",))
+        """, (f"{prefix}%",))
         
         row = cursor.fetchone()
+        new_seq = 1
+        
         if row and row[0]:
-            try:
-                last_seq = int(row[0].split('-')[-1])
-                new_seq = last_seq + 1
-            except ValueError:
-                new_seq = 1
-        else:
-            new_seq = 1
-            
-        return f"{prefix}-{new_seq:03d}"
+            last_no = row[0]
+            # 嘗試解析後面的流水號
+            # 假設格式: [ROC_YEAR][0000] (len(prefix) + 4 or more)
+            if len(last_no) > len(prefix):
+                try:
+                    # 取出後面的數字部分
+                    seq_str = last_no[len(prefix):]
+                    if seq_str.isdigit():
+                        new_seq = int(seq_str) + 1
+                except:
+                    pass
+        
+        # 格式化: 1130001 (4碼流水號)
+        return f"{prefix}{new_seq:04d}"
 
     def add_transaction(self, data):
         """
@@ -1953,7 +1964,7 @@ class AppController:
     def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None):
         cursor = self.conn.cursor()
         query = """
-            SELECT t.*, p.phone_mobile 
+            SELECT t.*, p.phone_mobile, p.address
             FROM transactions t
             LEFT JOIN people p ON t.payer_person_id = p.id
             WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
