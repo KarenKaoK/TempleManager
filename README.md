@@ -59,6 +59,7 @@ temple_venv\Scripts\activate       # Windows
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
+pip install lunardate
 ```
 
 主要相依套件包括：
