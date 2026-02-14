@@ -78,13 +78,13 @@ class AppController:
 
         # 1) 先做必填檢查
         required_fields = {
-            "name": "name is required",
-            "gender": "gender is required",
-            "phone_mobile": "phone_mobile is required",
-            "birthday_ad": "birthday_ad is required",
-            "birthday_lunar": "birthday_lunar is required",
-            "birth_time": "birth_time is required",
-            "address": "address is required",
+            "name": "必須填寫姓名",
+            "gender": "必須填寫性別",
+            "phone_mobile": "必須填寫手機號碼",
+            "birthday_ad": "必須填寫國曆生日",
+            "birthday_lunar": "必須填寫農曆生日",
+            "birth_time": "必須填寫出生時辰",
+            "address": "必須填寫地址",
         }
 
         cleaned_required = {}
@@ -140,7 +140,7 @@ class AppController:
             tuple(data[k] for k in keys),
         )
         self.conn.commit()
-        return person_id, household_id
+        return cleaned_required["name"], cleaned_required["phone_mobile"]
 
     def create_people(self, household_id: str, person_payload: dict) -> str:
         """

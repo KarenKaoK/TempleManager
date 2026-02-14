@@ -16,6 +16,7 @@ from app.dialogs.income_expense_dialog import IncomeExpenseDialog
 
 
 
+
 class MainWindow(QMainWindow):
     def __init__(self, username, role, controller):
         super().__init__()
@@ -146,8 +147,8 @@ class MainWindow(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             payload = dialog.get_data()
             try:
-                person_id, household_id = self.controller.create_household(payload)
-                QMessageBox.information(self, "成功", f"已新增戶籍\n戶號：{household_id}\n戶長ID：{person_id}")
+                name , cellphone_number = self.controller.create_household(payload)
+                QMessageBox.information(self, "成功", f"已新增戶籍\n戶長姓名：{name}\n手機號碼：{cellphone_number}")
 
                 # 建議：新增成功後刷新主畫面戶籍清單（看你目前怎麼做 refresh）
                 if hasattr(self, "main_page") and self.main_page:

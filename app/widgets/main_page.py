@@ -136,7 +136,6 @@ class MainPageWidget(QWidget):
             ("🔄 變更戶長", None, self.on_transfer_household_clicked),
             ("⬆ 上移", None, self.on_move_up_clicked),
             ("⬇ 下移", None, self.on_move_down_clicked),
-            ("⛔ 關閉退出", "darkred", self.on_close_clicked),
         ]
 
         member_btn_layout = QVBoxLayout()
@@ -174,8 +173,8 @@ class MainPageWidget(QWidget):
         entries = [
             ("姓名：", 0, 0), ("性別：", 0, 2), 
             ("國曆生日：", 1, 0), ("農曆生日：", 1, 2), ("時辰：", 1, 4),
-            ("生肖：", 2, 2), ("年齡：", 2, 4),
-            ("聯絡電話：", 3, 0), ("手機號碼：", 3, 2), ("：", 3, 4),
+            ("生肖：", 2, 0), ("年齡：", 2, 2),
+            ("聯絡電話：", 3, 0), ("手機號碼：", 3, 2),
             ("聯絡地址：", 5, 0),
             ("郵遞區號：", 6, 0), ("備註說明：", 7, 0)
         ]
@@ -696,10 +695,6 @@ class MainPageWidget(QWidget):
             return
         self._swap_member_rows(row, row + 1)
         self.member_table.selectRow(row + 1)
-
-    def on_close_clicked(self):
-        """關閉退出按鈕"""
-        self.close()
     
     def refresh_member_table(self, household_id):
         if not household_id:
