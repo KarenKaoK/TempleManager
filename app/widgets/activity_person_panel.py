@@ -110,8 +110,12 @@ class ActivityPersonPanel(QWidget):
         self.date_birth_ad = QDateEdit()
         self.date_birth_ad.setCalendarPopup(True)
         self.date_birth_ad.setDisplayFormat("yyyy/MM/dd")
-        self.date_birth_ad.setDate(QDate.currentDate())
+        min_date = QDate(1900, 1, 1)
+        self.date_birth_ad.setMinimumDate(min_date)
+        self.date_birth_ad.setSpecialValueText("")   # 顯示空白
+        self.date_birth_ad.setDate(min_date)         # 預設空白狀態
 
+    
         self.edit_birth_lunar = QLineEdit()
         self.edit_birth_lunar.setPlaceholderText("例如：農曆正月十五")
 
@@ -256,6 +260,7 @@ class ActivityPersonPanel(QWidget):
         self.edit_birth_lunar.clear()
         self.edit_address.clear()
         self.edit_note.clear()
+        self.date_birth_ad.setDate(self.date_birth_ad.minimumDate())
 
     def show_search_results(self, people: list[dict]):
         self.list_results.clear()
@@ -272,25 +277,46 @@ class ActivityPersonPanel(QWidget):
 
         self.edit_name.setText(data.get("name", ""))
         self.edit_phone.setText(data.get("phone_mobile", ""))
-        self.edit_birth_lunar.setText(data.get("birthday_lunar", ""))
+
+        self.edit_birth_lunar.setText(data.get("birthday_lunar") or "")
+        
+        birthday_ad = (data.get("birthday_ad") or "").strip()
+        min_date = self.date_birth_ad.minimumDate()
+        self.date_birth_ad.setDate(min_date)
+
+        if birthday_ad:
+            qd = QDate.fromString(birthday_ad, "yyyy/MM/dd")
+            if qd.isValid():
+                self.date_birth_ad.setDate(qd)
+
+
         self.edit_address.setText(data.get("address", ""))
         self.edit_note.setText(data.get("note", ""))
 
         self.list_results.hide()
 
+
     def get_person_payload(self) -> dict:
+        d = self.date_birth_ad.date()
+        min_date = self.date_birth_ad.minimumDate()
+
+        birthday_ad = ""
+        if d.isValid() and d != min_date:
+            birthday_ad = d.toString("yyyy/MM/dd") 
+
         return {
             "id": self._person_id,
             "name": self.edit_name.text().strip(),
             "gender": self.combo_gender.currentText(),
             "phone_mobile": self.edit_phone.text().strip(),
-            "birthday_ad": self.date_birth_ad.date().toString("yyyy-MM-dd"),
+            "birthday_ad": birthday_ad,             
             "birthday_lunar": self.edit_birth_lunar.text().strip(),
             "birth_time": self.combo_birth_time.currentText(),
             "zodiac": self.combo_zodiac.currentText(),
             "address": self.edit_address.text().strip(),
             "note": self.edit_note.text().strip(),
         }
+
 
 
 
