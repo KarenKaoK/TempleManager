@@ -46,24 +46,26 @@ class MainPageWidget(QWidget):
         # 戶長表格
         # self.household_table = QTableWidget() # AutoResizingTableWidget 代替，已經繼承 QTableWidget
         self.household_table = AutoResizingTableWidget()
-        self.household_table.setColumnCount(11)
+        self.household_table.setColumnCount(12)
         self.household_table.setHorizontalHeaderLabels([
-            "戶長姓名", "性別", "國曆生日", "農曆生日", "時辰", "生肖", "年齡",
+            "類型", "姓名", "性別", "國曆生日", "農曆生日", "時辰", "生肖", "年齡",
             "聯絡電話", "手機號碼", "聯絡地址", "備註說明"
         ])
         
         header = self.household_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
-        header.resizeSection(1, 50) # 性別
-        header.resizeSection(2, 100) # 國曆生日
-        header.resizeSection(3, 100) # 農曆生日
-        header.resizeSection(4, 50) # 時辰
-        header.resizeSection(5, 50) # 生肖
-        header.resizeSection(6, 50) # 年齡
+        header.resizeSection(0, 50) # 類型
+        header.resizeSection(1, 100) # 姓名
+        header.resizeSection(2, 50) # 性別
+        header.resizeSection(3, 100) # 國曆生日
+        header.resizeSection(4, 100) # 農曆生日
+        header.resizeSection(5, 50) # 時辰
+        header.resizeSection(6, 50) # 生肖
+        header.resizeSection(7, 50) # 年齡
 
-        header.resizeSection(7, 130) # 聯絡電話
-        header.resizeSection(8, 130) # 手機號碼
-        header.resizeSection(9, 380)
+        header.resizeSection(8, 130) # 聯絡電話
+        header.resizeSection(9, 130) # 手機號碼
+        header.resizeSection(10, 380)
         header.setStretchLastSection(True)
 
         self.household_table.setTextElideMode(Qt.ElideRight)
@@ -224,35 +226,38 @@ class MainPageWidget(QWidget):
 
         self.setLayout(layout)
 
-        # 讀取所有戶長並排序（controller 需提供這個方法）
-        all_heads = self.controller.list_household()
-        self.update_household_table(all_heads)
-        # 預設載入第一筆戶長的成員與詳情
-        if all_heads:
-            first_head = all_heads[0]
-            household_id = first_head["household_id"]
-            head_person_id = first_head["head_person_id"]
+        # 讀取所有信眾並排序
+        all_people = self.controller.get_all_people()
+        self.update_household_table(all_people)
+        
+        # 預設載入第一筆資料的戶籍資訊
+        if all_people:
+            first_p = all_people[0]
+            household_id = first_p["household_id"]
+            
+            # Find the head's person_id for this household
+            h_people = self.controller.list_people_by_household(household_id)
+            head_row = next((p for p in h_people if p.get("role_in_household") == "HEAD"), first_p)
+            head_person_id = head_row.get("id")
+            
             self._load_household(household_id, head_person_id)
-            members = self.controller.list_people_by_household(household_id)
-       
-            self.fill_person_detail(first_head)
-
-           
+            self.fill_person_detail(first_p)
+            
             self.stats_label.setText(
-                f"戶長：{first_head.get('name','')}　家庭人數：{len(members)}"
+                f"戶長：{head_row.get('name','')}　家庭人數：{len(h_people)}"
             )
 
     def refresh_all_panels(self, select_household_id: str = None, select_head_person_id: str = None):
         """
-        新增/修改完戶長後，用這支統一刷新：
-        1) reload 戶長清單
-        2) 更新戶長 table
+        統一刷新：
+        1) reload 所有信眾清單
+        2) 更新左上表格
         3) 視需要自動選取某一戶並載入 members + 右側詳情
         """
-        heads = self.controller.list_household()
-        self.update_household_table(heads)
+        people = self.controller.get_all_people()
+        self.update_household_table(people)
 
-        if not heads:
+        if not people:
             self.member_table.setRowCount(0)
             return
 
@@ -261,9 +266,13 @@ class MainPageWidget(QWidget):
             self._load_household(select_household_id, select_head_person_id)
             return
 
-        # 否則預設載入第一戶
-        first = heads[0]
-        self._load_household(first["household_id"], first["head_person_id"])
+        # 否則預設載入第一人所屬戶
+        first = people[0]
+        # 需找到該戶的戶長 ID
+        household_id = first["household_id"]
+        h_people = self.controller.list_people_by_household(household_id)
+        head = next((p for p in h_people if p.get("role_in_household") == "HEAD"), first)
+        self._load_household(household_id, head["id"])
 
 
     def delete_selected_household(self):
@@ -323,69 +332,93 @@ class MainPageWidget(QWidget):
 
     def update_household_table(self, data):
         self.household_table.setRowCount(len(data))
-        self.current_households = data
+        self.current_households = data # 這裡其實是 current_people_list
 
-        for r, head in enumerate(data):
-            # 0 姓名（順便存 meta：household_id + head_person_id）
-            name = head.get("name", "") or ""
-            item0 = QTableWidgetItem(name)
-            item0.setData(Qt.UserRole, {
-                "household_id": head.get("household_id"),
-                "head_person_id": head.get("id")  # head 的 person id
+        for r, person in enumerate(data):
+            # 0 類型
+            role = person.get("role_in_household", "")
+            role_text = "戶長" if role == "HEAD" else "戶員"
+            role_item = QTableWidgetItem(role_text)
+            if role == "HEAD":
+                role_item.setForeground(Qt.red)
+            self.household_table.setItem(r, 0, role_item)
+
+            # 1 姓名（順便存 meta：household_id + head_person_id）
+            # 注意：點擊這一行應該還是載入該人的「整戶」
+            name = person.get("name", "") or ""
+            item1 = QTableWidgetItem(name)
+            item1.setData(Qt.UserRole, {
+                "household_id": person.get("household_id"),
+                "person_id": person.get("id")  # 這是該人的 id
             })
-            self.household_table.setItem(r, 0, item0)
+            self.household_table.setItem(r, 1, item1)
 
-            # 1 性別
-            self.household_table.setItem(r, 1, QTableWidgetItem(head.get("gender", "") or ""))
+            # 2 性別
+            self.household_table.setItem(r, 2, QTableWidgetItem(person.get("gender", "") or ""))
 
-            # 2 國曆生日
-            self.household_table.setItem(r, 2, QTableWidgetItem(head.get("birthday_ad", "") or ""))
+            # 3 國曆生日
+            self.household_table.setItem(r, 3, QTableWidgetItem(person.get("birthday_ad", "") or ""))
 
-            # 3 農曆生日（含閏月）
-            lunar = head.get("birthday_lunar", "") or ""
-            if str(head.get("lunar_is_leap", "0")) == "1" and lunar:
+            # 4 農曆生日
+            lunar = person.get("birthday_lunar", "") or ""
+            if str(person.get("lunar_is_leap", "0")) == "1" and lunar:
                 lunar = f"{lunar}(閏)"
-            self.household_table.setItem(r, 3, QTableWidgetItem(lunar))
+            self.household_table.setItem(r, 4, QTableWidgetItem(lunar))
 
-            # 4 時辰
-            self.household_table.setItem(r, 4, QTableWidgetItem(head.get("birth_time", "") or ""))
+            # 5 時辰
+            self.household_table.setItem(r, 5, QTableWidgetItem(person.get("birth_time", "") or ""))
 
-            # 5 生肖
-            self.household_table.setItem(r, 5, QTableWidgetItem(str(head.get("zodiac", "") or "")))
+            # 6 生肖
+            self.household_table.setItem(r, 6, QTableWidgetItem(str(person.get("zodiac", "") or "")))
 
-            # 6 年齡
-            age = head.get("age", "")
-            self.household_table.setItem(r, 6, QTableWidgetItem("" if age is None else str(age)))
+            # 7 年齡
+            age = person.get("age", "")
+            self.household_table.setItem(r, 7, QTableWidgetItem("" if age is None else str(age)))
 
-            # 7 聯絡電話
-            self.household_table.setItem(r, 7, QTableWidgetItem(head.get("phone_home", "") or ""))
+            # 8 聯絡電話
+            self.household_table.setItem(r, 8, QTableWidgetItem(person.get("phone_home", "") or ""))
 
-            # 8 手機
-            self.household_table.setItem(r, 8, QTableWidgetItem(head.get("phone_mobile", "") or ""))
+            # 9 手機
+            self.household_table.setItem(r, 9, QTableWidgetItem(person.get("phone_mobile", "") or ""))
 
-            # 10 地址（加 tooltip）
-            addr = head.get("address", "") or ""
+            # 10 地址
+            addr = person.get("address", "") or ""
             addr_item = QTableWidgetItem(addr)
             addr_item.setToolTip(addr)
-            self.household_table.setItem(r, 9, addr_item)
+            self.household_table.setItem(r, 10, addr_item)
 
-            # 11 備註（加 tooltip）
-            note = head.get("note", "") or ""
+            # 11 備註
+            note = person.get("note", "") or ""
             note_item = QTableWidgetItem(note)
             note_item.setToolTip(note)
-            self.household_table.setItem(r, 10, note_item)
+            self.household_table.setItem(r, 11, note_item)
 
 
 
     def on_household_row_clicked(self, row, col):
-        item0 = self.household_table.item(row, 0)
-        if not item0:
+        item1 = self.household_table.item(row, 1)
+        if not item1:
             return
-        meta = item0.data(Qt.UserRole) or {}
+        meta = item1.data(Qt.UserRole) or {}
         household_id = meta.get("household_id")
-        head_person_id = meta.get("head_person_id")
+        person_id = meta.get("person_id")
+        
+        # 找到該戶的戶長
+        h_people = self.controller.list_people_by_household(household_id)
+        head = next((p for p in h_people if p.get("role_in_household") == "HEAD"), None)
+        head_person_id = head["id"] if head else person_id
+
         if household_id and head_person_id:
             self._load_household(household_id, head_person_id)
+            
+            # 選中該人
+            p = next((x for x in h_people if x.get("id") == person_id), None)
+            if p:
+                self.fill_person_detail(p)
+                # 在下方表格選中該人
+                member_row = self._find_member_row_by_person_id(person_id)
+                if member_row is not None:
+                    self.member_table.selectRow(member_row)
 
     def update_member_table(self, people):
         """

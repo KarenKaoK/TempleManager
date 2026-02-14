@@ -12,110 +12,65 @@ from app.controller.app_controller import AppController
 @pytest.fixture
 def controller_with_db(tmp_path):
     """
-    建立一個乾淨的 sqlite 測試 DB，建立必要 tables 並塞入測試資料，
-    回傳 AppController(db_path=...).
-
-    ✅ 不會碰到正式 temple.db
+    建立一個乾淨的 sqlite 測試 DB，建立必要 tables 並塞入測試資料。
+    採用單表設計：所有人都在 people 表中。
     """
     db_path = tmp_path / "test_app_controller.db"
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    # --- tables needed by tested methods ---
+    # --- Create people table (Single Table Design) ---
     cur.execute("""
-        CREATE TABLE households (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            head_name TEXT NOT NULL,
-            head_gender TEXT,
-            head_birthday_ad TEXT,
-            head_birthday_lunar TEXT,
-            head_birth_time TEXT,
-            head_age INTEGER,
-            head_zodiac TEXT,
-            head_phone_home TEXT,
-            head_phone_mobile TEXT,
-            head_email TEXT,
-            head_address TEXT,
-            head_zip_code TEXT,
-            head_identity TEXT,
-            head_note TEXT,
-            head_joined_at TEXT,
-            household_note TEXT
-        )
+    CREATE TABLE people (
+        id TEXT PRIMARY KEY,
+        household_id TEXT NOT NULL,
+        role_in_household TEXT NOT NULL CHECK(role_in_household IN ('HEAD','MEMBER')),
+        status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','INACTIVE')),
+        name TEXT NOT NULL,
+        gender TEXT,
+        birthday_ad TEXT,
+        birthday_lunar TEXT,
+        lunar_is_leap INTEGER DEFAULT 0,
+        birth_time TEXT,
+        age INTEGER,
+        zodiac TEXT,
+        phone_home TEXT,
+        phone_mobile TEXT,
+        address TEXT,
+        zip_code TEXT,
+        note TEXT,
+        joined_at TEXT
+    )
     """)
 
+    # --- Seed Data ---
+    # Household 1 (Head: 王大明)
     cur.execute("""
-        CREATE TABLE people (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            gender TEXT,
-            birthday_ad TEXT,
-            birthday_lunar TEXT,
-            birth_time TEXT,
-            age INTEGER,
-            zodiac TEXT,
-            phone_home TEXT,
-            phone_mobile TEXT,
-            email TEXT,
-            address TEXT,
-            zip_code TEXT,
-            identity TEXT,
-            note TEXT,
-            joined_at TEXT
-        )
-    """)
+        INSERT INTO people (id, household_id, role_in_household, name, phone_home, phone_mobile, address, joined_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, ("P0", "H1", "HEAD", "王大明", "02-1111-2222", "0911-111-111", "台北市A路", "2026-01-01", "ACTIVE"))
+    
+    cur.execute("""
+        INSERT INTO people (id, household_id, role_in_household, name, phone_mobile, address, joined_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, ("P1", "H1", "MEMBER", "王小明", "0933-333-333", "台北市A路", "2026-01-03", "ACTIVE"))
 
     cur.execute("""
-        CREATE TABLE household_members (
-            id TEXT PRIMARY KEY,
-            household_id TEXT NOT NULL,
-            person_id TEXT NOT NULL,
-            relationship TEXT
-        )
-    """)
+        INSERT INTO people (id, household_id, role_in_household, name, phone_mobile, address, joined_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, ("P2", "H1", "MEMBER", "王小華", "0944-444-444", "台北市A路", "2026-01-04", "ACTIVE"))
 
-    # --- seed data ---
-    # Household 1: 王大明 (id will be 1)
+    # Household 2 (Head: 林小美)
     cur.execute("""
-        INSERT INTO households (
-            head_name, head_phone_home, head_phone_mobile, head_address, head_identity, head_joined_at, household_note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, ("王大明", "02-1111-2222", "0911-111-111", "台北市A路", "丁", "2026-01-01", "戶註記A"))
-
-    # Household 2: 林小美 (id will be 2)
-    cur.execute("""
-        INSERT INTO households (
-            head_name, head_phone_home, head_phone_mobile, head_address, head_identity, head_joined_at, household_note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, ("林小美", "02-3333-4444", "0922-222-222", "新北市B路", "丁", "2026-01-02", "戶註記B"))
-
-    # People
-    cur.execute("""
-        INSERT INTO people (id, name, phone_mobile, identity, address, joined_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, ("P1", "王小明", "0933-333-333", "口", "台北市A路", "2026-01-03"))
+        INSERT INTO people (id, household_id, role_in_household, name, phone_home, phone_mobile, address, joined_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, ("P3", "H2", "HEAD", "林小美", "02-3333-4444", "0922-222-222", "新北市B路", "2026-01-02", "ACTIVE"))
 
     cur.execute("""
-        INSERT INTO people (id, name, phone_mobile, identity, address, joined_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, ("P2", "王小華", "0944-444-444", "口", "台北市A路", "2026-01-04"))
-
-    cur.execute("""
-        INSERT INTO people (id, name, phone_mobile, identity, address, joined_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, ("P3", "林小強", "0955-555-555", "口", "新北市B路", "2026-01-05"))
-
-    # Household members mapping
-    # household_id=1 -> P1, P2
-    cur.execute("INSERT INTO household_members (id, household_id, person_id, relationship) VALUES (?, ?, ?, ?)",
-                ("HM1", "1", "P1", "子"))
-    cur.execute("INSERT INTO household_members (id, household_id, person_id, relationship) VALUES (?, ?, ?, ?)",
-                ("HM2", "1", "P2", "女"))
-
-    # household_id=2 -> P3
-    cur.execute("INSERT INTO household_members (id, household_id, person_id, relationship) VALUES (?, ?, ?, ?)",
-                ("HM3", "2", "P3", "子"))
+        INSERT INTO people (id, household_id, role_in_household, name, phone_mobile, address, joined_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, ("P4", "H2", "MEMBER", "林小強", "0955-555-555", "新北市B路", "2026-01-05", "ACTIVE"))
 
     conn.commit()
     conn.close()
@@ -123,7 +78,6 @@ def controller_with_db(tmp_path):
     controller = AppController(db_path=str(db_path))
     yield controller
 
-    # teardown
     try:
         controller.conn.close()
     except Exception:
@@ -131,76 +85,67 @@ def controller_with_db(tmp_path):
 
 
 # -------------------------
-# Tests: search_households
+# Tests: get_all_people
 # -------------------------
 
-def test_search_households_by_head_name(controller_with_db):
+def test_get_all_people_returns_all_rows(controller_with_db):
     c = controller_with_db
-    rows = c.search_households("王大")
-    assert isinstance(rows, list)
-    assert len(rows) == 1
-    assert rows[0]["head_name"] == "王大明"
-
-
-def test_search_households_by_phone_home(controller_with_db):
-    c = controller_with_db
-    rows = c.search_households("02-3333")
-    assert len(rows) == 1
-    assert rows[0]["head_name"] == "林小美"
-
-
-def test_search_households_by_phone_mobile(controller_with_db):
-    c = controller_with_db
-    rows = c.search_households("0911")
-    assert len(rows) == 1
-    assert rows[0]["head_name"] == "王大明"
+    people = c.get_all_people()
+    assert isinstance(people, list)
+    assert len(people) == 5
+    # P4 was added last (2026-01-05), so it should be first due to ORDER BY joined_at DESC
+    assert people[0]["id"] == "P4" 
 
 
 # -------------------------
-# Tests: get_household_members
+# Tests: list_household
 # -------------------------
 
-def test_get_household_members_returns_joined_people(controller_with_db):
+def test_list_household_by_keyword_name(controller_with_db):
     c = controller_with_db
-    members = c.get_household_members("1")
-    assert isinstance(members, list)
-    assert len(members) == 2
+    rows = c.list_household(keyword="王大")
+    assert len(rows) == 1
+    assert rows[0]["name"] == "王大明"
 
+
+def test_list_household_by_keyword_phone(controller_with_db):
+    c = controller_with_db
+    rows = c.list_household(keyword="0922")
+    assert len(rows) == 1
+    assert rows[0]["name"] == "林小美"
+
+
+# -------------------------
+# Tests: list_people_by_household
+# -------------------------
+
+def test_list_people_by_household(controller_with_db):
+    c = controller_with_db
+    members = c.list_people_by_household("H1")
+    assert len(members) == 3
     names = sorted([m["name"] for m in members])
-    assert names == ["王小明", "王小華"]
+    assert names == ["王大明", "王小明", "王小華"]
 
 
 # -------------------------
-# Tests: search_by_any_name
+# Tests: search_people_unified
 # -------------------------
 
-def test_search_by_any_name_when_keyword_is_head_name(controller_with_db):
+def test_search_people_unified_by_name(controller_with_db):
     c = controller_with_db
-    head_row, members = c.search_by_any_name("王大明")
-
-    # head_row should be sqlite3.Row (or tuple-like)
-    assert head_row is not None
-    assert head_row["head_name"] == "王大明"
-
-    assert isinstance(members, list)
-    assert len(members) == 2
-    assert sorted([m["name"] for m in members]) == ["王小明", "王小華"]
+    results = c.search_people_unified("王小")
+    assert len(results) == 2
+    assert sorted([r["name"] for r in results]) == ["王小明", "王小華"]
 
 
-def test_search_by_any_name_when_keyword_is_member_name(controller_with_db):
+def test_search_people_unified_by_mobile(controller_with_db):
     c = controller_with_db
-    head_row, members = c.search_by_any_name("林小強")
-
-    assert head_row is not None
-    assert head_row["head_name"] == "林小美"
-
-    assert isinstance(members, list)
-    assert len(members) == 1
-    assert members[0]["name"] == "林小強"
+    results = c.search_people_unified("0955")
+    assert len(results) == 1
+    assert results[0]["name"] == "林小強"
 
 
-def test_search_by_any_name_not_found(controller_with_db):
+def test_search_people_unified_no_result(controller_with_db):
     c = controller_with_db
-    head_row, members = c.search_by_any_name("不存在的人")
-    assert head_row is None
-    assert members == []
+    results = c.search_people_unified("XYZ")
+    assert results == []

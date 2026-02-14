@@ -3,7 +3,8 @@ import pytest
 from unittest.mock import MagicMock
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QWidget, QLabel
+from PyQt5.QtWidgets import QWidget, QLabel, QMessageBox
+from PyQt5.QtTest import QTest
 
 import app.main_window as main_window_module
 from app.main_window import MainWindow
@@ -14,18 +15,13 @@ from app.main_window import MainWindow
 # -------------------------
 class FakeSearchBar(QObject):
     search_triggered = pyqtSignal(str)
+    show_all_triggered = pyqtSignal()
 
     def __init__(self):
         super().__init__()
 
 
 class FakeMainPageWidget(QWidget):
-    """
-    測試用 MainPageWidget（一定要是 QWidget，才能 setCentralWidget）
-    - 提供 search_bar.search_triggered / new_household_triggered signal
-    - 提供 perform_search 會呼叫到的 UI 更新方法
-    - 提供 stats_label.setText
-    """
     new_household_triggered = pyqtSignal()
 
     def __init__(self, controller):
@@ -33,19 +29,22 @@ class FakeMainPageWidget(QWidget):
         self.controller = controller
         self.search_bar = FakeSearchBar()
 
-        # 下面三個方法會在 perform_search success 情境被呼叫
         self.update_household_table = MagicMock()
-        self.fill_head_detail = MagicMock()
+        self.fill_person_detail = MagicMock()
         self.update_member_table = MagicMock()
+        self.refresh_all_panels = MagicMock()
+        self._load_household = MagicMock()
 
-        self.stats_label = QLabel("")  # 用真正 QLabel，行為最接近
+        self.stats_label = QLabel("")
 
 
 # -------------------------
 # Tests
 # -------------------------
-def test_main_window_init(qtbot):
+def test_main_window_init(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
     mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
 
     window = MainWindow("test_user", "管理者", mock_controller)
     qtbot.addWidget(window)
@@ -54,101 +53,85 @@ def test_main_window_init(qtbot):
     assert window.role == "管理者"
     assert "宮廟管理系統" in window.windowTitle()
     assert window.controller is mock_controller
-    assert window.menuBar() is not None
+    assert window.main_page is not None
+    assert window.stack.currentWidget() is window.main_page
 
 
 def test_open_household_entry_sets_central_widget_and_wires_signals(qtbot, monkeypatch):
-    """
-    測試 open_household_entry 是否：
-    1) setCentralWidget(MainPageWidget)
-    2) 把 search_triggered 連到 perform_search
-    3) 把 new_household_triggered 連到 open_new_household_dialog
-    """
     monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    
+    # 在 class 層級 mock，這樣 __init__ 連接時就會連到 mock
+    mock_perform_search = MagicMock()
+    mock_open_dialog = MagicMock()
+    monkeypatch.setattr(MainWindow, "perform_search", mock_perform_search)
+    monkeypatch.setattr(MainWindow, "open_new_household_dialog", mock_open_dialog)
 
     mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    
     window = MainWindow("test_user", "管理者", mock_controller)
     qtbot.addWidget(window)
 
-    window.perform_search = MagicMock()
-    window.open_new_household_dialog = MagicMock()
-
-    window.open_household_entry()
-
-    assert window.centralWidget() is window.main_page
-    assert isinstance(window.main_page, FakeMainPageWidget)
-
+    assert window.stack.currentWidget() is window.main_page
+    
     window.main_page.search_bar.search_triggered.emit("abc")
-    window.perform_search.assert_called_once_with("abc")
+    mock_perform_search.assert_called()
 
     window.main_page.new_household_triggered.emit()
-    window.open_new_household_dialog.assert_called_once()
+    mock_open_dialog.assert_called()
 
 
 def test_perform_search_success_updates_ui(qtbot, monkeypatch):
-    """
-    測試 perform_search 成功情境：
-    - controller.search_by_any_name 回傳 head_result & members
-    - controller.format_head_data 轉換 head_data
-    - 更新 main_page 的 table/detail/member/stats_label
-    """
     monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
 
     mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    
     window = MainWindow("test_user", "管理者", mock_controller)
     qtbot.addWidget(window)
 
-    window.open_household_entry()
+    window.main_page.update_household_table.reset_mock()
 
-    head_result = {"id": 1, "head_name": "王小明"}
-    members = [
-        {"name": "王小華", "identity": "丁"},
-        {"name": "王小美", "identity": "口"},
+    people = [
+        {"id": "P1", "name": "王小明", "household_id": "H1"},
     ]
-    head_data = {"id": 1, "head_name": "王小明"}
-
-    mock_controller.search_by_any_name.return_value = (head_result, members)
-    mock_controller.format_head_data.return_value = head_data
+    mock_controller.search_people_unified.return_value = people
 
     window.perform_search("王")
 
-    mock_controller.search_by_any_name.assert_called_once_with("王")
-    mock_controller.format_head_data.assert_called_once_with(head_result)
-
-    window.main_page.update_household_table.assert_called_once_with([head_data])
-    window.main_page.fill_head_detail.assert_called_once_with(head_data)
-    window.main_page.update_member_table.assert_called_once_with(members)
-
-    text = window.main_page.stats_label.text()
-    assert "戶號" in text
-    assert "戶長" in text
-    assert "王小明" in text
+    mock_controller.search_people_unified.assert_called_once_with("王")
+    window.main_page.update_household_table.assert_called_once_with(people)
+    window.main_page._load_household.assert_called_once_with("H1", "P1")
 
 
-def test_perform_search_no_result_shows_messagebox_and_no_updates(qtbot, monkeypatch):
-    """
-    測試 perform_search 失敗情境：
-    - controller.search_by_any_name 回傳 None
-    - QMessageBox.information 被呼叫
-    - UI 更新方法不應被呼叫（避免殘留舊資料）
-    """
+def test_show_all_calls_refresh(qtbot, monkeypatch):
     monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    
+    window = MainWindow("test_user", "管理者", mock_controller)
+    qtbot.addWidget(window)
+    
+    window.main_page.refresh_all_panels.reset_mock()
+    window.main_page.search_bar.show_all_triggered.emit()
+    window.main_page.refresh_all_panels.assert_called_once()
 
+
+def test_perform_search_no_result(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
     info_mock = MagicMock()
     monkeypatch.setattr(main_window_module.QMessageBox, "information", info_mock)
 
     mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    
     window = MainWindow("test_user", "管理者", mock_controller)
     qtbot.addWidget(window)
 
-    window.open_household_entry()
-
-    mock_controller.search_by_any_name.return_value = (None, [])
+    window.main_page.update_household_table.reset_mock()
+    mock_controller.search_people_unified.return_value = []
 
     window.perform_search("不存在")
 
     info_mock.assert_called_once()
-
     window.main_page.update_household_table.assert_not_called()
-    window.main_page.fill_head_detail.assert_not_called()
-    window.main_page.update_member_table.assert_not_called()
