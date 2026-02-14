@@ -10,6 +10,8 @@ from app.dialogs.new_household_dialog import NewHouseholdDialog
 from app.widgets.main_page import MainPageWidget
 from app.widgets.activity_manage_page import ActivityManagePage
 from app.widgets.activity_signup_page import ActivitySignupPage
+from app.dialogs.income_expense_dialog import IncomeExpenseDialog
+
 
 
 
@@ -82,7 +84,20 @@ class MainWindow(QMainWindow):
         activity_signup_action.triggered.connect(self.open_activity_signup)
 
         activity_menu.addAction(activity_manage_action)
-        activity_menu.addAction(activity_signup_action)  # ✅ 你原本漏掉這行
+        activity_menu.addAction(activity_signup_action)
+
+        # -------------------------
+        # 收支管理
+        # -------------------------
+        finance_menu = menu_bar.addMenu("收支管理")
+        income_entry_action = QAction("收入資料登錄作業", self)
+        expense_entry_action = QAction("支出資料登錄作業", self)
+        
+        income_entry_action.triggered.connect(lambda: self.open_income_expense_dialog(0))
+        expense_entry_action.triggered.connect(lambda: self.open_income_expense_dialog(1))
+        
+        finance_menu.addAction(income_entry_action)
+        finance_menu.addAction(expense_entry_action)
 
     # -------------------------
     # Dialogs
@@ -166,3 +181,8 @@ class MainWindow(QMainWindow):
             self.activity_signup_page.set_activity(activity_data)
 
         self._show_page(self.activity_signup_page)
+
+    def open_income_expense_dialog(self, initial_tab=0):
+        # 0=Income, 1=Expense
+        dialog = IncomeExpenseDialog(self.controller, self, initial_tab)
+        dialog.exec_()

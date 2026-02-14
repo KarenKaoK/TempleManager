@@ -8,6 +8,13 @@ from app.utils.lunar_solar_converter import solar_to_lunar, lunar_to_solar
 
 
 class BasePersonDialog(QDialog):
+    """
+    required:
+      name, gender, phone_mobile, birthday_ad, birthday_lunar, birth_time, address
+    optional:
+      phone_home, zip_code, note, lunar_is_leap
+    """
+
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller

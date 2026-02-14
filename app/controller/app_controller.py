@@ -1846,3 +1846,170 @@ class AppController:
 
 
 
+
+    # -------------------------
+    # Transactions (Income / Expense)
+    # -------------------------
+    def get_all_income_items(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM income_items ORDER BY id")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_all_expense_items(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM expense_items ORDER BY id")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def search_people(self, keyword):
+        """
+        搜尋信徒（不分戶長或成員），回傳 id, name, phone, address
+        供 UI 搜尋並取得 person_id
+        """
+        cursor = self.conn.cursor()
+        kw = f"%{keyword}%"
+        cursor.execute("""
+            SELECT id, name, phone_mobile, phone_home, address 
+            FROM people 
+            WHERE name LIKE ? OR phone_mobile LIKE ? OR phone_home LIKE ?
+            LIMIT 50
+        """, (kw, kw, kw))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def generate_receipt_number(self, date_str):
+        """
+        產生收據號碼：YYYYMMDD-NNN
+        例如：20231024-001
+        """
+        # date_str 格式預期為 "YYYY-MM-DD"
+        try:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            prefix = date_obj.strftime("%Y%m%d")
+        except ValueError:
+            # Fallback if date format is weird
+            prefix = datetime.now().strftime("%Y%m%d")
+        
+        cursor = self.conn.cursor()
+        # 查詢當天已有的最後一筆收據號碼
+        cursor.execute("""
+            SELECT receipt_number FROM transactions 
+            WHERE receipt_number LIKE ? 
+            ORDER BY receipt_number DESC LIMIT 1
+        """, (f"{prefix}-%",))
+        
+        row = cursor.fetchone()
+        if row and row[0]:
+            try:
+                last_seq = int(row[0].split('-')[-1])
+                new_seq = last_seq + 1
+            except ValueError:
+                new_seq = 1
+        else:
+            new_seq = 1
+            
+        return f"{prefix}-{new_seq:03d}"
+
+    def add_transaction(self, data):
+        """
+        新增收支紀錄
+        data: {
+            "date": "2023-10-24",
+            "type": "income" | "expense",
+            "category_id": REQUIRED,
+            "category_name": ...,
+            "amount": ...,
+            "payer_person_id": (Income 建議必填),
+            "payer_name": ...,
+            "receipt_number": ...,
+            "note": ...
+        }
+        """
+        # 簡易檢查
+        if not data.get("category_id"):
+            raise ValueError("category_id is required")
+        if data.get("type") == "income" and not data.get("payer_person_id"):
+             # 雖然 DB 允許 NULL (為了彈性)，但業務邏輯上我們盡量要求 UI 傳入
+             pass 
+
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO transactions (
+                date, type, category_id, category_name, amount, 
+                payer_person_id, payer_name, handler, receipt_number, note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get("date"),
+            data.get("type"),
+            data.get("category_id"),
+            data.get("category_name"),
+            data.get("amount"),
+            data.get("payer_person_id"),
+            data.get("payer_name"),
+            data.get("handler"),
+            data.get("receipt_number"),
+            data.get("note")
+        ))
+        self.conn.commit()
+    
+    def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None):
+        cursor = self.conn.cursor()
+        query = """
+            SELECT t.*, p.phone_mobile 
+            FROM transactions t
+            LEFT JOIN people p ON t.payer_person_id = p.id
+            WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
+        """
+        params = []
+
+        if transaction_type:
+            query += " AND t.type = ?"
+            params.append(transaction_type)
+        
+        if start_date:
+            query += " AND t.date >= ?"
+            params.append(start_date)
+        
+        if end_date:
+            query += " AND t.date <= ?"
+            params.append(end_date)
+        
+        if keyword:
+            kw = f"%{keyword}%"
+            query += " AND (t.payer_name LIKE ? OR t.receipt_number LIKE ? OR t.note LIKE ?)"
+            params.extend([kw, kw, kw])
+            
+        query += " ORDER BY t.date DESC, t.created_at DESC"
+        
+        cursor.execute(query, tuple(params))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def delete_transaction(self, transaction_id):
+        """軟刪除"""
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE transactions SET is_deleted=1 WHERE id=?", (transaction_id,))
+        self.conn.commit()
+
+    def update_transaction(self, transaction_id, data):
+        """更新交易紀錄"""
+        cursor = self.conn.cursor()
+        
+        # 這裡只允許更新部分欄位，確保資料一致性
+        # 注意：如果 user 修改了日期，receipt_number 是否要重算？
+        # 目前策略：不重算單號，保留原單號，除非 user 自己想改(但 UI 不開放改單號)
+        
+        cursor.execute("""
+            UPDATE transactions
+            SET date=?, category_id=?, category_name=?, amount=?, 
+                payer_person_id=?, payer_name=?, handler=?, note=?
+            WHERE id=?
+        """, (
+            data.get("date"),
+            data.get("category_id"),
+            data.get("category_name"),
+            data.get("amount"),
+            data.get("payer_person_id"),
+            data.get("payer_name"),
+            data.get("handler"),
+            data.get("note"),
+            transaction_id
+        ))
+        self.conn.commit()
