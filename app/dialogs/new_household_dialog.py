@@ -15,29 +15,5 @@ class NewHouseholdDialog(BasePersonDialog):
         btn_layout.addWidget(self.cancel_btn)
         self.layout().addLayout(btn_layout)
 
-        self.confirm_btn.clicked.connect(self.save_data)
+        self.confirm_btn.clicked.connect(self.accept)
         self.cancel_btn.clicked.connect(lambda: self.done(QDialog.Rejected))
-
-    def save_data(self):
-        data = self.get_data()
-        
-        # 簡易檢查
-        if not data.get("name"):
-            from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "錯誤", "姓名為必填欄位")
-            return
-
-        try:
-            # 呼叫 Controller 建立新戶籍 (回傳 person_id, household_id)
-            person_id, household_id = self.controller.create_household(data)
-            
-            # 存起來供外部存取
-            self.created_person_id = person_id
-            self.created_household_id = household_id
-            
-            # QMessageBox.information(self, "成功", "建立成功！")
-            self.accept()
-            
-        except Exception as e:
-            from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "錯誤", f"建立失敗: {str(e)}")
