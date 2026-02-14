@@ -6,7 +6,6 @@ from PyQt5.QtWidgets import (
 
 from app.utils.lunar_solar_converter import solar_to_lunar, lunar_to_solar
 
-
 class BasePersonDialog(QDialog):
     """
     required:
@@ -176,7 +175,6 @@ class BasePersonDialog(QDialog):
                 "若以當事人說的為準可直接存入；若要同步可按『轉農曆/轉國曆』。"
             )
         return True
-
     def get_data(self):
         # 存入前提醒（不阻擋）
         self._warn_if_inconsistent()

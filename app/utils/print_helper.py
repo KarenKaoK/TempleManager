@@ -1,119 +1,467 @@
-from PyQt5.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
-from PyQt5.QtGui import QTextDocument, QPageLayout, QPageSize
-from PyQt5.QtCore import QSizeF
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPrintDialog, QPrintPreviewWidget
+from PyQt5.QtGui import QPainter, QFont, QPen, QColor, QPageLayout, QPageSize, QFontDatabase, QPixmap
+from PyQt5.QtCore import Qt, QRectF, QPointF
+from PyQt5.QtWidgets import QAction, QToolBar, QPushButton, QComboBox, QLineEdit, QLabel, QCheckBox
+from datetime import datetime
 
 class PrintHelper:
     @staticmethod
-    def print_receipt(data):
+    def _get_compatible_font_family():
         """
-        列印收據 (A4 一半，一式兩份)
-        data: {
-            receipt_number, date, payer_name, category_name, amount, note, handler
-        }
+        跨平台字體選擇策略
         """
-        printer = QPrinter(QPrinter.HighResolution)
-        # 設定為 A4
-        printer.setPageSize(QPageSize(QPageSize.A4))
+        db = QFontDatabase()
+        families = db.families()
         
-        # 預覽對話框
+        preferred_fonts = [
+            "PingFang TC", "Heiti TC", 
+            "DFKai-SB", "BiauKai", "標楷體", "KaiTi", 
+            "Microsoft JhengHei", "Microsoft JhengHei UI", "微軟正黑體", 
+            "PMingLiU", "MingLiU", "新細明體"
+        ]
+        
+        for font in preferred_fonts:
+            if font in families: 
+                return font
+        return "Sans Serif"
+
+    @staticmethod
+    def print_receipt(data):
+        # ... (unchanged)
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPageSize(QPageSize.A4))
+        printer.setOrientation(QPrinter.Landscape)
+        
         preview = QPrintPreviewDialog(printer)
-        preview.paintRequested.connect(lambda p: PrintHelper._handle_print(p, data))
+        preview.setWindowTitle("列印預覽")
+        preview.resize(1000, 800)
+        
+        # 列印設定 (使用 dict 以便在 inner function 修改)
+        print_settings = {"show_address": True}
+        
+        # 實作自訂列印功能 (為了確保列印按鈕有效)
+        def do_print():
+            dialog = QPrintDialog(printer, preview)
+            if dialog.exec_() == QPrintDialog.Accepted:
+                PrintHelper._handle_print_painter(printer, data, print_settings['show_address'])
+                
+        def toggle_address(state):
+            print_settings['show_address'] = (state == Qt.Checked)
+            # 修正: QPrintPreviewDialog 沒有 updatePreview，需透過其內的 QPrintPreviewWidget
+            try:
+                preview_widget = preview.findChildren(QPrintPreviewWidget)[0]
+                preview_widget.updatePreview()
+            except:
+                pass
+
+        # 自訂工具列：保留列印、放大縮小、比例，移除其他
+        try:
+            toolbar = preview.findChildren(QToolBar)[0]
+            actions = toolbar.actions()
+            
+            for action in actions:
+                # 結合 Text 與 ToolTip 進行判斷
+                check_text = (action.text() + " " + action.toolTip())
+                is_wanted = True
+                
+                # 1. Widget 檢查
+                widget = toolbar.widgetForAction(action)
+                if widget:
+                    if isinstance(widget, QComboBox):
+                        is_wanted = True
+                    elif isinstance(widget, (QLineEdit, QLabel)):
+                        is_wanted = False
+                
+                # 2. 關鍵字過濾
+                unwanted_keywords = [
+                    "Page", "Setup", "設定", "版面", 
+                    "Portrait", "Landscape", "直向", "橫向",
+                    "1:1", "Actual", "Fit", "Original",
+                    "First", "Last", "Previous", "Next",
+                    "Single", "Facing", "Overview", "View", "Three",
+                    "Show"
+                ]
+                for kw in unwanted_keywords:
+                    # Zoom Combo 例外
+                    if kw in check_text and not isinstance(widget, QComboBox):
+                        is_wanted = False
+                        break
+
+                # 3. 重新命名 (Print 隱藏改用自訂，Zoom 保留)
+                if "Print" in check_text or "列印" in check_text:
+                    # 隱藏原生 Print，改用自製按鈕確保功能
+                    is_wanted = False 
+                elif "Zoom In" in check_text or "放大" in check_text or "+" in check_text:
+                    action.setText("放大")
+                    is_wanted = True
+                elif "Zoom Out" in check_text or "縮小" in check_text or "-" in check_text:
+                    action.setText("縮小")
+                    is_wanted = True
+
+                action.setVisible(is_wanted)
+            
+            # 插入自訂列印按鈕 (最左邊)
+            print_btn = QPushButton("🖨️ 列印")
+            print_btn.setMinimumHeight(35)
+            print_btn.setFont(QFont("Arial", 12))
+            print_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #0275d8;
+                    color: white;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #025aa5;
+                }
+            """)
+            print_btn.clicked.connect(do_print)
+            
+            if actions:
+                toolbar.insertWidget(actions[0], print_btn)
+            else:
+                toolbar.addWidget(print_btn)
+                
+            # 加入「列印住址」核取方塊
+            addr_cb = QCheckBox("列印住址")
+            addr_cb.setChecked(True)
+            addr_cb.setFont(QFont("Arial", 12))
+            # 修改樣式：增加背景色以避免與工具列混淆
+            addr_cb.setStyleSheet("""
+                QCheckBox { 
+                    font-weight: bold; 
+                    margin-left: 15px; 
+                    color: black; 
+                    background-color: #f0f0f0; 
+                    padding: 5px; 
+                    border-radius: 4px; 
+                }
+            """)
+            addr_cb.stateChanged.connect(toggle_address)
+            toolbar.insertWidget(actions[0], addr_cb) 
+            # 為了美觀，放在 Print 按鈕之後？
+            # 既然 Print 插在 actions[0] 前面，那 addr_cb 插在 actions[0] 前面會變 [Addr] [Print] [Zoom]
+            # 想要 [Print] [Addr] [Zoom]
+            # 那就 insertWidget(actions[0], addr_cb) 之後再 insert Print?
+            # 不，Print 已經插了。
+            # Toolbar 順序: Print(new) -> Actions[0] -> ...
+            # 如果我再 insert actions[0]，它會插在 Print(new) 和 Actions[0] 之間。 -> [Print] [Addr] [Actions[0]...]
+            # 是的。
+            
+            toolbar.addSeparator()
+            
+            # 新增「關閉返回」按鈕
+            close_btn = QPushButton("關閉返回")
+            close_btn.setMinimumHeight(35) # 加高一點
+            close_btn.setFont(QFont("Arial", 12))
+            close_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #d9534f;
+                    color: white;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #c9302c;
+                }
+            """)
+            close_btn.clicked.connect(preview.close)
+            toolbar.addWidget(close_btn)
+            
+            # toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon) # 用 widget 就不需要這個了
+            
+        except Exception as e:
+            print(f"Error customizing toolbar: {e}")
+
+        preview.paintRequested.connect(lambda p: PrintHelper._handle_print_painter(p, data, print_settings['show_address']))
         preview.exec_()
 
     @staticmethod
-    def _handle_print(printer, data):
-        document = QTextDocument()
+    def _handle_print_painter(printer, data, print_address=True):
+        painter = QPainter(printer)
         
-        # CSS 樣式
-        style = """
-        <style>
-            .receipt-container {
-                width: 100%;
-                height: 45%; /* 大約一半高度 */
-                border: 2px solid #333;
-                padding: 20px;
-                box-sizing: border-box;
-                font-family: "Microsoft JhengHei", sans-serif;
-            }
-            .header {
-                text-align: center;
-                font-size: 24px;
-                font-weight: bold;
-                margin-bottom: 5px;
-            }
-            .sub-header {
-                text-align: right;
-                font-size: 14px;
-                color: #555;
-            }
-            .footer {
-                margin-top: 30px;
-                text-align: right;
-                font-size: 16px;
-            }
-            .copy-mark {
-                text-align: center;
-                font-size: 12px;
-                color: #888;
-                margin-top: 10px;
-            }
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 15px;
-            }
-            td {
-                padding: 8px;
-                font-size: 18px;
-                border-bottom: 1px solid #ddd;
-            }
-        </style>
-        """
+        # 取得可列印範圍 (Pixels)
+        rect = printer.pageRect()
+        width = rect.width()
+        height = rect.height()
         
-        handler_name = data.get('handler') or "______________"
+        # 左半部 (存根聯) - A5 Portrait
+        PrintHelper._draw_receipt(painter, data, QRectF(0, 0, width / 2, height), "（存根聯）", print_address)
         
-        def single_receipt(title_suffix):
-            return f"""
-            <div class="receipt-container">
-                <div class="header">宮廟感謝狀/收據</div>
-                <div class="sub-header">收據號碼：{data.get('receipt_number')}</div>
-                <br>
-                <table width="100%" cellpadding="5">
-                    <tr>
-                        <td><b>日期：</b> {data.get('date')}</td>
-                        <td><b>大德：</b> {data.get('payer_name')}</td>
-                    </tr>
-                    <tr>
-                        <td colspan="2"><b>項目：</b> {data.get('category_name')} ({data.get('category_id')})</td>
-                    </tr>
-                    <tr>
-                        <td colspan="2"><b>金額：</b> NT$ {data.get('amount')}</td>
-                    </tr>
-                     <tr>
-                        <td colspan="2"><b>備註：</b> {data.get('note')}</td>
-                    </tr>
-                </table>
-                <div class="footer">
-                    經手人：{handler_name} &nbsp;&nbsp;&nbsp; 蓋章：______________
-                </div>
-                <div class="copy-mark">{title_suffix}</div>
-            </div>
-            """
+        # 分隔線 (垂直中線)
+        painter.setPen(QPen(Qt.DashLine))
+        painter.drawLine(int(width / 2), 0, int(width / 2), height)
+        
+        # 右半部 (收執聯) - A5 Portrait
+        PrintHelper._draw_receipt(painter, data, QRectF(width / 2, 0, width / 2, height), "（收執聯）", print_address)
+        
+        painter.end()
 
-        # 組合 HTML：兩個收據，中間分隔
-        html_content = f"""
-        <html>
-        <head>{style}</head>
-        <body>
-            {single_receipt("（廟方存根聯）")}
-            <br>
-            <div style="height: 50px; text-align: center; line-height: 50px; color: #ccc;">- - - - - 裁切線 - - - - -</div>
-            <br>
-            {single_receipt("（信徒收執聯）")}
-        </body>
-        </html>
+    @staticmethod
+    def _draw_receipt(painter, data, area, copy_title, print_address=True):
         """
+        繪製單張收據 (A5 Portrait 區域)
+        area: QRectF
+        """
+        painter.save()
+        painter.translate(area.topLeft())
         
-        document.setHtml(html_content)
-        document.print_(printer)
+        w = area.width()
+        h = area.height()
+        
+        # 定義相對單位 (Base Unit)
+        # 用高度的 1% 作為基準單位，確保在高解析度下也能等比縮放
+        unit = h / 100.0
+        
+        # 邊框 (5% 邊距)
+        margin = w * 0.05
+        content_rect = QRectF(margin, margin, w - 2 * margin, h - 2 * margin)
+        
+        # --- 安裝印章 (浮水印 - 先畫在底層) ---
+        # 位置：在天南宮(75%)與日期(95%)之間，約 85% 位置
+        seal_path = "app/resources/seal.png"
+        pixmap = QPixmap(seal_path)
+        
+        seal_h = 28 * unit # 高度縮小，避免超出框外
+        
+        painter.save() # Save for seal
+        if not pixmap.isNull():
+            # 計算等比例寬度
+            aspect_ratio = pixmap.width() / pixmap.height()
+            seal_w = seal_h * aspect_ratio
+            
+            # 定位
+            seal_x_center = content_rect.right() - (content_rect.width() * 0.78)
+            seal_y_start = content_rect.top() + (content_rect.height() * 0.50)
+            
+            seal_rect = QRectF(seal_x_center - seal_w/2, seal_y_start, 
+                               seal_w, seal_h)
+            
+            # 設為半透明 (浮水印效果, 不蓋住字)
+            painter.setOpacity(0.3) 
+            painter.drawPixmap(seal_rect, pixmap, QRectF(pixmap.rect()))
+        else:
+            # 沒圖片：畫個紅色框框示意
+            seal_size = 18 * unit
+            seal_x_center = content_rect.right() - (content_rect.width() * 0.85)
+            seal_y_start = content_rect.top() + (content_rect.height() * 0.22)
+            seal_rect = QRectF(seal_x_center - seal_size/2, seal_y_start, seal_size, seal_size)
+
+            painter.setPen(QPen(Qt.red, 2, Qt.DashLine))
+            painter.drawRect(seal_rect)
+            painter.setPen(Qt.red)
+            painter.drawText(seal_rect, Qt.AlignCenter, "無印章\n(seal.png)")
+        painter.restore() # Restore after seal
+        
+        painter.setPen(QPen(Qt.black, 3))
+        painter.drawRect(content_rect)
+
+        # Helper: 設定字體
+        font_family = PrintHelper._get_compatible_font_family()
+
+        def set_font(size_pt, bold=False):
+            # QFont size is in points usually, which is resolution independent-ish?
+            # actually QFont(..., size) in Qt depends on constructor.
+            # If int, it's points. If pixel, it's pixels.
+            # Let's try to keep it points, but layout boxes must be relative.
+            font = QFont(font_family, size_pt)
+            if bold: font.setBold(True)
+            painter.setFont(font)
+            return painter.fontMetrics()
+
+        # Helper: 畫直式文字
+        def draw_v_text(text, x_percent, y_start_percent, font_size, spacing=1.1, bold=False):
+            fm = set_font(font_size, bold)
+            char_h = fm.height()
+            
+            x_pos = content_rect.right() - (content_rect.width() * (x_percent / 100))
+            y_pos = content_rect.top() + (content_rect.height() * (y_start_percent / 100))
+            
+            cursor_y = y_pos
+            
+            for char in text:
+                # 框框大小也要夠大，用字體高度的倍數比較保險
+                box_size = char_h * 1.5
+                rect_char = QRectF(x_pos - box_size/2, cursor_y, box_size, box_size)
+                
+                # 特殊符號旋轉 90 度 (括號)
+                if char in ['(', ')', '（', '）']:
+                    painter.save()
+                    # 移至文字中心
+                    center = rect_char.center()
+                    painter.translate(center.x(), center.y())
+                    painter.rotate(90)
+                    
+                    # 在原點繪製 (因為已平移)
+                    # 修正繪製區域為以 (0,0) 為中心
+                    rect_centered = QRectF(-box_size/2, -box_size/2, box_size, box_size)
+                    painter.drawText(rect_centered, Qt.AlignCenter | Qt.TextDontClip, char)
+                    painter.restore()
+                else:
+                    painter.drawText(rect_char, Qt.AlignCenter | Qt.TextDontClip, char)
+                
+                cursor_y += char_h * spacing
+
+        # --- 準備資料 ---
+        amount_chinese = PrintHelper.number_to_chinese(data.get('amount', 0))
+        date_str = data.get('date', '')
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            roc_year = dt.year - 1911
+            date_text = f"中華民國 {PrintHelper.num_to_cn_simple(roc_year)} 年 {PrintHelper.num_to_cn_simple(dt.month)} 月 {PrintHelper.num_to_cn_simple(dt.day)} 日"
+        except:
+            date_text = date_str
+
+        # --- 定義字體大小 ---
+        FONT_TITLE = 30
+        FONT_SERIAL = 12
+        FONT_BODY = 18
+        FONT_FOOTER = 12
+        FONT_DATE = 18
+
+        # --- 佈局座標 (Y 軸) ---
+        Y_TITLE = 30
+        Y_BODY_START = 6
+        Y_FOOTER_START = 18
+
+        # 1. 標題: 感謝狀 (10%)
+        draw_v_text("感謝狀", 10, Y_TITLE, FONT_TITLE, spacing=1.1, bold=True)
+        
+        # 2. 補登字號 (19%)
+        draw_v_text("新北市補登字第二七四號", 19, 25, FONT_SERIAL, spacing=1.1)
+        
+        # --- 本文區 (茲承~住址) ---
+        # 3. 茲承 (27%)
+        draw_v_text("茲承", 27, Y_BODY_START, FONT_BODY)
+        
+        # 4. 姓名 (35%)
+        payer_name = data.get('payer_name', '')
+        draw_v_text(f"{payer_name}  大德捐獻", 35, Y_BODY_START + 5, FONT_BODY, bold=True)
+        
+        # 5. 項目 (43%)
+        item_name = data.get('category_name', '油香')
+        draw_v_text(f"本宮{item_name}建設", 43, Y_BODY_START, FONT_BODY)
+        
+        # 6. 金額 (51%)
+        draw_v_text(f"新台幣  {amount_chinese}  元整", 51, Y_BODY_START, FONT_BODY)
+        
+        # 7. 功德 (59%)
+        draw_v_text("功德無量  謹此致謝", 59, Y_BODY_START, FONT_BODY)
+        
+        # 8. 住址 (67%)
+        addr_text = "住址："
+        if print_address:
+            addr_text += data.get('address', '')
+            
+        # 計算一欄能塞幾個字，若太長則換行
+        fm_addr = set_font(FONT_BODY)
+        char_h_addr = fm_addr.height()
+        # 可用高度：從 Y_BODY_START 到 底部 98%
+        limit_h = content_rect.height() * (0.98 - (Y_BODY_START/100.0))
+        line_spacing_px = char_h_addr * 0.9
+        max_chars = int(limit_h / line_spacing_px)
+        
+        if len(addr_text) <= max_chars:
+            draw_v_text(addr_text, 67, Y_BODY_START, FONT_BODY, spacing=0.9)
+        else:
+             # 超過長度，分兩行 (防呆：往左移一欄)
+             part1 = addr_text[:max_chars]
+             part2 = addr_text[max_chars:]
+             draw_v_text(part1, 67, Y_BODY_START, FONT_BODY, spacing=0.9)
+             # 第二行放在 ˙74% (67與75中間)，高度一半
+             draw_v_text(part2, 73, 50, FONT_BODY, spacing=0.9)
+
+        # --- 落款區 (天南宮~經手人) ---
+        # 9. 天南宮 (75%)
+        draw_v_text("天南宮管理委員會", 75, Y_FOOTER_START, FONT_FOOTER, spacing=1.1, bold=True)
+        
+        # 10. 地址 (80%)
+        draw_v_text("新北市深坑區阿柔里大崙尾一號", 80, Y_FOOTER_START, FONT_FOOTER, spacing=1.1)
+        
+        # 11. 電話 (85%)
+        draw_v_text("電話：(〇二)二六六四〇一一九", 85, Y_FOOTER_START, FONT_FOOTER, spacing=1.1)
+        
+        # 12. 經手人 (90%)
+        handler = data.get('handler', '')
+        draw_v_text(f"經手人：{handler}", 90, Y_FOOTER_START, FONT_FOOTER, spacing=1.1)
+
+        # 13. 日期 (95% - 最左邊)
+        draw_v_text(date_text, 95, Y_BODY_START, FONT_DATE, spacing=1.0)
+        
+        # 14. 無效聲明 (改為直式，黑色框框外左側，略高於日期)
+        # 日期起始約 6%, 這邊設為 2% 讓它高一點
+        # X=103% 表示移出左邊界 (邊距 5%, content 佔 90%, 100%是左邊界, 103%在邊距中間)
+        draw_v_text("本感謝狀無本宮簽章無效", 103, 2, 12, spacing=1.0)
+
+        # --- 橫式文字 (使用相對單位 unit 定位) ---
+        
+        # A. 補印標示 (置底)
+        set_font(12)
+        # 高度 4 unit, 底部留 1 unit 緩衝
+        # QRectF(x, y, w, h)
+        rect_copy = QRectF(content_rect.left(), content_rect.bottom() - (4 * unit), 
+                           content_rect.width(), 4 * unit)
+        painter.drawText(rect_copy, Qt.AlignCenter, copy_title)
+
+        # B. 無效聲明 (原橫式已移除)
+        
+        # C. 收據編號 No. (右下, 紅色)
+        set_font(16, bold=True)
+        painter.setPen(Qt.red)
+        # 在 copy title 上方，靠右
+        rect_no = QRectF(content_rect.right() - (50 * unit), content_rect.bottom() - (10 * unit), 
+                         45 * unit, 6 * unit)
+        painter.drawText(rect_no, Qt.AlignRight | Qt.AlignVCenter, f"No. {data.get('receipt_number', '')}")
+        painter.setPen(Qt.black)
+
+        painter.restore()
+
+    @staticmethod
+    def number_to_chinese(number):
+        """
+        數字轉中文大寫 (簡易版)
+        """
+        if not str(number).isdigit():
+            return str(number)
+            
+        digits = "零壹貳參肆伍陸柒捌玖"
+        units = ["", "拾", "佰", "仟"]
+        big_units = ["", "萬", "億"]
+        
+        n = int(number)
+        if n == 0:
+            return "零"
+            
+        s = str(n)[::-1] # 倒過來處理
+        result = []
+        
+        for i, char in enumerate(s):
+            d = int(char)
+            unit_idx = i % 4
+            big_unit_idx = i // 4
+            
+            if i > 0 and i % 4 == 0:
+                result.append(big_units[big_unit_idx])
+                
+            if d != 0:
+                result.append(units[unit_idx])
+                result.append(digits[d])
+            else:
+                # 處理零：如果前一個不是零，且不是單位，才補零 (這裡簡化，直接補，之後再 replace)
+                if result and result[-1] != "零":
+                     result.append("零")
+        
+        final_str = "".join(result[::-1])
+        # 清理多餘的零
+        final_str = final_str.replace("零萬", "萬").replace("零億", "億").strip("零")
+        if not final_str:
+            return "零"
+        return final_str
+
+    @staticmethod
+    def num_to_cn_simple(num):
+        """阿拉伯數字轉中文數字 (日期用)"""
+        mapping = str.maketrans("0123456789", "〇一二三四五六七八九")
+        return str(num).translate(mapping)
