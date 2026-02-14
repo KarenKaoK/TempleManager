@@ -248,8 +248,13 @@ TempleManager/
 │   │   ├── login_ui.py           # 登入介面
 │   │   ├── member_identity_dialog.py # 身份設定對話框
 │   │   └── new_member_dialog.py  # 新增成員對話框
+│   ├── resources/                # 資源檔案（圖檔等）
+│   │   ├── seal.png              # 收據用印章圖檔
+│   │   └── seal0.png             # 備用印章圖檔
 │   ├── utils/                    # 工具模組
-│   │   └── data_transformers.py  # 資料轉換工具
+│   │   ├── id_utils.py           # ID 產生工具
+│   │   ├── lunar_solar_converter.py # 國農曆轉換工具
+│   │   └── print_helper.py       # 列印/轉碼輔助工具
 │   └── widgets/                  # 自定義元件
 │       ├── activity_manage_page.py # 活動管理頁面
 │       ├── auto_resizing_table.py  # 自動調整表格
@@ -261,9 +266,12 @@ TempleManager/
 │   ├── test_database.py         # 資料庫測試
 │   ├── test_expense_dialog.py   # 支出對話框測試
 │   ├── test_income_dialog.py    # 收入對話框測試
+│   ├── test_income_expense_dialog.py # 收支列印整合測試
 │   ├── test_login_dialog.py     # 登入測試
 │   ├── test_main_window.py      # 主視窗測試
-│   └── test_member_identity_dialog.py # 身份對話框測試
+│   ├── test_member_identity_dialog.py # 身份對話框測試
+│   ├── test_print_helper.py     # 列印工具測試
+│   └── test_receipt_logic.py    # 收據編號邏輯測試
 ├── temple_venv/                 # Python 虛擬環境
 ├── requirements.txt             # 相依套件清單
 ├── README.md                    # 專案說明文件
@@ -395,6 +403,7 @@ pytest -v
 ### 測試覆蓋範圍
 - **資料庫測試**: 資料表建立、資料操作、查詢功能
 - **對話框測試**: 各種輸入對話框的功能測試
+- **列印與收據測試**: 收據編號遞增邏輯、金額轉大寫中文、列印格式驗證
 - **登入測試**: 使用者認證與權限測試
 - **主視窗測試**: 主要功能整合測試
 
