@@ -1317,6 +1317,39 @@ class AppController:
             cursor.execute("ROLLBACK;")
             raise e
 
+    def upsert_person(self, person_payload: Dict[str, Any]) -> str:
+        """
+        給「活動報名頁」用：
+        - 若 payload 有 id：更新該 people（白名單欄位），回傳同一個 id
+        - 若 payload 無 id：建立新戶籍 + 新戶長（people: HEAD），回傳新 id
+
+        注意：
+        - create_household() 有必填欄位要求（name/gender/phone_mobile/birthday_ad/birthday_lunar/birth_time/address）
+        """
+
+        if not isinstance(person_payload, dict):
+            raise ValueError("person_payload must be a dict")
+
+        # --- normalize keys (避免 UI 用 phone 而 DB 用 phone_mobile) ---
+        payload = dict(person_payload)
+
+        if (not payload.get("phone_mobile")) and payload.get("phone"):
+            payload["phone_mobile"] = payload.get("phone")
+
+        person_id = (payload.get("id") or "").strip()
+
+        # 1) 已有人：更新後回傳 id
+        if person_id:
+            # update_person 會自動做白名單欄位過濾與 strip
+            self.update_person(person_id, payload)
+            return person_id
+
+        # 2) 新人：直接建立新 household + HEAD
+        new_person_id, _new_household_id = self.create_household(payload)
+        return new_person_id
+
+
+
     # def get_activity_signups(self, activity_id: str):
     #     cursor = self.conn.cursor()
     #     cursor.execute("""
@@ -1435,23 +1468,16 @@ class AppController:
             "items": items
         }
 
-    # app/controller/app_controller.py
-
+    
     def get_activity_signup_for_edit(self, signup_id: str):
-        """
-        給「修改報名 Dialog」用：
-        - person: 基本資料（唯讀）
-        - items: 該活動「全部方案」都回傳
-            - 已報名：帶入原本 qty / snapshot / line_total
-            - 未報名：qty=0, line_total=0
-        """
         cur = self.conn.cursor()
 
         person_sql = """
         SELECT
             s.id AS signup_id,
             s.activity_id,
-            p.id AS person_id,
+            s.person_id,
+
             p.name,
             p.gender,
             p.birthday_ad,
@@ -1460,28 +1486,26 @@ class AppController:
             p.birth_time,
             p.age,
             p.zodiac,
-            p.phone_mobile,
+
             p.phone_home,
-            p.email,
+            p.phone_mobile,
             p.address,
             p.zip_code,
-            p.identity,
-            p.id_number,
             p.note
+
         FROM activity_signups s
         JOIN people p ON p.id = s.person_id
         WHERE s.id = ?
         """
         cur.execute(person_sql, (signup_id,))
-        row = cur.fetchone()
-        if not row:
+        base = cur.fetchone()
+        if not base:
             return None
 
-        col_names = [d[0] for d in cur.description]
-        base = dict(zip(col_names, row))
-        activity_id = base["activity_id"]
+        cols = [d[0] for d in cur.description]
+        base = dict(zip(cols, base))
 
-        # ✅ 改：載入該活動所有方案，並把已報名的明細 LEFT JOIN 上來
+        activity_id = base["activity_id"]
         items_sql = """
         SELECT
             ap.id AS plan_id,
@@ -1874,6 +1898,74 @@ class AppController:
             LIMIT 50
         """, (kw, kw, kw))
         return [dict(row) for row in cursor.fetchall()]
+
+    def search_people_unified_dedup_name_birthday(self, keyword: str, limit: int = 50) -> List[Dict]:
+        """
+        給「活動報名頁：參加人員資料 / 快速搜尋」使用
+        - 來源：people 表（不分 HEAD / MEMBER）
+        - 搜尋：name / phone_mobile / phone_home
+        - 去重：name + birthday_ad（若 birthday_ad 空，則用 birthday_lunar）
+        - 輸出欄位：讓 UI 好填表（phone_mobile 統一）
+        """
+        kw = (keyword or "").strip()
+        if not kw:
+            return []
+
+        # 1) 先用既有方法查（避免重複寫 SQL）
+        rows = self.search_people(kw)  # -> [{id,name,phone_mobile,phone_home,address,...}]
+
+        # 2) 如果活動頁 UI 需要生日去重，那就補查生日欄位（因為 search_people 現在沒帶生日）
+        #    這裡用一次性 query 把這批 id 的 birthday 撈回來，避免 UI 自己亂處理
+        ids = [r.get("id") for r in rows if r.get("id")]
+        if not ids:
+            return []
+
+        placeholders = ",".join(["?"] * len(ids))
+        cur = self.conn.cursor()
+        cur.execute(
+            f"""
+            SELECT id, birthday_ad, birthday_lunar
+            FROM people
+            WHERE id IN ({placeholders})
+            """,
+            tuple(ids),
+        )
+        bmap = {x["id"]: dict(x) for x in cur.fetchall()}
+
+        # 3) 去重：name + birthday（優先 birthday_ad，沒有就 birthday_lunar）
+        seen = set()
+        result = []
+        for r in rows:
+            pid = r.get("id")
+            b = bmap.get(pid, {})
+            birthday_key = (b.get("birthday_ad") or b.get("birthday_lunar") or "").strip()
+            name_key = (r.get("name") or "").strip()
+            dedup_key = (name_key, birthday_key)
+
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+
+            # 4) 統一輸出欄位（活動頁最常用）
+            phone_mobile = (r.get("phone_mobile") or "").strip()
+            phone_home = (r.get("phone_home") or "").strip()
+
+            result.append({
+                "id": pid,
+                "name": name_key,
+                "phone_mobile": phone_mobile,                 # ✅ 統一活動頁用這個
+                "phone_home": phone_home,
+                "phone_display": phone_mobile or phone_home,  # ✅ 顯示用（可選）
+                "address": (r.get("address") or "").strip(),
+                "birthday_ad": (b.get("birthday_ad") or "").strip(),
+                "birthday_lunar": (b.get("birthday_lunar") or "").strip(),
+            })
+
+            if len(result) >= int(limit):
+                break
+
+        return result
+
 
     def generate_receipt_number(self, date_str):
         """
