@@ -2024,3 +2024,90 @@ class AppController:
             transaction_id
         ))
         self.conn.commit()
+
+    # -------------------------
+    # Believers (UX Improvements)
+    # -------------------------
+    def get_all_people(self, status="ACTIVE") -> List[Dict]:
+        """列出所有信眾（含戶長與成員）"""
+        params = []
+        where = []
+        if status and status != "ALL":
+            where.append("status = ?")
+            params.append(status)
+        
+        where_sql = " WHERE " + " AND ".join(where) if where else ""
+        sql = f"SELECT * FROM people {where_sql} ORDER BY joined_at DESC"
+        
+        cursor = self.conn.cursor()
+        cursor.execute(sql, tuple(params))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def search_people_unified(self, keyword: str) -> List[Dict]:
+        """
+        搜尋包含關鍵字的姓名、手機或地址，並回傳所有匹配的人員清單
+        """
+        cursor = self.conn.cursor()
+        kw = f"%{keyword}%"
+        
+        cursor.execute("""
+            SELECT * 
+            FROM people 
+            WHERE status = 'ACTIVE' 
+              AND (name LIKE ? OR phone_mobile LIKE ? OR address LIKE ?)
+            ORDER BY joined_at DESC
+        """, (kw, kw, kw))
+        
+        return [dict(row) for row in cursor.fetchall()]
+
+    def search_by_any_name(self, keyword: str) -> Tuple[Optional[Dict], List[Dict]]:
+        """
+        搜尋包含關鍵字的姓名，並回傳該人的戶長資料與所有戶員
+        """
+        cursor = self.conn.cursor()
+        kw = f"%{keyword}%"
+        
+        # 1) 先找是否有人的姓名、手機或地址匹配
+        cursor.execute("""
+            SELECT household_id 
+            FROM people 
+            WHERE status = 'ACTIVE' 
+              AND (name LIKE ? OR phone_mobile LIKE ? OR address LIKE ?)
+            LIMIT 1
+        """, (kw, kw, kw))
+        row = cursor.fetchone()
+        
+        if not row:
+            return None, []
+        
+        household_id = row[0]
+        
+        # 2) 取得該戶的戶長
+        cursor.execute("""
+            SELECT * FROM people 
+            WHERE household_id = ? AND role_in_household = 'HEAD' AND status = 'ACTIVE'
+            LIMIT 1
+        """, (household_id,))
+        head_row = cursor.fetchone()
+        head_result = dict(head_row) if head_row else None
+        
+        # 3) 取得該戶的所有成員
+        members = self.list_people_by_household(household_id)
+        
+        return head_result, members
+
+    def format_head_data(self, row: Dict) -> Dict:
+        """將 DB row 格式化為 UI table 期待的格式 (與 list_household 一致)"""
+        # 如果已經是 dict 且包含 household_id，則補齊必要的欄位
+        data = dict(row)
+        if "household_id" not in data:
+            data["household_id"] = data.get("id") # fallback
+        
+        # 為了解決 update_household_table 期待的 key
+        data["head_person_id"] = data.get("id")
+        
+        # 如果 role_in_household 為 HEAD，則 head_name 就是本人姓名
+        if data.get("role_in_household") == "HEAD":
+            data["head_name"] = data.get("name")
+            
+        return data

@@ -37,6 +37,9 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self._blank_page)
 
         self.setup_menu()
+        
+        # ✅ 自動進入「信眾資料建檔」（UX 優化）
+        self.open_household_entry()
 
     # -------------------------
     # Helpers
@@ -116,40 +119,40 @@ class MainWindow(QMainWindow):
         if self.main_page is None:
             self.main_page = MainPageWidget(self.controller)
             self.main_page.search_bar.search_triggered.connect(self.perform_search)
+            self.main_page.search_bar.show_all_triggered.connect(lambda: self.main_page.refresh_all_panels())
             self.main_page.new_household_triggered.connect(self.open_new_household_dialog)
 
         self._show_page(self.main_page)
 
     def perform_search(self, keyword):
-        head_result, members = self.controller.search_by_any_name(keyword)
+        if not keyword:
+            self.main_page.refresh_all_panels()
+            return
 
-        if head_result:
-            head_data = self.controller.format_head_data(head_result)
-            self.main_page.update_household_table([head_data])
-            self.main_page.fill_head_detail(head_data)
-            self.main_page.update_member_table(members)
+        people = self.controller.search_people_unified(keyword)
 
-            num_adults = sum(1 for m in members if m.get("identity") == "丁")
-            num_dependents = sum(1 for m in members if m.get("identity") == "口")
-            self.main_page.stats_label.setText(
-                f"戶號：{head_data['id']}　戶長：{head_data['head_name']}　家庭成員共：{num_adults} 丁 {num_dependents} 口"
-            )
+        if people:
+            self.main_page.update_household_table(people)
+            # 自動載入搜尋結果的第一個人
+            first = people[0]
+            self.main_page._load_household(first['household_id'], first['id'])
         else:
             QMessageBox.information(self, "查無結果", f"找不到關鍵字：{keyword}")
 
     def open_new_household_dialog(self):
         dialog = NewHouseholdDialog(self.controller, self)
         if dialog.exec_() == QDialog.Accepted:
-            payload = dialog.get_data()
             try:
-                person_id, household_id = self.controller.create_household(payload)
+                # Dialog 內部已經呼叫過 create_household 並存入屬性中
+                person_id = getattr(dialog, "created_person_id", None)
+                household_id = getattr(dialog, "created_household_id", None)
+                
                 QMessageBox.information(self, "成功", f"已新增戶籍\n戶號：{household_id}\n戶長ID：{person_id}")
 
-                # 建議：新增成功後刷新主畫面戶籍清單（看你目前怎麼做 refresh）
                 if hasattr(self, "main_page") and self.main_page:
-                    self.main_page.refresh_all_panels()  # 若你有這支
+                    self.main_page.refresh_all_panels(household_id, person_id)
             except Exception as e:
-                QMessageBox.critical(self, "錯誤", f"新增戶籍失敗：{e}")
+                QMessageBox.critical(self, "錯誤", f"更新介面失敗：{e}")
 
     # -------------------------
     # Activity pages
