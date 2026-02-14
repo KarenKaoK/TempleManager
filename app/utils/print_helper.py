@@ -345,7 +345,26 @@ class PrintHelper:
         draw_v_text(f"本宮{item_name}建設", 43, Y_BODY_START, FONT_BODY)
         
         # 6. 金額 (51%)
-        draw_v_text(f"新台幣  {amount_chinese}  元整", 51, Y_BODY_START, FONT_BODY)
+        amount_text_full = f"新台幣  {amount_chinese}  元整"
+        # 動態計算：若金額太長，縮小間距或字體
+        fm_amt = set_font(FONT_BODY)
+        char_h_amt = fm_amt.height()
+        spacing_amt = 1.1
+        total_h_amt = len(amount_text_full) * char_h_amt * spacing_amt
+        # 可用高度：底部留一點緩衝 (約 93%)
+        max_h_amt = content_rect.height() * (0.93 - (Y_BODY_START / 100.0))
+        
+        amt_font_size = FONT_BODY
+        if total_h_amt > max_h_amt:
+            # 優先縮小間距
+            spacing_amt = max_h_amt / (len(amount_text_full) * char_h_amt)
+            if spacing_amt < 0.85:
+                spacing_amt = 0.85
+                # 間距縮到 0.85 還不夠，則縮小字體
+                amt_font_size = int(max_h_amt / (len(amount_text_full) * char_h_amt * 0.85) * FONT_BODY)
+                amt_font_size = max(11, amt_font_size) # 最小不低於 11pt
+        
+        draw_v_text(amount_text_full, 51, Y_BODY_START, amt_font_size, spacing=spacing_amt)
         
         # 7. 功德 (59%)
         draw_v_text("功德無量  謹此致謝", 59, Y_BODY_START, FONT_BODY)
