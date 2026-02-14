@@ -139,17 +139,28 @@ class MainWindow(QMainWindow):
 
     def open_new_household_dialog(self):
         dialog = NewHouseholdDialog(self.controller, self)
-        if dialog.exec_() == QDialog.Accepted:
-            payload = dialog.get_data()
-            try:
-                person_id, household_id = self.controller.create_household(payload)
-                QMessageBox.information(self, "成功", f"已新增戶籍\n戶號：{household_id}\n戶長ID：{person_id}")
 
-                # 建議：新增成功後刷新主畫面戶籍清單（看你目前怎麼做 refresh）
-                if hasattr(self, "main_page") and self.main_page:
-                    self.main_page.refresh_all_panels()  # 若你有這支
-            except Exception as e:
-                QMessageBox.critical(self, "錯誤", f"新增戶籍失敗：{e}")
+        if dialog.exec_() == QDialog.Accepted:
+            
+            person_id = getattr(dialog, "created_person_id", None)
+            household_id = getattr(dialog, "created_household_id", None)
+
+            if not person_id or not household_id:
+                QMessageBox.warning(self, "錯誤", "建立成功但未取得 person_id / household_id，請檢查 Dialog 流程")
+                return
+
+            QMessageBox.information(
+                self,
+                "成功",
+                f"已新增戶籍\n戶號：{household_id}\n戶長ID：{person_id}"
+            )
+
+            if self.main_page:
+                self.main_page.refresh_all_panels(
+                    select_household_id=household_id,
+                    select_head_person_id=person_id
+                )
+
 
     # -------------------------
     # Activity pages
