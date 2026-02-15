@@ -46,6 +46,94 @@ class IncomeExpenseDialog(QDialog):
         
         self.setLayout(layout)
 
+class PersonSearchDialog(QDialog):
+    def __init__(self, controller, keyword="", parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self.selected_person = None
+
+        self.setWindowTitle("信徒搜尋結果")
+        self.resize(700, 420)
+
+        layout = QVBoxLayout(self)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["姓名", "電話", "地址"])
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        # ✅ 關鍵：強制可見的表格設定
+        self.table.setShowGrid(True)
+        self.table.setAlternatingRowColors(True)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(28)
+        self.table.setMinimumHeight(260)
+        self.table.setStyleSheet("""
+            QTableWidget::item { 
+                color: #2B2B2B; 
+                background: #FFFFFF;   /* 固定未選取為白底 */
+            }
+            QTableWidget::item:selected { 
+                background: #FFF3E3; 
+                color: #2B2B2B; 
+            }
+        """)
+
+        layout.addWidget(self.table)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        ok_btn = QPushButton("確定")
+        cancel_btn = QPushButton("取消")
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        ok_btn.clicked.connect(self.accept_selected)
+        cancel_btn.clicked.connect(self.reject)
+        self.table.cellDoubleClicked.connect(lambda r, c: self.accept_selected())
+
+        self.load_data(keyword)
+
+    def load_data(self, keyword):
+        results = self.controller.search_people(keyword) or []
+
+        if not results:
+            QMessageBox.information(self, "查無資料", "找不到符合條件的信徒")
+            self.table.setRowCount(0)
+            self.table.clearContents()
+            return
+
+        # 不要用 clear()，用 clearContents
+        self.table.setRowCount(0)
+        self.table.clearContents()
+        self.table.setRowCount(len(results))
+
+        for i, d in enumerate(results):
+            name = d.get("name") or ""
+            phone = d.get("phone_mobile") or d.get("phone_home") or ""
+            addr = d.get("address") or ""
+
+            self.table.setItem(i, 0, QTableWidgetItem(str(name)))
+            self.table.setItem(i, 1, QTableWidgetItem(str(phone)))
+            self.table.setItem(i, 2, QTableWidgetItem(str(addr)))
+            self.table.item(i, 0).setData(Qt.UserRole, d)
+
+        self.table.selectRow(0)
+        self.table.setCurrentCell(0, 0)
+        self.table.setFocus()
+        self.table.repaint()
+
+    def accept_selected(self):
+        r = self.table.currentRow()
+        if r < 0:
+            QMessageBox.warning(self, "提示", "請先選取一筆資料")
+            return
+        self.selected_person = self.table.item(r, 0).data(Qt.UserRole)
+        self.accept()
+
 class TransactionTab(QWidget):
     def __init__(self, controller, transaction_type, parent_dialog):
         super().__init__()
@@ -163,21 +251,24 @@ class TransactionTab(QWidget):
             self.search_input = QLineEdit()
             self.search_input.setPlaceholderText("輸入姓名/電話搜尋...")
             search_btn = QPushButton("🔍")
-            search_btn.clicked.connect(self.perform_search)
+            search_btn.clicked.connect(self.open_person_search_dialog)
+            self.search_input.returnPressed.connect(self.open_person_search_dialog)
             search_box.addWidget(self.search_input)
             search_box.addWidget(search_btn)
             
             left_layout.addWidget(QLabel("<b>信徒資料 (付款人)</b>"))
             left_layout.addLayout(search_box)
             
-            # 搜尋結果列表 (點選用)
-            self.search_result_list = QTableWidget()
-            self.search_result_list.setColumnCount(3)
-            self.search_result_list.setHorizontalHeaderLabels(["姓名", "電話", "地址"])
-            self.search_result_list.setMaximumHeight(100)
-            self.search_result_list.setSelectionBehavior(QTableWidget.SelectRows)
-            self.search_result_list.cellClicked.connect(self.on_person_selected)
-            left_layout.addWidget(self.search_result_list)
+            # # 搜尋結果列表 (點選用)
+            # self.search_result_list = QTableWidget()
+            # self.search_result_list.setColumnCount(3)
+            # self.search_result_list.setHorizontalHeaderLabels(["姓名", "電話", "地址"])
+            # self.search_result_list.setMaximumHeight(180)
+            # self.search_result_list.setSelectionBehavior(QTableWidget.SelectRows)
+            # self.search_result_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            # self.search_result_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            # self.search_result_list.cellClicked.connect(self.on_person_selected)
+            # left_layout.addWidget(self.search_result_list)
             
             # 顯示選定的信徒資料
             self.payer_name_display = QLineEdit()
@@ -257,6 +348,16 @@ class TransactionTab(QWidget):
         self.cancel_edit_btn.setVisible(False)
         self.cancel_edit_btn.clicked.connect(self.cancel_edit)
         btn_box.insertWidget(0, self.cancel_edit_btn)
+    
+    def open_person_search_dialog(self):
+        kw = self.search_input.text().strip()
+        if not kw:
+            QMessageBox.warning(self, "提示", "請輸入搜尋關鍵字")
+            return
+
+        dialog = PersonSearchDialog(self.controller, kw, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_person:
+            self.set_person(dialog.selected_person)
 
     def load_initial_data(self):
         # 載入項目

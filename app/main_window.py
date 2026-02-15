@@ -1,6 +1,8 @@
 from PyQt5.QtWidgets import (
-    QMainWindow, QAction, QMessageBox, QWidget, QStackedWidget, QDialog
+    QMainWindow, QAction, QMessageBox, QWidget, QStackedWidget, QDialog,
+    QHBoxLayout, QPushButton, QVBoxLayout, QFrame
 )
+from PyQt5.QtCore import Qt
 
 from app.dialogs.income_dialog import IncomeSetupDialog
 from app.dialogs.expense_dialog import ExpenseSetupDialog
@@ -22,9 +24,50 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"宮廟管理系統 - {role}")
         self.setGeometry(300, 150, 1000, 700)
 
+        # ✅ 主容器（垂直佈局：StackedWidget + 底部按鈕列）
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
         # ✅ 中央容器：StackedWidget
         self.stack = QStackedWidget()
-        self.setCentralWidget(self.stack)
+        layout.addWidget(self.stack)
+
+        # ✅ 底部按鈕列
+        bottom_bar = QFrame()
+        bottom_bar.setStyleSheet("border-top: 1px solid #E6D8C7; background: #FAF5EF;")
+        bottom_layout = QHBoxLayout(bottom_bar)
+        bottom_layout.setContentsMargins(10, 8, 10, 8)
+        bottom_layout.addStretch()  # 推到右邊
+
+        logout_btn = QPushButton("登出")
+        logout_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; padding: 8px 22px;
+                background-color: #F29B38; color: white;
+                border: none; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: #E08A28; }
+        """)
+        logout_btn.clicked.connect(self._on_logout)
+
+        close_btn = QPushButton("關閉程式")
+        close_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; padding: 8px 22px;
+                background-color: #C0392B; color: white;
+                border: none; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: #A93226; }
+        """)
+        close_btn.clicked.connect(self._on_close)
+
+        bottom_layout.addWidget(logout_btn)
+        bottom_layout.addWidget(close_btn)
+        layout.addWidget(bottom_bar)
+
+        self.setCentralWidget(central)
 
         # ✅ Pages（一定要先宣告）
         self.main_page = None
@@ -194,3 +237,26 @@ class MainWindow(QMainWindow):
         # 0=Income, 1=Expense
         dialog = IncomeExpenseDialog(self.controller, self, initial_tab)
         dialog.exec_()
+
+    # -------------------------
+    # Logout / Close
+    # -------------------------
+    def _on_logout(self):
+        """登出：關閉主視窗，回到登入畫面"""
+        reply = QMessageBox.question(
+            self, "登出確認", "確定要登出嗎？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self._is_logout = True
+            self.close()
+
+    def _on_close(self):
+        """關閉程式：彈出確認框避免誤觸"""
+        reply = QMessageBox.question(
+            self, "關閉程式", "確定要關閉整個程式嗎？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self._is_logout = False
+            self.close()
