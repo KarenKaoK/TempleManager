@@ -240,6 +240,7 @@ class ActivitySignupPage(QWidget):
     Step 2. 下方：左人員 / 右方案（未選活動前全部鎖住）
     """
     request_back_to_manage = pyqtSignal()
+    request_close = pyqtSignal()
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -482,6 +483,14 @@ class ActivitySignupPage(QWidget):
 
         main_layout.addWidget(splitter, 1)
         root.addWidget(self.signup_group, 1)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.addStretch(1)
+        self.btn_close_back = QPushButton("關閉返回")
+        self.btn_close_back.setMinimumHeight(34)
+        self.btn_close_back.clicked.connect(self.request_close.emit)
+        bottom_row.addWidget(self.btn_close_back)
+        root.addLayout(bottom_row)
 
     # =========================
     # 活動：載入 / 卡片渲染 / 選取

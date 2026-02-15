@@ -38,6 +38,24 @@ class FakeMainPageWidget(QWidget):
         self.stats_label = QLabel("")
 
 
+class FakeActivityManagePage(QWidget):
+    request_close = pyqtSignal()
+    request_open_signup = pyqtSignal(dict)
+
+    def __init__(self, controller):
+        super().__init__()
+        self.controller = controller
+
+
+class FakeActivitySignupPage(QWidget):
+    request_back_to_manage = pyqtSignal()
+    request_close = pyqtSignal()
+
+    def __init__(self, controller):
+        super().__init__()
+        self.controller = controller
+
+
 # -------------------------
 # Tests
 # -------------------------
@@ -135,3 +153,60 @@ def test_perform_search_no_result(qtbot, monkeypatch):
 
     info_mock.assert_called_once()
     window.main_page.update_household_table.assert_not_called()
+
+
+def test_activity_manage_close_returns_to_main_page(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "ActivityManagePage", FakeActivityManagePage)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+
+    window = MainWindow("test_user", "管理者", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_activity_manage()
+    assert window.stack.currentWidget() is window.activity_manage_page
+
+    window.activity_manage_page.request_close.emit()
+    assert window.stack.currentWidget() is window.main_page
+
+
+def test_activity_signup_close_returns_to_main_page(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "ActivitySignupPage", FakeActivitySignupPage)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+
+    window = MainWindow("test_user", "管理者", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_activity_signup()
+    assert window.stack.currentWidget() is window.activity_signup_page
+
+    window.activity_signup_page.request_close.emit()
+    assert window.stack.currentWidget() is window.main_page
+
+
+def test_bottom_bar_hidden_on_activity_pages_and_shown_on_main(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "ActivityManagePage", FakeActivityManagePage)
+    monkeypatch.setattr(main_window_module, "ActivitySignupPage", FakeActivitySignupPage)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+
+    window = MainWindow("test_user", "管理者", mock_controller)
+    qtbot.addWidget(window)
+
+    assert window.bottom_bar.isHidden() is False
+
+    window.open_activity_manage()
+    assert window.bottom_bar.isHidden() is True
+
+    window.open_activity_signup()
+    assert window.bottom_bar.isHidden() is True
+
+    window.open_household_entry()
+    assert window.bottom_bar.isHidden() is False
