@@ -174,9 +174,9 @@ class MainPageWidget(QWidget):
 
         entries = [
             ("姓名：", 0, 0), ("性別：", 0, 2), 
-            ("國曆生日：", 1, 0), ("農曆生日：", 1, 2), ("時辰：", 1, 4),
-            ("生肖：", 2, 2), ("年齡：", 2, 4),
-            ("聯絡電話：", 3, 0), ("手機號碼：", 3, 2), ("：", 3, 4),
+            ("國曆生日：", 1, 0), ("農曆生日：", 1, 2),
+            ("時辰：", 2, 0), ("生肖：", 2, 2), ("年齡：", 2, 4),
+            ("聯絡電話：", 3, 0), ("手機號碼：", 3, 2),
             ("聯絡地址：", 5, 0),
             ("郵遞區號：", 6, 0), ("備註說明：", 7, 0)
         ]
@@ -199,7 +199,11 @@ class MainPageWidget(QWidget):
             else:
                 widget = QLineEdit()
                 widget.setReadOnly(True)  # 設為唯讀
-                base_form.addWidget(widget, row, col + 1)
+                # 只針對 row1(生日列) / row3(電話列) 加長：讓 input 跨兩欄
+                if row in (1, 3):
+                    base_form.addWidget(widget, row, col + 1, 1, 2)  # 從 col+1 開始，跨 2 欄
+                else:
+                    base_form.addWidget(widget, row, col + 1)
             widget.setStyleSheet("font-size: 14px;")
             self.fields[label] = widget
 
