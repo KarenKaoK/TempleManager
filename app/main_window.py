@@ -35,9 +35,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.stack)
 
         # ✅ 底部按鈕列
-        bottom_bar = QFrame()
-        bottom_bar.setStyleSheet("border-top: 1px solid #E6D8C7; background: #FAF5EF;")
-        bottom_layout = QHBoxLayout(bottom_bar)
+        self.bottom_bar = QFrame()
+        self.bottom_bar.setStyleSheet("border-top: 1px solid #E6D8C7; background: #FAF5EF;")
+        bottom_layout = QHBoxLayout(self.bottom_bar)
         bottom_layout.setContentsMargins(10, 8, 10, 8)
         bottom_layout.addStretch()  # 推到右邊
 
@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
 
         bottom_layout.addWidget(logout_btn)
         bottom_layout.addWidget(close_btn)
-        layout.addWidget(bottom_bar)
+        layout.addWidget(self.bottom_bar)
 
         self.setCentralWidget(central)
 
@@ -91,6 +91,12 @@ class MainWindow(QMainWindow):
         if self.stack.indexOf(page) == -1:
             self.stack.addWidget(page)
         self.stack.setCurrentWidget(page)
+        self._sync_bottom_bar_visibility(page)
+
+    def _sync_bottom_bar_visibility(self, page: QWidget):
+        """活動頁改用頁內「關閉返回」，隱藏全域底部列避免重複操作。"""
+        hide_for_activity_pages = page in (self.activity_manage_page, self.activity_signup_page)
+        self.bottom_bar.setVisible(not hide_for_activity_pages)
 
     def _back_to_blank(self):
         self.stack.setCurrentWidget(self._blank_page)
@@ -214,8 +220,8 @@ class MainWindow(QMainWindow):
         if self.activity_manage_page is None:
             self.activity_manage_page = ActivityManagePage(self.controller)
 
-            # 返回/關閉 → 回空白頁（或你要回戶籍頁也可以）
-            self.activity_manage_page.request_close.connect(self._back_to_blank)
+            # 返回/關閉 → 回主頁（信眾資料建檔）
+            self.activity_manage_page.request_close.connect(self.open_household_entry)
 
             # 從管理頁跳到報名頁（ActivityManagePage 要有 request_open_signup signal）
             if hasattr(self.activity_manage_page, "request_open_signup"):
@@ -227,6 +233,7 @@ class MainWindow(QMainWindow):
         if self.activity_signup_page is None:
             self.activity_signup_page = ActivitySignupPage(self.controller)
             self.activity_signup_page.request_back_to_manage.connect(self.open_activity_manage)
+            self.activity_signup_page.request_close.connect(self.open_household_entry)
 
         if activity_data:
             self.activity_signup_page.set_activity(activity_data)

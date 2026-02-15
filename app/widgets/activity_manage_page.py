@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QSplitter, QGroupBox
+    QWidget, QVBoxLayout, QSplitter, QGroupBox, QHBoxLayout, QPushButton
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 
@@ -44,6 +44,15 @@ class ActivityManagePage(QWidget):
 
         upper_layout.addWidget(h_splitter, 1)
 
+        bottom_row = QHBoxLayout()
+        bottom_row.addStretch(1)
+
+        self.btn_close_back = QPushButton("關閉返回")
+        self.btn_close_back.setMinimumHeight(34)
+        self.btn_close_back.clicked.connect(self.request_close.emit)
+        bottom_row.addWidget(self.btn_close_back)
+
+        root.addLayout(bottom_row)
         # self._load_mock_activities()
 
         # 如果你的 ActivityListPanel 有 signal（例如 activity_selected），這邊接上去
@@ -100,4 +109,3 @@ class ActivityManagePage(QWidget):
     def on_activity_deleted(self, activity_id: str):
         # 刷新左側清單；ActivityListPanel 會 auto_select_first=True
         self.activity_list_panel.refresh(keyword="")
-

@@ -315,6 +315,23 @@ class TransactionTab(QWidget):
         type_tc = "收入" if self.t_type == "income" else "支出"
         list_label = QLabel(f"📋 {type_tc}明細列表")
         list_label.setStyleSheet("font-weight: bold; font-size: 16px;")
+
+        # 明確操作列：避免只靠右鍵，操作不明顯
+        action_row = QHBoxLayout()
+        action_row.addStretch()
+
+        self.btn_edit_row = QPushButton("修改資料")
+        self.btn_del_row = QPushButton("刪除資料")
+        self.btn_print_row = None
+        if self.t_type == "income":
+            self.btn_print_row = QPushButton("補印收據")
+            self.btn_print_row.clicked.connect(self._print_selected_row)
+            action_row.addWidget(self.btn_print_row)
+
+        self.btn_edit_row.clicked.connect(self._edit_selected_row)
+        self.btn_del_row.clicked.connect(self._delete_selected_row)
+        action_row.addWidget(self.btn_edit_row)
+        action_row.addWidget(self.btn_del_row)
         
         self.table = QTableWidget()
         cols = ["日期", "單號", "項目", "對象", "金額", "經手人", "摘要"]
@@ -327,8 +344,10 @@ class TransactionTab(QWidget):
         # 右鍵選單
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_context_menu)
+        self.table.itemSelectionChanged.connect(self._sync_row_action_buttons)
         
         right_layout.addWidget(list_label)
+        right_layout.addLayout(action_row)
         right_layout.addWidget(self.table)
         right_widget.setLayout(right_layout)
         
@@ -348,6 +367,7 @@ class TransactionTab(QWidget):
         self.cancel_edit_btn.setVisible(False)
         self.cancel_edit_btn.clicked.connect(self.cancel_edit)
         btn_box.insertWidget(0, self.cancel_edit_btn)
+        self._sync_row_action_buttons()
     
     def open_person_search_dialog(self):
         kw = self.search_input.text().strip()
@@ -463,6 +483,44 @@ class TransactionTab(QWidget):
             
             # 將整筆資料存入第一欄的 UserRole，供修改/刪除/列印使用
             self.table.item(i, 0).setData(Qt.UserRole, row)
+        self._sync_row_action_buttons()
+
+    def _get_selected_row_data(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        if not item:
+            return None
+        return item.data(Qt.UserRole)
+
+    def _sync_row_action_buttons(self):
+        has_row = self._get_selected_row_data() is not None
+        self.btn_edit_row.setEnabled(has_row)
+        self.btn_del_row.setEnabled(has_row)
+        if self.btn_print_row is not None:
+            self.btn_print_row.setEnabled(has_row)
+
+    def _edit_selected_row(self):
+        data = self._get_selected_row_data()
+        if not data:
+            QMessageBox.warning(self, "提示", "請先選取一筆資料")
+            return
+        self.load_transaction_to_form(data)
+
+    def _delete_selected_row(self):
+        data = self._get_selected_row_data()
+        if not data:
+            QMessageBox.warning(self, "提示", "請先選取一筆資料")
+            return
+        self.delete_transaction(data)
+
+    def _print_selected_row(self):
+        data = self._get_selected_row_data()
+        if not data:
+            QMessageBox.warning(self, "提示", "請先選取一筆資料")
+            return
+        self.on_print_receipt(data)
 
     def show_context_menu(self, pos):
         item = self.table.itemAt(pos)
@@ -470,24 +528,49 @@ class TransactionTab(QWidget):
             return
             
         row = item.row()
+        self.table.selectRow(row)
         data = self.table.item(row, 0).data(Qt.UserRole)
         if not data:
             return
 
         from PyQt5.QtWidgets import QMenu, QAction
         menu = QMenu(self)
+        # 右鍵選單專用樣式：提高對比，避免字色與背景撞色看不清
+        menu.setStyleSheet("""
+            QMenu {
+                background: #FFFFFF;
+                border: 1px solid #D6CFC6;
+                padding: 6px;
+            }
+            QMenu::item {
+                color: #1F2937;
+                padding: 8px 14px;
+                border-radius: 6px;
+                margin: 2px 0;
+            }
+            QMenu::item:selected {
+                background: #FFF3E3;
+                color: #111827;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #E6D8C7;
+                margin: 6px 4px;
+            }
+        """)
         
         if self.t_type == "income":
-            print_action = QAction("🖨️ 補印收據", self)
+            print_action = QAction("補印收據", self)
             print_action.triggered.connect(lambda: self.on_print_receipt(data))
             menu.addAction(print_action)
             menu.addSeparator()
 
-        edit_action = QAction("✏️ 修改", self)
+        edit_action = QAction("修改資料", self)
         edit_action.triggered.connect(lambda: self.load_transaction_to_form(data))
         menu.addAction(edit_action)
+        menu.addSeparator()
         
-        del_action = QAction("🗑️ 刪除", self)
+        del_action = QAction("刪除資料", self)
         del_action.triggered.connect(lambda: self.delete_transaction(data))
         menu.addAction(del_action)
         

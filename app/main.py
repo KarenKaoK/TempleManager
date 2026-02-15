@@ -192,7 +192,7 @@ def run_app():
         controller = AppController()
         main_window = MainWindow(username, role, controller)
         main_window._is_logout = False
-        main_window.show()
+        main_window.showMaximized()
         app.exec_()
 
         # 檢查是否為「登出」→ 回到登入畫面；否則直接結束

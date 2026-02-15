@@ -91,23 +91,19 @@ class ActivityDetailPanel(QWidget):
         header_layout.addStretch(1)
 
         # 右側：操作按鈕
-        self.btn_back = QPushButton("返回")
         self.btn_new = QPushButton("+ 新增活動")
         self.btn_edit = QPushButton("修改活動")
         self.btn_del = QPushButton("刪除活動")
-
-        self.btn_back.clicked.connect(self.request_back.emit)
 
         self.btn_new.clicked.connect(self.on_new_activity)
         self.btn_edit.clicked.connect(self.on_edit_activity)
         self.btn_del.clicked.connect(self.on_delete_activity)
 
-        for b in (self.btn_back, self.btn_new, self.btn_edit, self.btn_del):
+        for b in (self.btn_new, self.btn_edit, self.btn_del):
             b.setMinimumHeight(34)
 
         btn_box = QHBoxLayout()
         btn_box.setSpacing(8)
-        btn_box.addWidget(self.btn_back)
         btn_box.addWidget(self.btn_new)
         btn_box.addWidget(self.btn_edit)
         btn_box.addWidget(self.btn_del)
@@ -945,6 +941,5 @@ class ActivityDetailPanel(QWidget):
     #     signup_id = items[0].data(Qt.UserRole)
     #     self.controller.delete_activity_signup(signup_id)
     #     self._reload_signup_tab()
-
 
 
