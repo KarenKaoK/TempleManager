@@ -1889,12 +1889,18 @@ class AppController:
         搜尋信徒（不分戶長或成員），回傳 id, name, phone, address
         供 UI 搜尋並取得 person_id
         """
+        keyword = (keyword or "").strip()
+        if not keyword:
+            return []
+        
         cursor = self.conn.cursor()
         kw = f"%{keyword}%"
         cursor.execute("""
             SELECT id, name, phone_mobile, phone_home, address 
             FROM people 
-            WHERE name LIKE ? OR phone_mobile LIKE ? OR phone_home LIKE ?
+            WHERE status='ACTIVE'
+              AND (name LIKE ? OR phone_mobile LIKE ? OR phone_home LIKE ?)
+            ORDER BY joined_at DESC
             LIMIT 50
         """, (kw, kw, kw))
         return [dict(row) for row in cursor.fetchall()]

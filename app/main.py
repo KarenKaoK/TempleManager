@@ -51,14 +51,12 @@ def run_app():
         /* === 表格 === */
         QTableWidget {
             border: 1px solid #E6D8C7;
-            border-radius: 6px;
+            border-radius: 0px;
             gridline-color: #F0ECE6;
             background: #FFFFFF;
             alternate-background-color: #FFF9F3;
         }
-        QTableWidget::item {
-            padding: 4px 6px;
-        }
+
         QTableWidget::item:selected {
             background: #FFF3E3;
             color: #2B2B2B;
@@ -81,16 +79,15 @@ def run_app():
         /* === GroupBox（戶長/戶員明細等） === */
         QGroupBox {
             border: 1px solid #E6D8C7;
-            border-radius: 8px;
-            margin-top: 8px;
-            padding: 6px;
-            padding-top: 20px;
+            border-radius: 0px;
+            margin-top: 6px;
+            padding-top: 18px;
             background: transparent;
         }
         QGroupBox::title {
             subcontrol-origin: margin;
             subcontrol-position: top left;
-            padding: 2px 10px;
+            padding: 2px 8px;
             color: #5A4A3A;
             font-weight: 600;
         }
