@@ -36,8 +36,8 @@ class MainPageWidget(QWidget):
         self.delete_btn = QPushButton("❌ 刪除戶長資料")
         self.delete_btn.clicked.connect(self.delete_selected_household)
 
-        self.print_btn = QPushButton("🖨️ 資料列印")
-        for btn in [ self.add_btn, self.delete_btn, self.print_btn]:
+        # self.print_btn = QPushButton("🖨️ 資料列印")
+        for btn in [ self.add_btn, self.delete_btn]:
             btn.setStyleSheet("font-size: 14px;")
             top_layout.addWidget(btn)
 
