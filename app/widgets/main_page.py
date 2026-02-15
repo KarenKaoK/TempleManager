@@ -205,7 +205,7 @@ class MainPageWidget(QWidget):
 
         base_widget = QWidget()
         base_widget.setLayout(base_form)
-        base_widget.setMinimumWidth(600)
+        base_widget.setMinimumWidth(500)
         base_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         for label, widget in self.fields.items():
             if isinstance(widget, QLineEdit):
@@ -220,6 +220,15 @@ class MainPageWidget(QWidget):
 
         splitter.addWidget(tab_widget)
         layout.addWidget(splitter)
+
+        splitter.setChildrenCollapsible(False)
+
+        # 左:右 = 40:60
+        splitter.setStretchFactor(0, 40)
+        splitter.setStretchFactor(1, 60)
+
+        # 初始寬度比例（可調整）
+        splitter.setSizes([900, 400])
 
         layout.setStretchFactor(household_group, 55)  # 上：戶長表格
         layout.setStretchFactor(splitter, 45)         # 下：成員+詳情

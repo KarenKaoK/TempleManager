@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
 
         # ✅ 底部按鈕列
         bottom_bar = QFrame()
-        bottom_bar.setStyleSheet("border-top: 1px solid #ccc;")
+        bottom_bar.setStyleSheet("border-top: 1px solid #E6D8C7; background: #FAF5EF;")
         bottom_layout = QHBoxLayout(bottom_bar)
         bottom_layout.setContentsMargins(10, 8, 10, 8)
         bottom_layout.addStretch()  # 推到右邊
@@ -44,22 +44,22 @@ class MainWindow(QMainWindow):
         logout_btn = QPushButton("登出")
         logout_btn.setStyleSheet("""
             QPushButton {
-                font-size: 15px; padding: 8px 22px;
-                background-color: #4a90d9; color: white;
+                font-size: 14px; padding: 8px 22px;
+                background-color: #F29B38; color: white;
                 border: none; border-radius: 6px;
             }
-            QPushButton:hover { background-color: #3a7bc8; }
+            QPushButton:hover { background-color: #E08A28; }
         """)
         logout_btn.clicked.connect(self._on_logout)
 
         close_btn = QPushButton("關閉程式")
         close_btn.setStyleSheet("""
             QPushButton {
-                font-size: 15px; padding: 8px 22px;
-                background-color: #d9534f; color: white;
+                font-size: 14px; padding: 8px 22px;
+                background-color: #C0392B; color: white;
                 border: none; border-radius: 6px;
             }
-            QPushButton:hover { background-color: #c9302c; }
+            QPushButton:hover { background-color: #A93226; }
         """)
         close_btn.clicked.connect(self._on_close)
 

@@ -174,7 +174,7 @@ class TransactionTab(QWidget):
             self.search_result_list = QTableWidget()
             self.search_result_list.setColumnCount(3)
             self.search_result_list.setHorizontalHeaderLabels(["姓名", "電話", "地址"])
-            self.search_result_list.setMaximumHeight(100)
+            self.search_result_list.setMaximumHeight(150)
             self.search_result_list.setSelectionBehavior(QTableWidget.SelectRows)
             self.search_result_list.cellClicked.connect(self.on_person_selected)
             left_layout.addWidget(self.search_result_list)
