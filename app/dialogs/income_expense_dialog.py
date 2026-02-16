@@ -56,9 +56,10 @@ def style_combo_with_dividers(combo: QComboBox):
 
 
 class IncomeExpenseDialog(QDialog):
-    def __init__(self, controller, parent=None, initial_tab=0):
+    def __init__(self, controller, parent=None, initial_tab=0, user_role=None):
         super().__init__(parent)
         self.controller = controller
+        self.user_role = user_role
         self.setWindowTitle("收支管理作業")
         self.resize(1200, 800) # 加大視窗以容納左右分割
         self.setup_ui(initial_tab)
@@ -69,11 +70,11 @@ class IncomeExpenseDialog(QDialog):
         self.tabs = QTabWidget()
         
         # 收入頁面
-        self.income_tab = TransactionTab(self.controller, "income", self)
+        self.income_tab = TransactionTab(self.controller, "income", self, self.user_role)
         self.tabs.addTab(self.income_tab, "收入資料登錄作業")
         
         # 支出頁面
-        self.expense_tab = TransactionTab(self.controller, "expense", self)
+        self.expense_tab = TransactionTab(self.controller, "expense", self, self.user_role)
         self.tabs.addTab(self.expense_tab, "支出資料登錄作業")
         
         self.tabs.setCurrentIndex(initial_tab)
@@ -181,11 +182,12 @@ class PersonSearchDialog(QDialog):
         self.accept()
 
 class TransactionTab(QWidget):
-    def __init__(self, controller, transaction_type, parent_dialog):
+    def __init__(self, controller, transaction_type, parent_dialog, user_role=None):
         super().__init__()
         self.controller = controller
         self.t_type = transaction_type # "income" or "expense"
         self.parent_dialog = parent_dialog
+        self.user_role = user_role
         
         # 用於暫存選擇的信徒 ID (僅 Income 用到)
         self.selected_person_id = None
@@ -420,6 +422,7 @@ class TransactionTab(QWidget):
         self.setLayout(main_layout)
         
         self.editing_transaction_id = None
+        self.editing_source_date = None
         self.selected_person_data = None
         self.save_btn = save_btn # 存引用以便改文字
         
@@ -564,10 +567,31 @@ class TransactionTab(QWidget):
             return None
         return item.data(Qt.UserRole)
 
+    def _can_edit_any_date(self):
+        # 支援新舊角色名稱：會計 / 會計人員
+        return (self.user_role or "").strip() in {"管理員", "會計", "會計人員"}
+
+    def _is_editable_today(self, data):
+        if not data:
+            return False
+        if self._can_edit_any_date():
+            return True
+        tx_date = str(data.get("date", "")).strip()
+        return tx_date == date.today().isoformat()
+
+    def _can_delete_data(self, data):
+        if not data:
+            return False
+        if self._can_edit_any_date():
+            return True
+        tx_date = str(data.get("date", "")).strip()
+        return tx_date == date.today().isoformat()
+
     def _sync_row_action_buttons(self):
-        has_row = self._get_selected_row_data() is not None
-        self.btn_edit_row.setEnabled(has_row)
-        self.btn_del_row.setEnabled(has_row)
+        data = self._get_selected_row_data()
+        has_row = data is not None
+        self.btn_edit_row.setEnabled(has_row and self._is_editable_today(data))
+        self.btn_del_row.setEnabled(has_row and self._can_delete_data(data))
         if self.btn_print_row is not None:
             self.btn_print_row.setEnabled(has_row)
 
@@ -576,12 +600,18 @@ class TransactionTab(QWidget):
         if not data:
             QMessageBox.warning(self, "提示", "請先選取一筆資料")
             return
+        if not self._is_editable_today(data):
+            QMessageBox.information(self, "限制", "交易資料修改僅限當日資料。")
+            return
         self.load_transaction_to_form(data)
 
     def _delete_selected_row(self):
         data = self._get_selected_row_data()
         if not data:
             QMessageBox.warning(self, "提示", "請先選取一筆資料")
+            return
+        if not self._can_delete_data(data):
+            QMessageBox.information(self, "限制", "交易資料刪除僅限當日資料。")
             return
         self.delete_transaction(data)
 
@@ -637,11 +667,13 @@ class TransactionTab(QWidget):
 
         edit_action = QAction("修改資料", self)
         edit_action.triggered.connect(lambda: self.load_transaction_to_form(data))
+        edit_action.setEnabled(self._is_editable_today(data))
         menu.addAction(edit_action)
         menu.addSeparator()
         
         del_action = QAction("刪除資料", self)
         del_action.triggered.connect(lambda: self.delete_transaction(data))
+        del_action.setEnabled(self._can_delete_data(data))
         menu.addAction(del_action)
         
         menu.exec_(self.table.viewport().mapToGlobal(pos))
@@ -650,6 +682,9 @@ class TransactionTab(QWidget):
         PrintHelper.print_receipt(data)
 
     def delete_transaction(self, data):
+        if not self._can_delete_data(data):
+            QMessageBox.warning(self, "限制", "交易資料刪除僅限當日資料。")
+            return
         reply = QMessageBox.question(
             self, "確認刪除", 
             f"確定要刪除這筆資料嗎？\n單號：{data['receipt_number']}\n金額：{data['amount']}",
@@ -668,7 +703,11 @@ class TransactionTab(QWidget):
                 QMessageBox.critical(self, "錯誤", f"刪除失敗: {str(e)}")
 
     def load_transaction_to_form(self, data):
+        if not self._is_editable_today(data):
+            QMessageBox.information(self, "限制", "交易資料修改僅限當日資料。")
+            return
         self.editing_transaction_id = data['id']
+        self.editing_source_date = str(data.get('date', '')).strip()
         
         # 填入表單
         self.date_input.setDate(QDate.fromString(data['date'], "yyyy-MM-dd"))
@@ -708,6 +747,7 @@ class TransactionTab(QWidget):
         
     def cancel_edit(self):
         self.editing_transaction_id = None
+        self.editing_source_date = None
         self.save_btn.setText("💾 僅存檔")
         self.cancel_edit_btn.setVisible(False)
         
@@ -764,6 +804,12 @@ class TransactionTab(QWidget):
         try:
             # 判斷是新增還是更新
             if self.editing_transaction_id:
+                # 只允許修改原始日期為今日的交易
+                if (not self._can_edit_any_date()) and self.editing_source_date != date.today().isoformat():
+                    QMessageBox.warning(self, "限制", "交易資料修改僅限當日資料。")
+                    self.cancel_edit()
+                    return
+
                 # Update
                 payload = {
                     "date": date_str,

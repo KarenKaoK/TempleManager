@@ -814,6 +814,72 @@ class AppController:
         self.conn.commit()
         return cur.rowcount
 
+    def reactivate_person(self, person_id: str) -> int:
+        """
+        恢復停用的人員（status: INACTIVE -> ACTIVE）
+        - MEMBER：可直接恢復
+        - HEAD：同戶不得已有另一位 ACTIVE HEAD
+        return: rowcount（正常 1；原本已 ACTIVE 會是 0）
+        """
+        person_id = (person_id or "").strip()
+        if not person_id:
+            raise ValueError("person_id is required")
+
+        cur = self.conn.cursor()
+        row = cur.execute(
+            """
+            SELECT household_id, role_in_household, status
+            FROM people
+            WHERE id = ?
+            """,
+            (person_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("person not found")
+
+        household_id, role, status = row
+        if status == "ACTIVE":
+            return 0
+
+        if role == "HEAD":
+            active_head_cnt = cur.execute(
+                """
+                SELECT COUNT(1)
+                FROM people
+                WHERE household_id = ?
+                  AND role_in_household = 'HEAD'
+                  AND status = 'ACTIVE'
+                """,
+                (household_id,),
+            ).fetchone()[0]
+            if int(active_head_cnt or 0) > 0:
+                raise ValueError("此戶已有啟用中的戶長，無法恢復原戶長")
+        else:
+            active_head_cnt = cur.execute(
+                """
+                SELECT COUNT(1)
+                FROM people
+                WHERE household_id = ?
+                  AND role_in_household = 'HEAD'
+                  AND status = 'ACTIVE'
+                """,
+                (household_id,),
+            ).fetchone()[0]
+            if int(active_head_cnt or 0) == 0:
+                raise ValueError("此戶無啟用中的戶長，請先恢復戶長")
+
+        cur.execute(
+            """
+            UPDATE people
+            SET status = 'ACTIVE'
+            WHERE id = ?
+              AND status = 'INACTIVE'
+            """,
+            (person_id,),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
     # -------------------------
     # Activities
     # -------------------------

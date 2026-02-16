@@ -262,3 +262,21 @@ def test_delete_identity_success(qtbot, monkeypatch):
         )
 
         mock_info.assert_called_once_with(dialog, "成功", "身份名稱刪除成功！")
+
+
+def test_member_identity_staff_cannot_maintain(qtbot):
+    dialog = MemberIdentityDialog(user_role="工作人員")
+    qtbot.addWidget(dialog)
+
+    assert dialog.btn_add.isEnabled() is False
+    assert dialog.btn_edit.isEnabled() is False
+    assert dialog.btn_delete.isEnabled() is False
+
+    with mock.patch("app.dialogs.member_identity_dialog.QMessageBox.warning") as mock_warn:
+        dialog.add_identity()
+        dialog.edit_identity()
+        dialog.delete_identity()
+        assert mock_warn.call_count == 3
+        mock_warn.assert_any_call(dialog, "權限不足", "目前角色無權限新增身份名稱。")
+        mock_warn.assert_any_call(dialog, "權限不足", "目前角色無權限修改身份名稱。")
+        mock_warn.assert_any_call(dialog, "權限不足", "目前角色無權限刪除身份名稱。")

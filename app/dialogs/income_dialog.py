@@ -7,10 +7,11 @@ from app.config import DB_NAME
 
 class IncomeSetupDialog(QDialog):
     """收入項目建檔作業 視窗"""
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, user_role=None):
         super().__init__()
         from app.config import DB_NAME
         self.db_path = db_path or DB_NAME  # ✅ 預設為原本的 DB_NAME
+        self.user_role = user_role
 
         self.setWindowTitle("收入項目建檔作業")
         self.setGeometry(400, 200, 500, 300)
@@ -51,6 +52,15 @@ class IncomeSetupDialog(QDialog):
         # 載入資料
         self.load_data()
 
+    def _can_toggle_active(self):
+        role = (self.user_role or "").strip()
+        if not role:
+            return True
+        return role in {"管理員", "會計", "會計人員"}
+
+    def _can_maintain_items(self):
+        return self._can_toggle_active()
+
     def _ensure_active_column(self):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -83,6 +93,16 @@ class IncomeSetupDialog(QDialog):
         self._sync_toggle_button_text()
 
     def _sync_toggle_button_text(self):
+        can_maintain = self._can_maintain_items()
+        self.btn_add.setEnabled(can_maintain)
+        self.btn_edit.setEnabled(can_maintain)
+
+        if not self._can_toggle_active():
+            self.btn_delete.setText("停用/啟用")
+            self.btn_delete.setEnabled(False)
+            return
+
+        self.btn_delete.setEnabled(True)
         selected_row = self.table.currentRow()
         if selected_row < 0:
             self.btn_delete.setText("停用/啟用")
@@ -96,6 +116,10 @@ class IncomeSetupDialog(QDialog):
         self.btn_delete.setText("啟用" if status_item.text() == "停用" else "停用")
     def add_income_item(self):
         """新增收入項目（一次輸入完整資料）"""
+        if not self._can_maintain_items():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限新增收入項目。")
+            return
+
         dialog = QDialog(self)
         dialog.setWindowTitle("新增收入項目")
         layout = QFormLayout()
@@ -193,6 +217,10 @@ class IncomeSetupDialog(QDialog):
 
     def edit_income_item(self):
         """一次修改選中的收入項目（名稱 & 金額）"""
+        if not self._can_maintain_items():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限修改收入項目。")
+            return
+
         selected_row = self.table.currentRow()
         if selected_row < 0:
             QMessageBox.warning(self, "錯誤", "請選擇要修改的收入項目！")
@@ -250,6 +278,10 @@ class IncomeSetupDialog(QDialog):
 
     def delete_income_item(self):
         """停用/啟用選中的收入項目（不可刪除歷史資料）。"""
+        if not self._can_toggle_active():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限停用/啟用收入項目。")
+            return
+
         selected_row = self.table.currentRow()
         if selected_row < 0:
             QMessageBox.warning(self, "錯誤", "請選擇要停用/啟用的收入項目！")

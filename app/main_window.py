@@ -150,15 +150,15 @@ class MainWindow(QMainWindow):
     # Dialogs
     # -------------------------
     def open_income_setup(self):
-        dlg = IncomeSetupDialog()
+        dlg = IncomeSetupDialog(user_role=self.role)
         dlg.exec_()
 
     def open_expense_setup(self):
-        dlg = ExpenseSetupDialog()
+        dlg = ExpenseSetupDialog(user_role=self.role)
         dlg.exec_()
 
     def open_identity_setup(self):
-        dlg = MemberIdentityDialog()
+        dlg = MemberIdentityDialog(user_role=self.role)
         dlg.exec_()
 
     # -------------------------
@@ -167,6 +167,8 @@ class MainWindow(QMainWindow):
     def open_household_entry(self):
         if self.main_page is None:
             self.main_page = MainPageWidget(self.controller)
+            if hasattr(self.main_page, "set_user_role"):
+                self.main_page.set_user_role(self.role)
             self.main_page.search_bar.search_triggered.connect(self.perform_search)
             self.main_page.search_bar.show_all_triggered.connect(lambda: self.main_page.refresh_all_panels())
             self.main_page.new_household_triggered.connect(self.open_new_household_dialog)
@@ -242,7 +244,7 @@ class MainWindow(QMainWindow):
 
     def open_income_expense_dialog(self, initial_tab=0):
         # 0=Income, 1=Expense
-        dialog = IncomeExpenseDialog(self.controller, self, initial_tab)
+        dialog = IncomeExpenseDialog(self.controller, self, initial_tab, self.role)
         dialog.exec_()
 
     # -------------------------
