@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
-    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, 
+    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout,
+    QComboBox,
     QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView
 )
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -14,7 +15,8 @@ from app.dialogs.transfer_household_dialog import TransferHouseholdDialog
 
 class MainPageWidget(QWidget):
 
-    new_household_triggered = pyqtSignal()  
+    new_household_triggered = pyqtSignal()
+    font_size_changed = pyqtSignal(str)
 
     def __init__(self, controller, user_role=None):
         super().__init__()
@@ -29,7 +31,15 @@ class MainPageWidget(QWidget):
         top_layout = QHBoxLayout()
         self.search_bar = SearchBarWidget()
         top_layout.addWidget(self.search_bar)
-    
+
+        font_label = QLabel("字體大小：")
+        self.font_size_combo = QComboBox()
+        self.font_size_combo.addItems(["小", "中", "大"])
+        self.font_size_combo.setCurrentText("中")
+        self.font_size_combo.currentTextChanged.connect(self._on_font_size_changed)
+        top_layout.addWidget(font_label)
+        top_layout.addWidget(self.font_size_combo)
+
 
         self.add_btn = QPushButton("➕ 新增戶長資料")
         self.add_btn.clicked.connect(self.new_household_triggered.emit)
@@ -264,6 +274,16 @@ class MainPageWidget(QWidget):
             )
 
         self._apply_role_permissions()
+
+    def _on_font_size_changed(self, size_label):
+        self.font_size_changed.emit(size_label)
+
+    def set_font_size_label(self, label):
+        if label not in ("小", "中", "大"):
+            label = "中"
+        self.font_size_combo.blockSignals(True)
+        self.font_size_combo.setCurrentText(label)
+        self.font_size_combo.blockSignals(False)
 
     def set_user_role(self, role):
         self.user_role = role

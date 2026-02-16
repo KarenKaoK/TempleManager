@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QMainWindow, QAction, QMessageBox, QWidget, QStackedWidget, QDialog,
+    QApplication, QMainWindow, QAction, QMessageBox, QWidget, QStackedWidget, QDialog,
     QHBoxLayout, QPushButton, QVBoxLayout, QFrame
 )
 from PyQt5.QtCore import Qt
@@ -20,6 +20,7 @@ class MainWindow(QMainWindow):
         self.username = username
         self.role = role
         self.controller = controller
+        self.font_manager = getattr(QApplication.instance(), "font_manager", None)
 
         self.setWindowTitle(f"宮廟管理系統 - {role}")
         self.setGeometry(300, 150, 1000, 700)
@@ -106,6 +107,7 @@ class MainWindow(QMainWindow):
     # -------------------------
     def setup_menu(self):
         menu_bar = self.menuBar()
+        menu_bar.setNativeMenuBar(False)
 
         category_menu = menu_bar.addMenu("類別設定")
         income_action = QAction("收入項目建檔作業", self)
@@ -169,6 +171,10 @@ class MainWindow(QMainWindow):
             self.main_page = MainPageWidget(self.controller)
             if hasattr(self.main_page, "set_user_role"):
                 self.main_page.set_user_role(self.role)
+            if hasattr(self.main_page, "font_size_changed"):
+                self.main_page.font_size_changed.connect(self.on_global_font_size_changed)
+            if self.font_manager and hasattr(self.main_page, "set_font_size_label"):
+                self.main_page.set_font_size_label(self.font_manager.get_label())
             self.main_page.search_bar.search_triggered.connect(self.perform_search)
             self.main_page.search_bar.show_all_triggered.connect(lambda: self.main_page.refresh_all_panels())
             self.main_page.new_household_triggered.connect(self.open_new_household_dialog)
@@ -250,6 +256,10 @@ class MainWindow(QMainWindow):
         # 0=Income, 1=Expense
         dialog = IncomeExpenseDialog(self.controller, self, initial_tab, self.role)
         dialog.exec_()
+
+    def on_global_font_size_changed(self, label):
+        if self.font_manager:
+            self.font_manager.apply(label)
 
     # -------------------------
     # Logout / Close

@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import QApplication, QDialog
 from app.controller.app_controller import AppController
 from app.auth.login import LoginDialog
 from app.main_window import MainWindow
+from app.utils.font_manager import GlobalFontManager
 
 def run_app():
     app = QApplication(sys.argv)
@@ -212,6 +213,7 @@ def run_app():
             height: 0px;
         }
     """)
+    app.font_manager = GlobalFontManager(app)
 
     while True:
         login_dialog = LoginDialog()

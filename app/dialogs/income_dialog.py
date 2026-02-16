@@ -1,7 +1,8 @@
 import sqlite3
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton,
-    QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout, QSpinBox, QInputDialog
+    QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout, QSpinBox, QInputDialog,
+    QHeaderView
 )
 from app.config import DB_NAME
 
@@ -14,7 +15,8 @@ class IncomeSetupDialog(QDialog):
         self.user_role = user_role
 
         self.setWindowTitle("收入項目建檔作業")
-        self.setGeometry(400, 200, 500, 300)
+        self.resize(760, 460)
+        self.setMinimumSize(680, 400)
 
         # 主佈局
         layout = QVBoxLayout()
@@ -23,6 +25,10 @@ class IncomeSetupDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["收入項目代號", "收入項目名稱", "捐助金額", "狀態"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         layout.addWidget(self.table)
 
         # 按鈕區域
