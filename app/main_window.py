@@ -200,11 +200,15 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "錯誤", "建立成功但未取得 person_id / household_id，請檢查 Dialog 流程")
                 return
 
+            name = getattr(dialog, "created_name", "")
+            phone = getattr(dialog, "created_phone_mobile", "")
+
             QMessageBox.information(
                 self,
                 "成功",
-                f"已新增戶籍\n戶號：{household_id}\n戶長ID：{person_id}"
+                f"已新增戶籍\n姓名：{name}\n手機：{phone}"
             )
+
 
             if self.main_page:
                 self.main_page.refresh_all_panels(
