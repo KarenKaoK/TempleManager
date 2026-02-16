@@ -625,8 +625,18 @@ class MainPageWidget(QWidget):
             QMessageBox.warning(self, "刪除失敗", "無法直接刪除戶長，如需刪除請先變更戶長")
             return
 
-        confirm = QMessageBox.question(self, "確認刪除", f"確定要刪除成員 {name} 嗎？", QMessageBox.Yes | QMessageBox.No)
-        if confirm == QMessageBox.Yes:
+        box = QMessageBox(self)
+        box.setWindowTitle("確認刪除")
+        box.setText(f"確定要刪除成員 {name} 嗎？")
+
+        btn_yes = box.addButton("是", QMessageBox.AcceptRole)
+        btn_no = box.addButton("否", QMessageBox.RejectRole)
+
+        box.setDefaultButton(btn_no)  # 預設選「否」避免誤刪
+
+        box.exec_()
+
+        if box.clickedButton() == btn_yes:
             self.controller.deactivate_person(person_id, allow_head=False)
             self._load_household(self.selected_household_id, self.selected_head_person_id)
 
