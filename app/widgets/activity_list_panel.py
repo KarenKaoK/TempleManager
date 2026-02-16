@@ -227,6 +227,7 @@ class ActivityListPanel(QWidget):
         elif not self._items:
             # 清空選取
             self._selected_id = None
+            self.activity_selected.emit("") 
 
     def set_selected(self, activity_id: str):
         self._selected_id = activity_id

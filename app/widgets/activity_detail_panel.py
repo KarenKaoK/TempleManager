@@ -441,6 +441,23 @@ class ActivityDetailPanel(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "刪除失敗", f"刪除報名失敗：\n{e}")
 
+    def _clear_signup_tab(self):
+        # 清資料
+        self._signup_rows = []
+        self._signup_rows_filtered = []
+
+        # 清搜尋框（如果你有這個 widget）
+        if hasattr(self, "signup_search"):
+            self.signup_search.clear()
+
+        # 清統計卡
+        self._set_stat_value(self.stat_signup_cnt, "0")
+        self._set_stat_value(self.stat_total, "0")
+        self._set_stat_value(self.stat_donation, "0")
+
+        # 清表格
+        self.tbl_signups.setRowCount(0)
+        self.tbl_signups.clearSelection()
 
 
     # -----------------------------
@@ -648,6 +665,7 @@ class ActivityDetailPanel(QWidget):
             self._clear_activity_form()
             self.tbl_plans.setRowCount(0)
             self.tbl_signups.setRowCount(0)
+            self._clear_signup_tab()
 
             QMessageBox.information(self, "刪除完成", "活動已刪除。")
 
@@ -684,7 +702,8 @@ class ActivityDetailPanel(QWidget):
         signup_cnt = len(rows)
         plan_cnt = len(self._plans) if hasattr(self, "_plans") else 0
         total = sum(int(r.get("total_amount", 0) or 0) for r in rows)
-        donation_total = sum(int(r.get("total_amount", 0) or 0) for r in rows if r.get("is_donation"))
+        donation_total = sum(int(r.get("donation_amount", 0) or 0) for r in rows)
+
 
         self._set_stat_value(self.stat_signup_cnt, str(signup_cnt))
         self._set_stat_value(self.stat_total, str(total))
@@ -743,6 +762,15 @@ class ActivityDetailPanel(QWidget):
 
 
     def load_activity(self, activity_id: str):
+
+        activity_id = (activity_id or "").strip()
+        if not activity_id:
+            self._current_activity_id = None
+            self._clear_activity_form()
+            self.tbl_plans.setRowCount(0)
+            self._clear_signup_tab()
+            return
+
         self._current_activity_id = activity_id
 
         data = self.controller.get_activity_by_id(activity_id)
