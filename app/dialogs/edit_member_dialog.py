@@ -5,7 +5,7 @@ from .base_person_dialog import BasePersonDialog
 class EditMemberDialog(BasePersonDialog):
     def __init__(self, controller, person: dict, parent=None):
         super().__init__(controller, parent)
-        self.setWindowTitle("修改成員資料")
+        self.setWindowTitle("修改資料")
         self.person = person
         self.person_id = person["id"]
 
