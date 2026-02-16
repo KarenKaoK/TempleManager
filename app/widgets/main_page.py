@@ -657,15 +657,24 @@ class MainPageWidget(QWidget):
             return
 
         name = person.get("name", "")
-        confirm = QMessageBox.question(
-            self,
-            "分戶確認",
+        
+        box = QMessageBox(self)
+        box.setWindowTitle("分戶確認")
+        box.setText(
             f"確定要將「{name}」分戶成為新戶長嗎？\n\n"
-            "此動作會建立一個新的戶長，並將此人移到新戶長。",
-            QMessageBox.Yes | QMessageBox.No
+            "此動作會建立一個新的戶長，並將此人移到新戶長。"
         )
-        if confirm != QMessageBox.Yes:
+
+        btn_yes = box.addButton("是", QMessageBox.AcceptRole)
+        btn_no = box.addButton("否", QMessageBox.RejectRole)
+
+        box.setDefaultButton(btn_no)  # 預設選「否」避免誤操作
+
+        box.exec_()
+
+        if box.clickedButton() != btn_yes:
             return
+
 
         try:
             # ✅ controller 會回傳 new_household_id
