@@ -4,10 +4,11 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QFrame, QListView
 )
 from PyQt5.QtCore import QDate, Qt
-from datetime import datetime, date
+from datetime import date
 
 from app.utils.print_helper import PrintHelper
 from app.dialogs.new_household_dialog import NewHouseholdDialog
+from app.utils.date_utils import parse_qdate_flexible, qdate_to_db_ymd, to_ui_ymd_text
 
 
 class CategoryComboBox(QComboBox):
@@ -268,6 +269,7 @@ class TransactionTab(QWidget):
         self.date_input = QDateEdit()
         self.date_input.setDate(QDate.currentDate())
         self.date_input.setCalendarPopup(True)
+        self.date_input.setDisplayFormat("yyyy/MM/dd")
         
         # 收據號碼 (唯讀，自動產生)
         self.receipt_input = QLineEdit()
@@ -546,7 +548,7 @@ class TransactionTab(QWidget):
         
         self.table.setRowCount(len(data))
         for i, row in enumerate(data):
-            self.table.setItem(i, 0, QTableWidgetItem(row['date']))
+            self.table.setItem(i, 0, QTableWidgetItem(self._format_ui_date(row['date'])))
             self.table.setItem(i, 1, QTableWidgetItem(row['receipt_number']))
             self.table.setItem(i, 2, QTableWidgetItem(f"{row['category_name']}"))
             self.table.setItem(i, 3, QTableWidgetItem(row['payer_name']))
@@ -576,16 +578,16 @@ class TransactionTab(QWidget):
             return False
         if self._can_edit_any_date():
             return True
-        tx_date = str(data.get("date", "")).strip()
-        return tx_date == date.today().isoformat()
+        tx_date = self._to_date_obj(data.get("date", ""))
+        return bool(tx_date and tx_date == date.today())
 
     def _can_delete_data(self, data):
         if not data:
             return False
         if self._can_edit_any_date():
             return True
-        tx_date = str(data.get("date", "")).strip()
-        return tx_date == date.today().isoformat()
+        tx_date = self._to_date_obj(data.get("date", ""))
+        return bool(tx_date and tx_date == date.today())
 
     def _sync_row_action_buttons(self):
         data = self._get_selected_row_data()
@@ -710,7 +712,10 @@ class TransactionTab(QWidget):
         self.editing_source_date = str(data.get('date', '')).strip()
         
         # 填入表單
-        self.date_input.setDate(QDate.fromString(data['date'], "yyyy-MM-dd"))
+        qd = self._to_qdate(data.get("date", ""))
+        if qd is None:
+            qd = QDate.currentDate()
+        self.date_input.setDate(qd)
         self.receipt_input.setText(data['receipt_number'])
         self.handler_input.setText(data['handler'] or "")
         self.amount_input.setText(str(data['amount']))
@@ -769,7 +774,7 @@ class TransactionTab(QWidget):
 
     def save_data(self, print_receipt):
         # 1. 蒐集資料
-        date_str = self.date_input.date().toString("yyyy-MM-dd")
+        date_str = qdate_to_db_ymd(self.date_input.date())
         handler = self.handler_input.text()
         amount_str = self.amount_input.text()
         note = self.note_input.text()
@@ -805,7 +810,8 @@ class TransactionTab(QWidget):
             # 判斷是新增還是更新
             if self.editing_transaction_id:
                 # 只允許修改原始日期為今日的交易
-                if (not self._can_edit_any_date()) and self.editing_source_date != date.today().isoformat():
+                src_day = self._to_date_obj(self.editing_source_date)
+                if (not self._can_edit_any_date()) and (src_day != date.today()):
                     QMessageBox.warning(self, "限制", "交易資料修改僅限當日資料。")
                     self.cancel_edit()
                     return
@@ -878,3 +884,18 @@ class TransactionTab(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "錯誤", f"作業失敗: {str(e)}")
+
+    @staticmethod
+    def _to_qdate(raw):
+        return parse_qdate_flexible(raw)
+
+    @classmethod
+    def _to_date_obj(cls, raw):
+        qd = cls._to_qdate(raw)
+        if qd is None:
+            return None
+        return date(qd.year(), qd.month(), qd.day())
+
+    @classmethod
+    def _format_ui_date(cls, raw):
+        return to_ui_ymd_text(raw)

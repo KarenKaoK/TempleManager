@@ -5,7 +5,6 @@ class AutoResizingTableWidget(QTableWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.setStyleSheet("font-size: 14px;")
         self.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)

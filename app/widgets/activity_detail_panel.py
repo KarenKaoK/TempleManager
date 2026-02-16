@@ -10,8 +10,12 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QGroupBox
 )
 from PyQt5.QtWidgets import QMessageBox, QTextEdit
-from datetime import datetime
 from app.utils.id_utils import compute_display_status
+from app.utils.date_utils import (
+    is_valid_ymd_text,
+    make_ymd_validator,
+    normalize_ymd_text,
+)
 from app.dialogs.activity_edit_dialog import ActivityEditDialog
 from app.dialogs.plan_edit_dialog import PlanEditDialog
 from app.dialogs.activity_signup_edit_dialog import ActivitySignupEditDialog
@@ -154,6 +158,11 @@ class ActivityDetailPanel(QWidget):
         self.f_name = QLineEdit()
         self.f_start = QLineEdit()
         self.f_end = QLineEdit()
+        ymd_validator = make_ymd_validator(self)
+        self.f_start.setValidator(ymd_validator)
+        self.f_end.setValidator(ymd_validator)
+        self.f_start.setPlaceholderText("YYYY/MM/DD")
+        self.f_end.setPlaceholderText("YYYY/MM/DD")
         self.f_note = QTextEdit()
         self.f_note.setMinimumHeight(120)
         self.f_note.setMaximumHeight(180)
@@ -780,8 +789,8 @@ class ActivityDetailPanel(QWidget):
 
         # 下面這些欄位名稱請用你面板上的實際 widget 名稱替換
         self.f_name.setText(data.get("name", ""))
-        self.f_start.setText(data.get("activity_start_date", ""))
-        self.f_end.setText(data.get("activity_end_date", ""))
+        self.f_start.setText(normalize_ymd_text(data.get("activity_start_date", "")))
+        self.f_end.setText(normalize_ymd_text(data.get("activity_end_date", "")))
         self.f_note.setPlainText(data.get("note", ""))
         self.reload_plans()
         self._reload_signup_tab()
@@ -811,6 +820,12 @@ class ActivityDetailPanel(QWidget):
         if not end:
             QMessageBox.warning(self, "欄位不足", "請輸入活動結束日期國曆（activity_end_date）")
             return None
+        if not is_valid_ymd_text(start):
+            QMessageBox.warning(self, "格式錯誤", "活動開始日期請使用 YYYY/MM/DD")
+            return None
+        if not is_valid_ymd_text(end):
+            QMessageBox.warning(self, "格式錯誤", "活動結束日期請使用 YYYY/MM/DD")
+            return None
 
         return {
             "name": name,
@@ -839,7 +854,7 @@ class ActivityDetailPanel(QWidget):
         if start and end and start != end:
             return f"{start} ～ {end}"
         return start or end or ""
-    
+
     # -------------------------
     # Activity Plans
     # -------------------------
@@ -969,5 +984,3 @@ class ActivityDetailPanel(QWidget):
     #     signup_id = items[0].data(Qt.UserRole)
     #     self.controller.delete_activity_signup(signup_id)
     #     self._reload_signup_tab()
-
-
