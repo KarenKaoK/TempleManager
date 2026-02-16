@@ -71,6 +71,19 @@ class FakeIncomeExpenseDialog:
         self.exec_called = True
 
 
+class FakeFinanceReportDialog:
+    last_instance = None
+
+    def __init__(self, controller, parent):
+        self.controller = controller
+        self.parent = parent
+        self.exec_called = False
+        FakeFinanceReportDialog.last_instance = self
+
+    def exec_(self):
+        self.exec_called = True
+
+
 # -------------------------
 # Tests
 # -------------------------
@@ -245,3 +258,46 @@ def test_open_income_expense_dialog_passes_role(qtbot, monkeypatch):
     assert instance.initial_tab == 1
     assert instance.role == "會計"
     assert instance.exec_called is True
+
+
+def test_finance_report_action_visible_for_accountant(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "FinanceReportDialog", FakeFinanceReportDialog)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    window = MainWindow("test_user", "會計", mock_controller)
+    qtbot.addWidget(window)
+
+    assert window.finance_report_action is not None
+    window.open_finance_report_dialog()
+    instance = FakeFinanceReportDialog.last_instance
+    assert instance is not None
+    assert instance.controller is mock_controller
+    assert instance.parent is window
+    assert instance.exec_called is True
+
+
+def test_finance_report_action_hidden_for_staff(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    window = MainWindow("test_user", "工作人員", mock_controller)
+    qtbot.addWidget(window)
+
+    assert window.finance_report_action is None
+
+
+def test_open_finance_report_dialog_blocks_staff(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    warn_mock = MagicMock()
+    monkeypatch.setattr(main_window_module.QMessageBox, "warning", warn_mock)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    window = MainWindow("test_user", "工作人員", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_finance_report_dialog()
+    warn_mock.assert_called_once()

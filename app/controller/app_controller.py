@@ -2165,6 +2165,127 @@ class AppController:
         cursor.execute(query, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
+    def _period_expr(self, granularity: str) -> str:
+        g = (granularity or "").strip().lower()
+        if g == "day":
+            return "strftime('%Y/%m/%d', t.date)"
+        if g == "week":
+            # 以週一作為週起始，period_key 使用該週週一（YYYY-MM-DD）
+            return "date(t.date, '-' || ((CAST(strftime('%w', t.date) AS INTEGER) + 6) % 7) || ' days')"
+        if g == "month":
+            return "strftime('%Y/%m', t.date)"
+        if g == "year":
+            return "strftime('%Y', t.date)"
+        raise ValueError("Unsupported granularity, expected day/week/month/year")
+
+    def get_finance_summary_by_period(
+        self,
+        granularity: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        include_category: bool = False,
+        transaction_type: Optional[str] = None,
+    ) -> List[Dict]:
+        cursor = self.conn.cursor()
+        period_expr = self._period_expr(granularity)
+        if include_category:
+            query = """
+                SELECT
+                    t.category_id AS category_id,
+                    t.category_name AS category_name,
+                    MIN(t.date) AS period_start,
+                    MAX(t.date) AS period_end,
+                    COALESCE(SUM(CASE WHEN t.type = 'income' THEN 1 ELSE 0 END), 0) AS income_count,
+                    COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0) AS income_total,
+                    COALESCE(SUM(CASE WHEN t.type = 'expense' THEN 1 ELSE 0 END), 0) AS expense_count,
+                    COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0) AS expense_total
+                FROM transactions t
+                WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
+            """
+            params: List[Any] = []
+
+            if transaction_type in {"income", "expense"}:
+                query += " AND t.type = ?"
+                params.append(transaction_type)
+            if start_date:
+                query += " AND t.date >= ?"
+                params.append(start_date)
+            if end_date:
+                query += " AND t.date <= ?"
+                params.append(end_date)
+
+            query += """
+                GROUP BY t.category_id, t.category_name
+                ORDER BY t.category_id ASC
+            """
+            cursor.execute(query, tuple(params))
+            return [dict(row) for row in cursor.fetchall()]
+
+        if (granularity or "").strip().lower() == "week":
+            period_start_expr = period_expr
+            period_end_expr = f"date({period_expr}, '+6 days')"
+        else:
+            period_start_expr = "MIN(t.date)"
+            period_end_expr = "MAX(t.date)"
+
+        query = f"""
+            SELECT
+                {period_expr} AS period_key,
+                {period_start_expr} AS period_start,
+                {period_end_expr} AS period_end,
+                COALESCE(SUM(CASE WHEN t.type = 'income' THEN 1 ELSE 0 END), 0) AS income_count,
+                COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0) AS income_total,
+                COALESCE(SUM(CASE WHEN t.type = 'expense' THEN 1 ELSE 0 END), 0) AS expense_count,
+                COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0) AS expense_total
+            FROM transactions t
+            WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
+        """
+        params: List[Any] = []
+
+        if transaction_type in {"income", "expense"}:
+            query += " AND t.type = ?"
+            params.append(transaction_type)
+        if start_date:
+            query += " AND t.date >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND t.date <= ?"
+            params.append(end_date)
+
+        query += f"""
+            GROUP BY period_key
+            ORDER BY period_key DESC
+        """
+        cursor.execute(query, tuple(params))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_finance_detail_for_summary(
+        self,
+        granularity: str,
+        period_key: str,
+        transaction_type: str,
+        category_id: Optional[str] = None,
+    ) -> List[Dict]:
+        cursor = self.conn.cursor()
+        period_expr = self._period_expr(granularity)
+        if transaction_type not in {"income", "expense"}:
+            raise ValueError("transaction_type is required and must be income or expense")
+        query = f"""
+            SELECT t.*
+            FROM transactions t
+            WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
+              AND {period_expr} = ?
+              AND t.type = ?
+        """
+        params: List[Any] = [period_key, transaction_type]
+        if category_id:
+            query += " AND t.category_id = ?"
+            params.append(category_id)
+
+        query += " ORDER BY t.date DESC, t.created_at DESC"
+        cursor.execute(query, tuple(params))
+        return [dict(row) for row in cursor.fetchall()]
+
     def delete_transaction(self, transaction_id):
         """軟刪除"""
         cursor = self.conn.cursor()
