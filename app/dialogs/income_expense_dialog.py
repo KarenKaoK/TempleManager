@@ -1,13 +1,59 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
     QComboBox, QDateEdit, QTabWidget, QWidget, QMessageBox, QFormLayout,
-    QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QFrame
+    QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QFrame, QListView
 )
 from PyQt5.QtCore import QDate, Qt
 from datetime import datetime, date
 
 from app.utils.print_helper import PrintHelper
 from app.dialogs.new_household_dialog import NewHouseholdDialog
+
+
+class CategoryComboBox(QComboBox):
+    """項目下拉：展開時自動加寬，避免長文字被截斷。"""
+    def showPopup(self):
+        view = self.view()
+        fm = self.fontMetrics()
+        max_text_width = 0
+        for i in range(self.count()):
+            max_text_width = max(max_text_width, fm.horizontalAdvance(self.itemText(i)))
+
+        popup_width = max(self.width(), max_text_width + 56)
+        view.setMinimumWidth(popup_width)
+        super().showPopup()
+
+
+def style_combo_with_dividers(combo: QComboBox):
+    """統一下拉選單樣式：柔和分隔線、較清楚的選取態。"""
+    combo.setStyleSheet("""
+        QComboBox {
+            combobox-popup: 0;
+        }
+        QComboBox QAbstractItemView {
+            border-left: 1px solid #D9D1C8;
+            border-right: 1px solid #D9D1C8;
+            border-top: 0;
+            border-bottom: 0;
+            background: #FFFFFF;
+            selection-background-color: #F8EFE6;
+            selection-color: #2B2B2B;
+            outline: 0;
+        }
+        QComboBox QAbstractItemView::item {
+            min-height: 28px;
+            padding: 4px 10px;
+            border-bottom: 1px solid #EEE8E1;
+            background: #FFFFFF;
+        }
+        QComboBox QAbstractItemView::item:last {
+            border-bottom: none;
+        }
+        QComboBox QAbstractItemView::item:hover {
+            background: #FBF5EE;
+        }
+    """)
+
 
 class IncomeExpenseDialog(QDialog):
     def __init__(self, controller, parent=None, initial_tab=0):
@@ -143,6 +189,7 @@ class TransactionTab(QWidget):
         
         # 用於暫存選擇的信徒 ID (僅 Income 用到)
         self.selected_person_id = None
+        self.show_all_mode = False
         
         self.init_ui()
         self.load_initial_data()
@@ -155,27 +202,31 @@ class TransactionTab(QWidget):
         
         # 年份
         self.year_combo = QComboBox()
+        style_combo_with_dividers(self.year_combo)
         current_year = QDate.currentDate().year()
         for y in range(current_year - 5, current_year + 6):
             self.year_combo.addItem(f"{y}年", y)
         self.year_combo.setCurrentText(f"{current_year}年")
-        self.year_combo.currentIndexChanged.connect(self.refresh_list)
+        self.year_combo.currentIndexChanged.connect(self.on_period_changed)
         
         # 月份
         self.month_combo = QComboBox()
+        style_combo_with_dividers(self.month_combo)
         for m in range(1, 13):
             self.month_combo.addItem(f"{m}月", m)
         self.month_combo.setCurrentIndex(QDate.currentDate().month() - 1)
-        self.month_combo.currentIndexChanged.connect(self.refresh_list)
+        self.month_combo.currentIndexChanged.connect(self.on_period_changed)
         
         # 導航按鈕
         btn_prev = QPushButton("◀ 上個月")
         btn_curr = QPushButton("本月")
         btn_next = QPushButton("下個月 ▶")
+        btn_all = QPushButton("全部")
         
         btn_prev.clicked.connect(lambda: self.change_month(-1))
         btn_curr.clicked.connect(self.set_current_month)
         btn_next.clicked.connect(lambda: self.change_month(1))
+        btn_all.clicked.connect(self.show_all_records)
         
         # 排序
         # self.sort_combo = QComboBox()
@@ -188,6 +239,7 @@ class TransactionTab(QWidget):
         filter_layout.addWidget(btn_prev)
         filter_layout.addWidget(btn_curr)
         filter_layout.addWidget(btn_next)
+        filter_layout.addWidget(btn_all)
         filter_layout.addStretch()
         # filter_layout.addWidget(QLabel("排序:")) # 暫時不放，預設新到舊
         # filter_layout.addWidget(self.sort_combo)
@@ -224,7 +276,16 @@ class TransactionTab(QWidget):
         self.handler_input = QLineEdit()
         
         # 項目 (Category)
-        self.category_combo = QComboBox()
+        self.category_combo = CategoryComboBox()
+        self.category_combo.setObjectName("categoryCombo")
+        category_view = QListView(self.category_combo)
+        category_view.setSpacing(0)
+        category_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        category_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        category_view.setTextElideMode(Qt.ElideNone)
+        self.category_combo.setMaxVisibleItems(12)
+        self.category_combo.setView(category_view)
+        style_combo_with_dividers(self.category_combo)
         
         # 金額
         self.amount_input = QLineEdit()
@@ -375,6 +436,12 @@ class TransactionTab(QWidget):
             QMessageBox.warning(self, "提示", "請輸入搜尋關鍵字")
             return
 
+        # 先查一次，避免查無資料時還彈出空白搜尋視窗
+        results = self.controller.search_people(kw) or []
+        if not results:
+            QMessageBox.information(self, "查無資料", "找不到符合條件的信徒")
+            return
+
         dialog = PersonSearchDialog(self.controller, kw, self)
         if dialog.exec_() == QDialog.Accepted and dialog.selected_person:
             self.set_person(dialog.selected_person)
@@ -394,29 +461,19 @@ class TransactionTab(QWidget):
         self.refresh_list()
 
     def perform_search(self):
-        kw = self.search_input.text().strip()
-        if not kw:
-            QMessageBox.warning(self, "提示", "請輸入搜尋關鍵字")
-            return
-            
-        results = self.controller.search_people(kw)
-        if not results:
-            reply = QMessageBox.question(self, "查無資料", "找不到此信徒，是否立即建立新資料？", 
-                                         QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                self.open_new_person_dialog()
-            return
-            
-        self.search_result_list.setRowCount(len(results))
-        for i, row in enumerate(results):
-            self.search_result_list.setItem(i, 0, QTableWidgetItem(row['name']))
-            self.search_result_list.setItem(i, 1, QTableWidgetItem(row['phone_mobile'] or row['phone_home']))
-            self.search_result_list.setItem(i, 2, QTableWidgetItem(row['address']))
-            self.search_result_list.item(i, 0).setData(Qt.UserRole, row) # 存整包
+        # 相容舊呼叫點：改為走目前的彈窗搜尋流程（不再使用已移除的 search_result_list）
+        self.open_person_search_dialog()
 
     def on_person_selected(self, row, col):
-        person_data = self.search_result_list.item(row, 0).data(Qt.UserRole)
-        self.set_person(person_data)
+        # 舊版 inline 搜尋表格已移除，保留防呆避免舊訊號誤連接時報錯。
+        if not hasattr(self, "search_result_list"):
+            return
+        item = self.search_result_list.item(row, 0)
+        if not item:
+            return
+        person_data = item.data(Qt.UserRole)
+        if person_data:
+            self.set_person(person_data)
         
     def set_person(self, person_data):
         self.selected_person_data = person_data # Store full data for address
@@ -438,6 +495,7 @@ class TransactionTab(QWidget):
                  self.perform_search()
 
     def change_month(self, delta):
+        self.show_all_mode = False
         idx = self.month_combo.currentIndex() + delta
         year_idx = self.year_combo.currentIndex()
         
@@ -453,23 +511,35 @@ class TransactionTab(QWidget):
             self.month_combo.setCurrentIndex(idx)
 
     def set_current_month(self):
+        self.show_all_mode = False
         today = QDate.currentDate()
         self.year_combo.setCurrentText(f"{today.year()}年")
         self.month_combo.setCurrentIndex(today.month() - 1)
 
-    def refresh_list(self):
-        year = self.year_combo.currentData()
-        month = self.month_combo.currentData()
-        
-        start_date = f"{year}-{month:02d}-01"
-        try:
-           import calendar
-           last_day = calendar.monthrange(year, month)[1]
-           end_date = f"{year}-{month:02d}-{last_day}"
-        except:
-             end_date =  f"{year}-{month:02d}-31"
+    def on_period_changed(self):
+        self.show_all_mode = False
+        self.refresh_list()
 
-        data = self.controller.get_transactions(self.t_type, start_date, end_date)
+    def show_all_records(self):
+        self.show_all_mode = True
+        self.refresh_list()
+
+    def refresh_list(self):
+        if self.show_all_mode:
+            data = self.controller.get_transactions(self.t_type)
+        else:
+            year = self.year_combo.currentData()
+            month = self.month_combo.currentData()
+            
+            start_date = f"{year}-{month:02d}-01"
+            try:
+               import calendar
+               last_day = calendar.monthrange(year, month)[1]
+               end_date = f"{year}-{month:02d}-{last_day}"
+            except:
+                 end_date =  f"{year}-{month:02d}-31"
+
+            data = self.controller.get_transactions(self.t_type, start_date, end_date)
         
         self.table.setRowCount(len(data))
         for i, row in enumerate(data):
@@ -706,6 +776,21 @@ class TransactionTab(QWidget):
                     "note": note
                 }
                 self.controller.update_transaction(self.editing_transaction_id, payload)
+
+                # 編輯模式若按「存檔並列印」，收入也要補印
+                if print_receipt and self.t_type == "income":
+                    payer_address = ""
+                    if self.selected_person_data:
+                        payer_address = self.selected_person_data.get("address", "") or ""
+
+                    print_payload = {
+                        **payload,
+                        "type": "income",
+                        "receipt_number": self.receipt_input.text().strip(),
+                        "address": payer_address,
+                    }
+                    PrintHelper.print_receipt(print_payload)
+
                 QMessageBox.information(self, "成功", "資料已更新")
                 self.cancel_edit() # 退出編輯模式
                 

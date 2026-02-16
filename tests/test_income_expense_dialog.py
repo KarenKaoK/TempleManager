@@ -130,3 +130,48 @@ def test_save_and_print_includes_address(qtbot, dialog):
         assert payload['address'] == '台北市信義區測試路100號'
         
         mock_info.assert_called() # 成功訊息
+
+
+def test_edit_income_then_save_and_print_calls_print(qtbot, dialog):
+    """
+    編輯模式下按「存檔並列印」也要觸發列印。
+    """
+    tab = dialog.income_tab
+
+    # 先建立一筆既有收入資料（要有 id 才會進入編輯模式）
+    cur = tab.controller.conn.cursor()
+    cur.execute("""
+        INSERT INTO transactions (
+            id, date, type, category_id, category_name, amount,
+            payer_person_id, payer_name, handler, receipt_number, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "T-EDIT-001", "2026-02-16", "income", "I01", "香油錢", 500,
+        "P001", "王小明", "測試員", "1150001", "舊備註"
+    ))
+    tab.controller.conn.commit()
+
+    rows = tab.controller.get_transactions("income")
+    assert rows, "應該至少有一筆收入資料可供編輯"
+    original = rows[0]
+
+    # 模擬從列表右鍵「修改資料」帶入表單
+    tab.load_transaction_to_form(original)
+    tab.amount_input.setText("888")
+    tab.note_input.setText("更新後備註")
+
+    with patch("app.dialogs.income_expense_dialog.PrintHelper") as MockPrintHelper, \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.information"):
+        tab.save_data(print_receipt=True)
+
+        assert MockPrintHelper.print_receipt.called, "編輯後存檔並列印應該觸發列印"
+        payload = MockPrintHelper.print_receipt.call_args[0][0]
+        assert payload["receipt_number"] == "1150001"
+        assert payload["amount"] == 888
+        assert payload["payer_name"] == "王小明"
+
+    # 驗證資料確實更新
+    updated_rows = tab.controller.get_transactions("income")
+    updated = next(r for r in updated_rows if r["id"] == original["id"])
+    assert updated["amount"] == 888
+    assert updated["note"] == "更新後備註"

@@ -31,6 +31,37 @@ def run_app():
             border: 0px;
             width: 22px;
         }
+        QComboBox::drop-down, QSpinBox::up-button, QSpinBox::down-button,
+        QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+            background: #F7F2EC;
+            border-left: 1px solid #D9CCBE;
+            min-width: 20px;
+        }
+        QComboBox::drop-down:hover, QSpinBox::up-button:hover, QSpinBox::down-button:hover,
+        QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+            background: #EFE6DC;
+        }
+        QSpinBox::up-button, QDoubleSpinBox::up-button {
+            border-bottom: 1px solid #D9CCBE;
+        }
+        QComboBox QAbstractItemView {
+            background: #FFFFFF;
+            color: #2B2B2B;
+            border: 1px solid #D2C4B6;
+            selection-background-color: #FBECDD;
+            selection-color: #1F2937;
+            outline: 0;
+            show-decoration-selected: 1;
+            alternate-background-color: #FFF8EF;
+        }
+        QComboBox QAbstractItemView::item {
+            min-height: 26px;
+            padding: 5px 10px;
+            border-bottom: 1px solid #E9DED2;
+        }
+        QComboBox QAbstractItemView::item:last {
+            border-bottom: none;
+        }
 
         /* === 按鈕 === */
         QPushButton {
