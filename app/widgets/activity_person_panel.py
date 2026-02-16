@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
     QGridLayout, QListWidget, QListWidgetItem
 )
 from PyQt5.QtCore import Qt, QDate, pyqtSignal
+from app.utils.date_utils import make_ymd_validator, parse_qdate_flexible
 
 
 class ActivityPersonPanel(QWidget):
@@ -117,7 +118,9 @@ class ActivityPersonPanel(QWidget):
 
     
         self.edit_birth_lunar = QLineEdit()
-        self.edit_birth_lunar.setPlaceholderText("例如：農曆正月十五")
+        self.edit_birth_lunar.setPlaceholderText("YYYY/MM/DD")
+        lunar_validator = make_ymd_validator(self)
+        self.edit_birth_lunar.setValidator(lunar_validator)
 
         self.combo_birth_time = QComboBox()
         self.combo_birth_time.addItems([
@@ -285,8 +288,8 @@ class ActivityPersonPanel(QWidget):
         self.date_birth_ad.setDate(min_date)
 
         if birthday_ad:
-            qd = QDate.fromString(birthday_ad, "yyyy/MM/dd")
-            if qd.isValid():
+            qd = parse_qdate_flexible(birthday_ad)
+            if qd and qd.isValid():
                 self.date_birth_ad.setDate(qd)
 
 
@@ -316,7 +319,5 @@ class ActivityPersonPanel(QWidget):
             "address": self.edit_address.text().strip(),
             "note": self.edit_note.text().strip(),
         }
-
-
 
 

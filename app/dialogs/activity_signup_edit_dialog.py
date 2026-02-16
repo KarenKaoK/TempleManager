@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QSpinBox, QMessageBox, QFrame
 )
+from app.utils.date_utils import normalize_ymd_text
 
 
 class ActivitySignupEditDialog(QDialog):
@@ -106,12 +107,14 @@ class ActivitySignupEditDialog(QDialog):
 
         self._data = data
         p = data["person"]
+        bday_ad = normalize_ymd_text(p.get("birthday_ad", "") or "")
+        bday_lunar = normalize_ymd_text(p.get("birthday_lunar", "") or "")
         self.le_name.setText(p.get("name", ""))
         self.le_phone.setText(p.get("phone", ""))
         self.le_addr.setText(p.get("address", ""))
         self.le_gender.setText(p.get("gender", ""))
-        self.le_bday_ad.setText(p.get("birthday_ad", ""))
-        self.le_bday_lunar.setText(p.get("birthday_lunar", ""))
+        self.le_bday_ad.setText(bday_ad)
+        self.le_bday_lunar.setText(bday_lunar)
         self.le_zodiac.setText(p.get("zodiac", ""))
         self.le_birth_time.setText(p.get("birth_time", ""))
 
@@ -246,5 +249,3 @@ class ActivitySignupEditDialog(QDialog):
 
         except Exception as e:
             QMessageBox.critical(self, "儲存失敗", str(e))
-
-

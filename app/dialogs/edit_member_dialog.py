@@ -1,6 +1,7 @@
 # edit_member_dialog.py
 from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
 from .base_person_dialog import BasePersonDialog
+from app.utils.date_utils import normalize_ymd_text
 
 class EditMemberDialog(BasePersonDialog):
     def __init__(self, controller, person: dict, parent=None):
@@ -24,8 +25,8 @@ class EditMemberDialog(BasePersonDialog):
     def _fill(self, p: dict):
         self.name_input.setText(p.get("name", ""))
         self.gender_input.setCurrentText(p.get("gender", "男"))
-        self.birthday_ad_input.setText(p.get("birthday_ad", ""))
-        self.birthday_lunar_input.setText(p.get("birthday_lunar", ""))
+        self.birthday_ad_input.setText(normalize_ymd_text(p.get("birthday_ad", "")))
+        self.birthday_lunar_input.setText(normalize_ymd_text(p.get("birthday_lunar", "")))
         self.lunar_leap_checkbox.setChecked(bool(p.get("lunar_is_leap", 0)))
         self.birth_time_input.setCurrentText(p.get("birth_time", "子"))
         self.phone_home_input.setText(p.get("phone_home", ""))

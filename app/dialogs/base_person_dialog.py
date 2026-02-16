@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
     QLineEdit, QComboBox, QPushButton, QCheckBox, QMessageBox, QWidget
 )
 
+from app.utils.date_utils import is_valid_ymd_text, make_ymd_validator
 from app.utils.lunar_solar_converter import solar_to_lunar, lunar_to_solar
 
 class BasePersonDialog(QDialog):
@@ -29,6 +30,11 @@ class BasePersonDialog(QDialog):
 
         self.birthday_ad_input = QLineEdit()
         self.birthday_lunar_input = QLineEdit()
+        ymd_validator = make_ymd_validator(self)
+        self.birthday_ad_input.setValidator(ymd_validator)
+        self.birthday_lunar_input.setValidator(ymd_validator)
+        self.birthday_ad_input.setPlaceholderText("YYYY/MM/DD")
+        self.birthday_lunar_input.setPlaceholderText("YYYY/MM/DD")
         self.lunar_leap_checkbox = QCheckBox("農曆生日為閏月")
 
         # ✅ 新增兩顆按鈕
@@ -112,7 +118,10 @@ class BasePersonDialog(QDialog):
     def on_convert_to_lunar_clicked(self):
         solar = self.birthday_ad_input.text().strip()
         if not solar:
-            QMessageBox.warning(self, "提示", "請先填寫國曆生日（YYYY-MM-DD）")
+            QMessageBox.warning(self, "提示", "請先填寫國曆生日（YYYY/MM/DD）")
+            return
+        if not is_valid_ymd_text(solar):
+            QMessageBox.warning(self, "提示", "國曆生日格式錯誤，請使用 YYYY/MM/DD")
             return
 
         try:
@@ -132,7 +141,10 @@ class BasePersonDialog(QDialog):
     def on_convert_to_ad_clicked(self):
         lunar = self.birthday_lunar_input.text().strip()
         if not lunar:
-            QMessageBox.warning(self, "提示", "請先填寫農曆生日（YYYY-MM-DD）")
+            QMessageBox.warning(self, "提示", "請先填寫農曆生日（YYYY/MM/DD）")
+            return
+        if not is_valid_ymd_text(lunar):
+            QMessageBox.warning(self, "提示", "農曆生日格式錯誤，請使用 YYYY/MM/DD")
             return
 
         is_leap = 1 if self.lunar_leap_checkbox.isChecked() else 0
@@ -175,6 +187,7 @@ class BasePersonDialog(QDialog):
                 "若以當事人說的為準可直接存入；若要同步可按『轉農曆/轉國曆』。"
             )
         return True
+
     def get_data(self):
         # 存入前提醒（不阻擋）
         self._warn_if_inconsistent()

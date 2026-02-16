@@ -1,7 +1,8 @@
 import sqlite3
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton,
-    QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout, QSpinBox
+    QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout, QSpinBox,
+    QHeaderView
 )
 from app.config import DB_NAME
 
@@ -12,13 +13,18 @@ class ExpenseSetupDialog(QDialog):
         self.user_role = user_role
 
         self.setWindowTitle("支出項目建檔作業")
-        self.setGeometry(400, 200, 500, 300)
+        self.resize(760, 460)
+        self.setMinimumSize(680, 400)
 
         layout = QVBoxLayout()
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["支出項目代號", "支出項目名稱", "支出金額", "狀態"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         layout.addWidget(self.table)
 
         button_layout = QHBoxLayout()

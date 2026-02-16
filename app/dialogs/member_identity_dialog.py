@@ -3,7 +3,7 @@ import uuid
 import sqlite3
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton,
-    QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout
+    QHBoxLayout, QMessageBox, QLabel, QLineEdit, QFormLayout, QHeaderView
 )
 from PyQt5.QtCore import Qt
 from app.config import DB_NAME
@@ -16,13 +16,15 @@ class MemberIdentityDialog(QDialog):
         self.user_role = user_role
 
         self.setWindowTitle("信眾身份名稱設定")
-        self.setGeometry(400, 200, 400, 300)
+        self.resize(680, 420)
+        self.setMinimumSize(620, 360)
 
         layout = QVBoxLayout()
 
         self.table = QTableWidget()
         self.table.setColumnCount(1)
         self.table.setHorizontalHeaderLabels(["身份名稱"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         layout.addWidget(self.table)
 
         button_layout = QHBoxLayout()

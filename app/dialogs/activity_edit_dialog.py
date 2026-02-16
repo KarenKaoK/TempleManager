@@ -8,6 +8,11 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit,
     QPushButton, QMessageBox, QFormLayout, QComboBox, QFrame
 )
+from app.utils.date_utils import (
+    is_valid_ymd_text,
+    make_ymd_validator,
+    normalize_ymd_text,
+)
 
 
 class ActivityEditDialog(QDialog):
@@ -87,6 +92,9 @@ class ActivityEditDialog(QDialog):
         self.f_name = QLineEdit()
         self.f_start = QLineEdit()
         self.f_end = QLineEdit()
+        ymd_validator = make_ymd_validator(self)
+        self.f_start.setValidator(ymd_validator)
+        self.f_end.setValidator(ymd_validator)
 
         self.f_note = QTextEdit()
         self.f_note.setFixedHeight(90)
@@ -95,8 +103,8 @@ class ActivityEditDialog(QDialog):
         for label, val in self.STATUS_OPTIONS:
             self.f_status.addItem(label, val)
 
-        self.f_start.setPlaceholderText("例如：2026/01/15 或 2026-01-15")
-        self.f_end.setPlaceholderText("例如：2026/01/15 或 2026-01-15")
+        self.f_start.setPlaceholderText("YYYY/MM/DD")
+        self.f_end.setPlaceholderText("YYYY/MM/DD")
 
         form.addRow("活動名稱", self.f_name)
 
@@ -148,8 +156,8 @@ class ActivityEditDialog(QDialog):
             return
 
         self.f_name.setText(str(activity_data.get("name", "") or ""))
-        self.f_start.setText(str(activity_data.get("activity_start_date", "") or ""))
-        self.f_end.setText(str(activity_data.get("activity_end_date", "") or ""))
+        self.f_start.setText(normalize_ymd_text(str(activity_data.get("activity_start_date", "") or "")))
+        self.f_end.setText(normalize_ymd_text(str(activity_data.get("activity_end_date", "") or "")))
         self.f_note.setPlainText(str(activity_data.get("note", "") or ""))
 
         # 只在 edit 設定一次 status
@@ -187,6 +195,12 @@ class ActivityEditDialog(QDialog):
             return None
         if not end:
             QMessageBox.warning(self, "欄位不足", "請輸入活動結束日期")
+            return None
+        if not is_valid_ymd_text(start):
+            QMessageBox.warning(self, "格式錯誤", "活動開始日期請使用 YYYY/MM/DD")
+            return None
+        if not is_valid_ymd_text(end):
+            QMessageBox.warning(self, "格式錯誤", "活動結束日期請使用 YYYY/MM/DD")
             return None
 
         return {

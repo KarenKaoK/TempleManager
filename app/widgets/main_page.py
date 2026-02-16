@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
-    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout, 
+    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout,
+    QComboBox,
     QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView
 )
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -10,11 +11,13 @@ from app.widgets.auto_resizing_table import AutoResizingTableWidget
 from app.dialogs.new_member_dialog import NewMemberDialog
 from app.dialogs.edit_member_dialog import EditMemberDialog
 from app.dialogs.transfer_household_dialog import TransferHouseholdDialog
+from app.utils.date_utils import normalize_ymd_text
 
 
 class MainPageWidget(QWidget):
 
-    new_household_triggered = pyqtSignal()  
+    new_household_triggered = pyqtSignal()
+    font_size_changed = pyqtSignal(str)
 
     def __init__(self, controller, user_role=None):
         super().__init__()
@@ -29,7 +32,15 @@ class MainPageWidget(QWidget):
         top_layout = QHBoxLayout()
         self.search_bar = SearchBarWidget()
         top_layout.addWidget(self.search_bar)
-    
+
+        font_label = QLabel("字體大小：")
+        self.font_size_combo = QComboBox()
+        self.font_size_combo.addItems(["小", "中", "大"])
+        self.font_size_combo.setCurrentText("中")
+        self.font_size_combo.currentTextChanged.connect(self._on_font_size_changed)
+        top_layout.addWidget(font_label)
+        top_layout.addWidget(self.font_size_combo)
+
 
         self.add_btn = QPushButton("➕ 新增戶長資料")
         self.add_btn.clicked.connect(self.new_household_triggered.emit)
@@ -41,7 +52,6 @@ class MainPageWidget(QWidget):
 
         # self.print_btn = QPushButton("🖨️ 資料列印")
         for btn in [self.add_btn, self.delete_btn, self.restore_btn]:
-            btn.setStyleSheet("font-size: 14px;")
             top_layout.addWidget(btn)
 
         layout.addLayout(top_layout)
@@ -73,12 +83,10 @@ class MainPageWidget(QWidget):
 
         self.household_table.setTextElideMode(Qt.ElideRight)
 
-        self.household_table.setStyleSheet("font-size: 14px;")
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
 
 
         household_group = QGroupBox("信眾戶長戶員資料")
-        household_group.setStyleSheet("font-size: 14px;")
         group_layout = QVBoxLayout()
         group_layout.addWidget(self.household_table)
         household_group.setLayout(group_layout)
@@ -93,7 +101,7 @@ class MainPageWidget(QWidget):
 
         # 🔴 成員統計標籤（紅色）
         self.stats_label = QLabel("戶號：1　戶長：賴阿貓　家庭成員共：1 丁 1 口")
-        self.stats_label.setStyleSheet("color: red; font-size: 14px; font-weight: bold; padding: 2px 4px;")
+        self.stats_label.setStyleSheet("color: red; font-weight: bold; padding: 2px 4px;")
         left_inner.addWidget(self.stats_label)
 
         # self.member_table = QTableWidget()
@@ -121,7 +129,6 @@ class MainPageWidget(QWidget):
 
         self.member_table.setTextElideMode(Qt.ElideRight)
 
-        self.member_table.setStyleSheet("font-size: 14px;")
         self.member_table.cellClicked.connect(self.on_member_row_clicked)
         left_inner.addWidget(self.member_table)
 
@@ -148,7 +155,7 @@ class MainPageWidget(QWidget):
 
         for label, color, handler in btns:
             btn = QPushButton(label)
-            style = "font-size: 14px; padding: 4px;"
+            style = "padding: 4px;"
             if color:
                 style += f" color: {color};"
             btn.setStyleSheet(style)
@@ -168,7 +175,6 @@ class MainPageWidget(QWidget):
 
         # 詳情表單分頁（右側）
         tab_widget = QTabWidget()
-        tab_widget.setStyleSheet("font-size: 14px;")
 
         # ➤ 基本資料頁籤內容（改為符合圖示布局）
         base_form = QGridLayout()
@@ -207,7 +213,6 @@ class MainPageWidget(QWidget):
                     base_form.addWidget(widget, row, col + 1, 1, 2)  # 從 col+1 開始，跨 2 欄
                 else:
                     base_form.addWidget(widget, row, col + 1)
-            widget.setStyleSheet("font-size: 14px;")
             self.fields[label] = widget
 
         base_widget = QWidget()
@@ -265,6 +270,16 @@ class MainPageWidget(QWidget):
 
         self._apply_role_permissions()
 
+    def _on_font_size_changed(self, size_label):
+        self.font_size_changed.emit(size_label)
+
+    def set_font_size_label(self, label):
+        if label not in ("小", "中", "大"):
+            label = "中"
+        self.font_size_combo.blockSignals(True)
+        self.font_size_combo.setCurrentText(label)
+        self.font_size_combo.blockSignals(False)
+
     def set_user_role(self, role):
         self.user_role = role
         self._apply_role_permissions()
@@ -276,6 +291,10 @@ class MainPageWidget(QWidget):
         # 只有管理員可見「恢復停用」入口；其餘角色維持停用流程。
         if hasattr(self, "restore_btn"):
             self.restore_btn.setVisible(self._is_admin())
+
+    @staticmethod
+    def _fmt_date_text(v):
+        return normalize_ymd_text(v)
 
     def refresh_all_panels(self, select_household_id: str = None, select_head_person_id: str = None):
         """
@@ -511,10 +530,10 @@ class MainPageWidget(QWidget):
             self.household_table.setItem(r, 2, QTableWidgetItem(person.get("gender", "") or ""))
 
             # 3 國曆生日
-            self.household_table.setItem(r, 3, QTableWidgetItem(person.get("birthday_ad", "") or ""))
+            self.household_table.setItem(r, 3, QTableWidgetItem(self._fmt_date_text(person.get("birthday_ad", "") or "")))
 
             # 4 農曆生日
-            lunar = person.get("birthday_lunar", "") or ""
+            lunar = self._fmt_date_text(person.get("birthday_lunar", "") or "")
             if str(person.get("lunar_is_leap", "0")) == "1" and lunar:
                 lunar = f"{lunar}(閏)"
             self.household_table.setItem(r, 4, QTableWidgetItem(lunar))
@@ -602,10 +621,10 @@ class MainPageWidget(QWidget):
             self.member_table.setItem(r, 1, QTableWidgetItem(p.get("gender", "") or ""))
 
             # 2 國曆生日
-            self.member_table.setItem(r, 2, QTableWidgetItem(p.get("birthday_ad", "") or ""))
+            self.member_table.setItem(r, 2, QTableWidgetItem(self._fmt_date_text(p.get("birthday_ad", "") or "")))
 
             # 3 農曆生日（含閏月可自行決定要不要顯示）
-            lunar = p.get("birthday_lunar", "") or ""
+            lunar = self._fmt_date_text(p.get("birthday_lunar", "") or "")
             if int(p.get("lunar_is_leap") or 0) == 1 and lunar:
                 lunar = f"{lunar}(閏)"
             self.member_table.setItem(r, 3, QTableWidgetItem(lunar))
@@ -670,9 +689,9 @@ class MainPageWidget(QWidget):
         # 基本欄位
         set_text("姓名：", p.get("name", "") or "")
         set_text("性別：", p.get("gender", "") or "")
-        set_text("國曆生日：", p.get("birthday_ad", "") or "")
+        set_text("國曆生日：", self._fmt_date_text(p.get("birthday_ad", "") or ""))
 
-        lunar = p.get("birthday_lunar", "") or ""
+        lunar = self._fmt_date_text(p.get("birthday_lunar", "") or "")
         if int(p.get("lunar_is_leap") or 0) == 1 and lunar:
             lunar = f"{lunar}(閏)"
         set_text("農曆生日：", lunar)
