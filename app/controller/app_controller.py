@@ -817,6 +817,10 @@ class AppController:
     # -------------------------
     # Activities
     # -------------------------
+
+    ACTIVITY_STATUS_ACTIVE = 1
+    ACTIVITY_STATUS_DELETED = 0
+
     def _activity_id_exists(self, activity_id: str) -> bool:
         cursor = self.conn.cursor()
         cursor.execute("SELECT 1 FROM activities WHERE id = ? LIMIT 1", (activity_id,))
@@ -866,46 +870,28 @@ class AppController:
 
     def delete_activity(self, activity_id: str) -> bool:
         """
-        刪除活動（含關聯資料）：
-        1) activity_signup_plans（明細）
-        2) activity_signups（主檔）
-        3) activity_plans
-        4) activities
-        用交易包起來，避免刪到一半。
+        軟刪除活動：把 activities.status 設為 -1
+        - DB 保留 activities / plans / signups / signup_plans
+        - UI 查詢時會排除 status = -1 的資料
         """
         cur = self.conn.cursor()
-        try:
-            cur.execute("BEGIN;")
+        cur.execute("""
+            UPDATE activities
+            SET status = -1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            AND COALESCE(status, 1) != -1
+        """, (activity_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
 
-            # 1) 刪報名明細（透過 signup_id）
-            cur.execute("""
-                DELETE FROM activity_signup_plans
-                WHERE signup_id IN (
-                    SELECT id FROM activity_signups WHERE activity_id = ?
-                )
-            """, (activity_id,))
 
-            # 2) 刪報名主檔
-            cur.execute("DELETE FROM activity_signups WHERE activity_id = ?", (activity_id,))
-
-            # 3) 刪方案
-            cur.execute("DELETE FROM activity_plans WHERE activity_id = ?", (activity_id,))
-
-            # 4) 刪活動
-            cur.execute("DELETE FROM activities WHERE id = ?", (activity_id,))
-            deleted = cur.rowcount > 0
-
-            cur.execute("COMMIT;")
-            return deleted
-
-        except Exception:
-            cur.execute("ROLLBACK;")
-            raise
 
     def get_all_activities(self, active_only: bool = False):
         """
         回傳給 UI：list[dict]
-        dict keys: id, name, activity_start_date, activity_end_date, note, status, created_at, updated_at
+        - active_only=True  : 只回 status = 1（正常活動）
+        - active_only=False : 回所有「非刪除」活動（status != -1）
         """
         cursor = self.conn.cursor()
 
@@ -913,22 +899,26 @@ class AppController:
             cursor.execute("""
                 SELECT id, name, activity_start_date, activity_end_date, note, status, created_at, updated_at
                 FROM activities
-                WHERE status = 1
+                WHERE COALESCE(status, 1) = 1
                 ORDER BY activity_start_date DESC, created_at DESC
             """)
         else:
             cursor.execute("""
                 SELECT id, name, activity_start_date, activity_end_date, note, status, created_at, updated_at
                 FROM activities
+                WHERE COALESCE(status, 1) != -1
                 ORDER BY activity_start_date DESC, created_at DESC
             """)
 
         return [dict(row) for row in cursor.fetchall()]
 
 
+
     def search_activities(self, keyword: str, active_only: bool = False):
         """
         keyword 搜尋：活動名稱 / 起日 / 迄日
+        - active_only=True  : status = 1
+        - active_only=False : status != -1
         """
         cursor = self.conn.cursor()
         like = f"%{(keyword or '').strip()}%"
@@ -937,19 +927,21 @@ class AppController:
             cursor.execute("""
                 SELECT id, name, activity_start_date, activity_end_date, note, status, created_at, updated_at
                 FROM activities
-                WHERE status = 1
-                  AND (name LIKE ? OR activity_start_date LIKE ? OR activity_end_date LIKE ?)
+                WHERE COALESCE(status, 1) = 1
+                AND (name LIKE ? OR activity_start_date LIKE ? OR activity_end_date LIKE ?)
                 ORDER BY activity_start_date DESC, created_at DESC
             """, (like, like, like))
         else:
             cursor.execute("""
                 SELECT id, name, activity_start_date, activity_end_date, note, status, created_at, updated_at
                 FROM activities
-                WHERE name LIKE ? OR activity_start_date LIKE ? OR activity_end_date LIKE ?
+                WHERE COALESCE(status, 1) != -1
+                AND (name LIKE ? OR activity_start_date LIKE ? OR activity_end_date LIKE ?)
                 ORDER BY activity_start_date DESC, created_at DESC
             """, (like, like, like))
 
         return [dict(row) for row in cursor.fetchall()]
+
 
     def get_activity_by_id(self, activity_id: str):
         cursor = self.conn.cursor()
