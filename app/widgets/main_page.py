@@ -677,7 +677,7 @@ class MainPageWidget(QWidget):
             return
 
         if member.get("role_in_household") != "MEMBER":
-            QMessageBox.information(self, "提示", "變更戶長只適用於成員（MEMBER），戶長請用變更戶長流程")
+            QMessageBox.information(self, "提示", "變更戶長只適用於成員，戶長請用變更戶長流程")
             return
 
         current_head = next((p for p in people if p.get("role_in_household") == "HEAD"), None)
