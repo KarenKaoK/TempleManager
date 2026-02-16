@@ -308,9 +308,19 @@ class MainPageWidget(QWidget):
             "規則：此戶底下必須沒有戶員，才允許刪除戶長。"
         )
 
-        confirm = QMessageBox.question(self, "確認刪除戶長", msg, QMessageBox.Yes | QMessageBox.No)
-        if confirm != QMessageBox.Yes:
+        box = QMessageBox(self)
+        box.setWindowTitle("確認刪除戶長")
+        box.setText(msg)
+
+        btn_yes = box.addButton("是", QMessageBox.AcceptRole)
+        btn_no = box.addButton("否", QMessageBox.RejectRole)
+        box.setDefaultButton(btn_no)  # 預設選「否」避免誤刪
+
+        box.exec_()
+
+        if box.clickedButton() != btn_yes:
             return
+
 
         try:
             affected = self.controller.deactivate_household_head_if_no_members(
