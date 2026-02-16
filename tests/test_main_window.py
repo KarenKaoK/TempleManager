@@ -56,6 +56,21 @@ class FakeActivitySignupPage(QWidget):
         self.controller = controller
 
 
+class FakeIncomeExpenseDialog:
+    last_instance = None
+
+    def __init__(self, controller, parent, initial_tab, role):
+        self.controller = controller
+        self.parent = parent
+        self.initial_tab = initial_tab
+        self.role = role
+        self.exec_called = False
+        FakeIncomeExpenseDialog.last_instance = self
+
+    def exec_(self):
+        self.exec_called = True
+
+
 # -------------------------
 # Tests
 # -------------------------
@@ -210,3 +225,23 @@ def test_bottom_bar_hidden_on_activity_pages_and_shown_on_main(qtbot, monkeypatc
 
     window.open_household_entry()
     assert window.bottom_bar.isHidden() is False
+
+
+def test_open_income_expense_dialog_passes_role(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "IncomeExpenseDialog", FakeIncomeExpenseDialog)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+
+    window = MainWindow("test_user", "會計", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_income_expense_dialog(initial_tab=1)
+    instance = FakeIncomeExpenseDialog.last_instance
+    assert instance is not None
+    assert instance.controller is mock_controller
+    assert instance.parent is window
+    assert instance.initial_tab == 1
+    assert instance.role == "會計"
+    assert instance.exec_called is True

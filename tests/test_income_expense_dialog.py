@@ -3,6 +3,7 @@ import sqlite3
 from unittest.mock import patch, MagicMock
 from PyQt5.QtWidgets import QDialog, QMessageBox
 from PyQt5.QtCore import QDate, Qt
+from datetime import date, timedelta
 from app.dialogs.income_expense_dialog import IncomeExpenseDialog
 from app.controller.app_controller import AppController
 
@@ -175,3 +176,172 @@ def test_edit_income_then_save_and_print_calls_print(qtbot, dialog):
     updated = next(r for r in updated_rows if r["id"] == original["id"])
     assert updated["amount"] == 888
     assert updated["note"] == "更新後備註"
+
+
+def _insert_income_tx(controller, tx_id, tx_date):
+    cur = controller.conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO transactions (
+            id, date, type, category_id, category_name, amount,
+            payer_person_id, payer_name, handler, receipt_number, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            tx_id, tx_date, "income", "I01", "香油錢", 500,
+            "P001", "王小明", "測試員", f"R-{tx_id}", "測試"
+        ),
+    )
+    controller.conn.commit()
+
+
+def test_staff_only_can_edit_today(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="廟務人員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    _insert_income_tx(controller, "T-STAFF-Y", yesterday)
+    tab.refresh_list()
+    tab.table.selectRow(0)
+    tab._sync_row_action_buttons()
+
+    assert tab.btn_edit_row.isEnabled() is False
+    with patch("app.dialogs.income_expense_dialog.QMessageBox.information") as mock_info:
+        tab._edit_selected_row()
+        mock_info.assert_called_once()
+    assert tab.editing_transaction_id is None
+
+
+def test_accountant_can_edit_non_today(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="會計")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    _insert_income_tx(controller, "T-ACC-Y", yesterday)
+    tab.refresh_list()
+    tab.table.selectRow(0)
+    tab._sync_row_action_buttons()
+
+    assert tab.btn_edit_row.isEnabled() is True
+    row_data = tab._get_selected_row_data()
+    tab.load_transaction_to_form(row_data)
+    assert tab.editing_transaction_id == "T-ACC-Y"
+
+
+def test_admin_can_edit_non_today(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    _insert_income_tx(controller, "T-ADMIN-Y", yesterday)
+    tab.refresh_list()
+    tab.table.selectRow(0)
+    tab._sync_row_action_buttons()
+
+    assert tab.btn_edit_row.isEnabled() is True
+    row_data = tab._get_selected_row_data()
+    tab.load_transaction_to_form(row_data)
+    assert tab.editing_transaction_id == "T-ADMIN-Y"
+
+
+def test_admin_update_non_today_is_allowed(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    _insert_income_tx(controller, "T-ADMIN-SAVE", yesterday)
+
+    tab.editing_transaction_id = "T-ADMIN-SAVE"
+    tab.editing_source_date = yesterday
+    tab.set_person({
+        "id": "P001",
+        "name": "王小明",
+        "phone_mobile": "0912345678",
+        "phone_home": "",
+        "address": "台北市信義區測試路100號",
+    })
+    tab.amount_input.setText("777")
+    tab.category_combo.setCurrentIndex(0)
+
+    with patch.object(tab.controller, "update_transaction") as mock_update, \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.warning") as mock_warn, \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.information"):
+        tab.save_data(print_receipt=False)
+        mock_update.assert_called_once()
+        mock_warn.assert_not_called()
+
+
+def test_staff_update_is_blocked_when_editing_source_date_not_today(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="廟務人員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    _insert_income_tx(controller, "T-STAFF-GUARD", yesterday)
+    tab.editing_transaction_id = "T-STAFF-GUARD"
+    tab.editing_source_date = yesterday
+
+    tab.set_person({
+        "id": "P001",
+        "name": "王小明",
+        "phone_mobile": "0912345678",
+        "phone_home": "",
+        "address": "台北市信義區測試路100號",
+    })
+    tab.amount_input.setText("999")
+    tab.category_combo.setCurrentIndex(0)
+
+    with patch.object(tab.controller, "update_transaction") as mock_update, \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.warning") as mock_warn:
+        tab.save_data(print_receipt=False)
+        mock_update.assert_not_called()
+        mock_warn.assert_called_once()
+
+    assert tab.editing_transaction_id is None
+
+
+def test_staff_delete_non_today_is_blocked(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="工作人員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    _insert_income_tx(controller, "T-STAFF-DEL", yesterday)
+    tab.refresh_list()
+    tab.table.selectRow(0)
+    row_data = tab._get_selected_row_data()
+
+    with patch.object(tab.controller, "delete_transaction") as mock_delete, \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.warning") as mock_warn:
+        tab.delete_transaction(row_data)
+        mock_delete.assert_not_called()
+        mock_warn.assert_called_once()
+
+
+def test_admin_delete_non_today_is_allowed(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    _insert_income_tx(controller, "T-ADMIN-DEL", yesterday)
+    tab.refresh_list()
+    tab.table.selectRow(0)
+    row_data = tab._get_selected_row_data()
+
+    with patch.object(tab.controller, "delete_transaction") as mock_delete, \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.question", return_value=QMessageBox.Yes), \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.information"):
+        tab.delete_transaction(row_data)
+        mock_delete.assert_called_once_with("T-ADMIN-DEL")

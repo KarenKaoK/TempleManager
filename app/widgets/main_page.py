@@ -16,9 +16,10 @@ class MainPageWidget(QWidget):
 
     new_household_triggered = pyqtSignal()  
 
-    def __init__(self, controller):
+    def __init__(self, controller, user_role=None):
         super().__init__()
         self.controller = controller
+        self.user_role = user_role
         self.current_households = []
         self.selected_household_id = None
         layout = QVBoxLayout()
@@ -35,9 +36,11 @@ class MainPageWidget(QWidget):
 
         self.delete_btn = QPushButton("❌ 刪除戶長資料")
         self.delete_btn.clicked.connect(self.delete_selected_household)
+        self.restore_btn = QPushButton("♻ 恢復停用資料")
+        self.restore_btn.clicked.connect(self.open_restore_people_dialog)
 
         # self.print_btn = QPushButton("🖨️ 資料列印")
-        for btn in [ self.add_btn, self.delete_btn]:
+        for btn in [self.add_btn, self.delete_btn, self.restore_btn]:
             btn.setStyleSheet("font-size: 14px;")
             top_layout.addWidget(btn)
 
@@ -260,6 +263,20 @@ class MainPageWidget(QWidget):
                 f"戶長：{head_row.get('name','')}　家庭人數：{len(h_people)}"
             )
 
+        self._apply_role_permissions()
+
+    def set_user_role(self, role):
+        self.user_role = role
+        self._apply_role_permissions()
+
+    def _is_admin(self):
+        return (self.user_role or "").strip() == "管理員"
+
+    def _apply_role_permissions(self):
+        # 只有管理員可見「恢復停用」入口；其餘角色維持停用流程。
+        if hasattr(self, "restore_btn"):
+            self.restore_btn.setVisible(self._is_admin())
+
     def refresh_all_panels(self, select_household_id: str = None, select_head_person_id: str = None):
         """
         統一刷新：
@@ -343,6 +360,120 @@ class MainPageWidget(QWidget):
 
         except Exception as e:
             QMessageBox.warning(self, "刪除失敗", str(e))
+
+    def open_restore_people_dialog(self):
+        if not self._is_admin():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限恢復停用資料。")
+            return
+
+        inactive_people = self.controller.get_all_people(status="INACTIVE")
+        if not inactive_people:
+            QMessageBox.information(self, "提示", "目前沒有可恢復的停用資料。")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("恢復停用資料")
+        dialog.resize(760, 420)
+        layout = QVBoxLayout(dialog)
+
+        search_layout = QHBoxLayout()
+        search_label = QLabel("搜尋：")
+        search_input = QLineEdit(dialog)
+        search_input.setPlaceholderText("輸入姓名或電話")
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(search_input)
+        layout.addLayout(search_layout)
+
+        table = QTableWidget(dialog)
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["類型", "姓名", "電話"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        def _reload_inactive(keyword=""):
+            rows = self.controller.get_all_people(status="INACTIVE")
+            kw = (keyword or "").strip()
+            if kw:
+                filtered = []
+                for person in rows:
+                    name = str(person.get("name", "") or "")
+                    phone = str(person.get("phone_mobile") or person.get("phone_home") or "")
+                    if kw in name or kw in phone:
+                        filtered.append(person)
+                rows = filtered
+
+            table.setRowCount(len(rows))
+            for i, person in enumerate(rows):
+                role_text = "戶長" if person.get("role_in_household") == "HEAD" else "戶員"
+                i0 = QTableWidgetItem(role_text)
+                i0.setData(Qt.UserRole, person)
+                table.setItem(i, 0, i0)
+                table.setItem(i, 1, QTableWidgetItem(person.get("name", "") or ""))
+                phone = person.get("phone_mobile") or person.get("phone_home") or ""
+                table.setItem(i, 2, QTableWidgetItem(phone))
+
+        _reload_inactive()
+        search_input.textChanged.connect(lambda text: _reload_inactive(text))
+        layout.addWidget(table)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        restore_btn = QPushButton("恢復")
+        close_btn = QPushButton("關閉")
+        btn_layout.addWidget(restore_btn)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+        def _restore_selected():
+            row = table.currentRow()
+            if row < 0:
+                QMessageBox.warning(dialog, "提示", "請先選取一筆停用資料。")
+                return
+
+            item = table.item(row, 0)
+            person = item.data(Qt.UserRole) if item else None
+            if not person:
+                QMessageBox.warning(dialog, "提示", "找不到選取資料，請重試。")
+                return
+
+            name = person.get("name", "")
+            confirm = QMessageBox.question(
+                dialog,
+                "確認恢復",
+                f"確定要恢復「{name}」嗎？",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if confirm != QMessageBox.Yes:
+                return
+
+            try:
+                self.controller.reactivate_person(person.get("id"))
+                QMessageBox.information(dialog, "完成", f"已恢復：{name}")
+
+                household_id = person.get("household_id")
+                if person.get("role_in_household") == "HEAD":
+                    head_person_id = person.get("id")
+                else:
+                    active_people = self.controller.list_people_by_household(household_id, status="ACTIVE")
+                    head = next((p for p in active_people if p.get("role_in_household") == "HEAD"), None)
+                    head_person_id = head.get("id") if head else None
+
+                if household_id and head_person_id:
+                    self.refresh_all_panels(
+                        select_household_id=household_id,
+                        select_head_person_id=head_person_id
+                    )
+                else:
+                    self.refresh_all_panels()
+
+                _reload_inactive(search_input.text())
+            except Exception as e:
+                QMessageBox.warning(dialog, "恢復失敗", str(e))
+
+        restore_btn.clicked.connect(_restore_selected)
+        close_btn.clicked.connect(dialog.accept)
+        dialog.exec_()
 
 
     def _get_selected_person_id(self):

@@ -10,9 +10,10 @@ from app.config import DB_NAME
 
 class MemberIdentityDialog(QDialog):
     """信眾身份名稱設定 視窗"""
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, user_role=None):
         super().__init__()
         self.db_path = db_path or DB_NAME
+        self.user_role = user_role
 
         self.setWindowTitle("信眾身份名稱設定")
         self.setGeometry(400, 200, 400, 300)
@@ -44,6 +45,19 @@ class MemberIdentityDialog(QDialog):
         self.btn_close.clicked.connect(self.close)
 
         self.load_data()
+        self._sync_permissions()
+
+    def _can_maintain_identities(self):
+        role = (self.user_role or "").strip()
+        if not role:
+            return True
+        return role in {"管理員", "會計", "會計人員"}
+
+    def _sync_permissions(self):
+        can_maintain = self._can_maintain_identities()
+        self.btn_add.setEnabled(can_maintain)
+        self.btn_edit.setEnabled(can_maintain)
+        self.btn_delete.setEnabled(can_maintain)
 
     def load_data(self):
         conn = sqlite3.connect(self.db_path)
@@ -58,6 +72,10 @@ class MemberIdentityDialog(QDialog):
             item.setData(Qt.UserRole, row[0])  # 把 id 存起來
             self.table.setItem(row_idx, 0, item)
     def add_identity(self):
+        if not self._can_maintain_identities():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限新增身份名稱。")
+            return
+
         dialog = QDialog(self)
         dialog.setWindowTitle("新增身份名稱")
         layout = QFormLayout()
@@ -98,6 +116,10 @@ class MemberIdentityDialog(QDialog):
             conn.close()
 
     def edit_identity(self):
+        if not self._can_maintain_identities():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限修改身份名稱。")
+            return
+
         selected_row = self.table.currentRow()
         if selected_row < 0:
             QMessageBox.warning(self, "錯誤", "請選擇要修改的身份名稱！")
@@ -142,6 +164,10 @@ class MemberIdentityDialog(QDialog):
         dialog.accept()
 
     def delete_identity(self):
+        if not self._can_maintain_identities():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限刪除身份名稱。")
+            return
+
         selected_row = self.table.currentRow()
         if selected_row < 0:
             QMessageBox.warning(self, "錯誤", "請選擇要刪除的身份名稱！")

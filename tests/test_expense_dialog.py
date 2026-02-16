@@ -330,3 +330,34 @@ def test_expense_dialog_delete_confirmed_but_not_found(qtbot, temp_expense_db):
 
         # ✅ 不應該呼叫成功訊息
         mock_info.assert_not_called()
+
+
+def test_expense_dialog_staff_cannot_toggle_active(qtbot, temp_expense_db):
+    dialog = ExpenseSetupDialog(db_path=str(temp_expense_db), user_role="工作人員")
+    qtbot.addWidget(dialog)
+    dialog.table.selectRow(0)
+
+    assert dialog.btn_delete.isEnabled() is False
+
+    with patch.object(dialog, "show_warning") as mock_warning:
+        dialog.delete_expense_item()
+        mock_warning.assert_called_once_with("權限不足", "目前角色無權限停用/啟用支出項目。")
+
+    # 狀態應維持啟用
+    assert dialog.table.item(0, 3).text() == "啟用"
+
+
+def test_expense_dialog_staff_cannot_add_or_edit(qtbot, temp_expense_db):
+    dialog = ExpenseSetupDialog(db_path=str(temp_expense_db), user_role="工作人員")
+    qtbot.addWidget(dialog)
+    dialog.table.selectRow(0)
+
+    assert dialog.btn_add.isEnabled() is False
+    assert dialog.btn_edit.isEnabled() is False
+
+    with patch.object(dialog, "show_warning") as mock_warning:
+        dialog.add_expense_item()
+        dialog.edit_expense_item()
+        assert mock_warning.call_count == 2
+        mock_warning.assert_any_call("權限不足", "目前角色無權限新增支出項目。")
+        mock_warning.assert_any_call("權限不足", "目前角色無權限修改支出項目。")

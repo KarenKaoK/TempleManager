@@ -6,9 +6,10 @@ from PyQt5.QtWidgets import (
 from app.config import DB_NAME
 
 class ExpenseSetupDialog(QDialog):
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, user_role=None):
         super().__init__()
         self.db_path = db_path or DB_NAME
+        self.user_role = user_role
 
         self.setWindowTitle("支出項目建檔作業")
         self.setGeometry(400, 200, 500, 300)
@@ -42,6 +43,15 @@ class ExpenseSetupDialog(QDialog):
 
         self._ensure_active_column()
         self.load_data()
+
+    def _can_toggle_active(self):
+        role = (self.user_role or "").strip()
+        if not role:
+            return True
+        return role in {"管理員", "會計", "會計人員"}
+
+    def _can_maintain_items(self):
+        return self._can_toggle_active()
 
     def show_warning(self, title, message):
         QMessageBox.warning(self, title, message)
@@ -89,6 +99,16 @@ class ExpenseSetupDialog(QDialog):
         self._sync_toggle_button_text()
 
     def _sync_toggle_button_text(self):
+        can_maintain = self._can_maintain_items()
+        self.btn_add.setEnabled(can_maintain)
+        self.btn_edit.setEnabled(can_maintain)
+
+        if not self._can_toggle_active():
+            self.btn_delete.setText("停用/啟用")
+            self.btn_delete.setEnabled(False)
+            return
+
+        self.btn_delete.setEnabled(True)
         selected_row = self.table.currentRow()
         if selected_row < 0:
             self.btn_delete.setText("停用/啟用")
@@ -102,6 +122,10 @@ class ExpenseSetupDialog(QDialog):
         self.btn_delete.setText("啟用" if status_item.text() == "停用" else "停用")
 
     def add_expense_item(self):
+        if not self._can_maintain_items():
+            self.show_warning("權限不足", "目前角色無權限新增支出項目。")
+            return
+
         dialog = QDialog(self)
         dialog.setWindowTitle("新增支出項目")
         layout = QFormLayout()
@@ -194,6 +218,10 @@ class ExpenseSetupDialog(QDialog):
         dialog.accept()
 
     def edit_expense_item(self):
+        if not self._can_maintain_items():
+            self.show_warning("權限不足", "目前角色無權限修改支出項目。")
+            return
+
         selected_row = self.table.currentRow()
         if selected_row < 0:
             self.show_warning("錯誤", "請選擇要修改的支出項目！")
@@ -248,6 +276,10 @@ class ExpenseSetupDialog(QDialog):
         dialog.accept()
         
     def delete_expense_item(self):
+        if not self._can_toggle_active():
+            self.show_warning("權限不足", "目前角色無權限停用/啟用支出項目。")
+            return
+
         selected_row = self.table.currentRow()
         if selected_row < 0:
             self.show_warning("錯誤", "請選擇要停用/啟用的支出項目！")

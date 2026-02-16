@@ -328,3 +328,34 @@ def test_income_dialog_delete_cancelled(qtbot, temp_income_db):
         # 不應跳出成功或錯誤訊息
         mock_info.assert_not_called()
         mock_warn.assert_not_called()
+
+
+def test_income_dialog_staff_cannot_toggle_active(qtbot, temp_income_db):
+    dialog = IncomeSetupDialog(db_path=str(temp_income_db), user_role="工作人員")
+    qtbot.addWidget(dialog)
+    dialog.table.selectRow(0)
+
+    assert dialog.btn_delete.isEnabled() is False
+
+    with patch("app.dialogs.income_dialog.QMessageBox.warning") as mock_warning:
+        dialog.delete_income_item()
+        mock_warning.assert_called_once_with(dialog, "權限不足", "目前角色無權限停用/啟用收入項目。")
+
+    # 狀態應維持啟用
+    assert dialog.table.item(0, 3).text() == "啟用"
+
+
+def test_income_dialog_staff_cannot_add_or_edit(qtbot, temp_income_db):
+    dialog = IncomeSetupDialog(db_path=str(temp_income_db), user_role="工作人員")
+    qtbot.addWidget(dialog)
+    dialog.table.selectRow(0)
+
+    assert dialog.btn_add.isEnabled() is False
+    assert dialog.btn_edit.isEnabled() is False
+
+    with patch("app.dialogs.income_dialog.QMessageBox.warning") as mock_warning:
+        dialog.add_income_item()
+        dialog.edit_income_item()
+        assert mock_warning.call_count == 2
+        mock_warning.assert_any_call(dialog, "權限不足", "目前角色無權限新增收入項目。")
+        mock_warning.assert_any_call(dialog, "權限不足", "目前角色無權限修改收入項目。")
