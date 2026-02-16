@@ -34,6 +34,8 @@ class NewHouseholdDialog(BasePersonDialog):
             # 存起來供外部存取
             self.created_person_id = person_id
             self.created_household_id = household_id
+            self.created_name = data.get("name", "")
+            self.created_phone_mobile = data.get("phone_mobile", "")
             
             # QMessageBox.information(self, "成功", "建立成功！")
             self.accept()

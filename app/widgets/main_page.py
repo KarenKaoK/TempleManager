@@ -308,9 +308,19 @@ class MainPageWidget(QWidget):
             "規則：此戶底下必須沒有戶員，才允許刪除戶長。"
         )
 
-        confirm = QMessageBox.question(self, "確認刪除戶長", msg, QMessageBox.Yes | QMessageBox.No)
-        if confirm != QMessageBox.Yes:
+        box = QMessageBox(self)
+        box.setWindowTitle("確認刪除戶長")
+        box.setText(msg)
+
+        btn_yes = box.addButton("是", QMessageBox.AcceptRole)
+        btn_no = box.addButton("否", QMessageBox.RejectRole)
+        box.setDefaultButton(btn_no)  # 預設選「否」避免誤刪
+
+        box.exec_()
+
+        if box.clickedButton() != btn_yes:
             return
+
 
         try:
             affected = self.controller.deactivate_household_head_if_no_members(
@@ -615,8 +625,18 @@ class MainPageWidget(QWidget):
             QMessageBox.warning(self, "刪除失敗", "無法直接刪除戶長，如需刪除請先變更戶長")
             return
 
-        confirm = QMessageBox.question(self, "確認刪除", f"確定要刪除成員 {name} 嗎？", QMessageBox.Yes | QMessageBox.No)
-        if confirm == QMessageBox.Yes:
+        box = QMessageBox(self)
+        box.setWindowTitle("確認刪除")
+        box.setText(f"確定要刪除成員 {name} 嗎？")
+
+        btn_yes = box.addButton("是", QMessageBox.AcceptRole)
+        btn_no = box.addButton("否", QMessageBox.RejectRole)
+
+        box.setDefaultButton(btn_no)  # 預設選「否」避免誤刪
+
+        box.exec_()
+
+        if box.clickedButton() == btn_yes:
             self.controller.deactivate_person(person_id, allow_head=False)
             self._load_household(self.selected_household_id, self.selected_head_person_id)
 
@@ -637,15 +657,24 @@ class MainPageWidget(QWidget):
             return
 
         name = person.get("name", "")
-        confirm = QMessageBox.question(
-            self,
-            "分戶確認",
+        
+        box = QMessageBox(self)
+        box.setWindowTitle("分戶確認")
+        box.setText(
             f"確定要將「{name}」分戶成為新戶長嗎？\n\n"
-            "此動作會建立一個新的戶長，並將此人移到新戶長。",
-            QMessageBox.Yes | QMessageBox.No
+            "此動作會建立一個新的戶長，並將此人移到新戶長。"
         )
-        if confirm != QMessageBox.Yes:
+
+        btn_yes = box.addButton("是", QMessageBox.AcceptRole)
+        btn_no = box.addButton("否", QMessageBox.RejectRole)
+
+        box.setDefaultButton(btn_no)  # 預設選「否」避免誤操作
+
+        box.exec_()
+
+        if box.clickedButton() != btn_yes:
             return
+
 
         try:
             # ✅ controller 會回傳 new_household_id
