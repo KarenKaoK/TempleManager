@@ -684,7 +684,8 @@ class ActivityDetailPanel(QWidget):
         signup_cnt = len(rows)
         plan_cnt = len(self._plans) if hasattr(self, "_plans") else 0
         total = sum(int(r.get("total_amount", 0) or 0) for r in rows)
-        donation_total = sum(int(r.get("total_amount", 0) or 0) for r in rows if r.get("is_donation"))
+        donation_total = sum(int(r.get("donation_amount", 0) or 0) for r in rows)
+
 
         self._set_stat_value(self.stat_signup_cnt, str(signup_cnt))
         self._set_stat_value(self.stat_total, str(total))

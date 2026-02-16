@@ -1349,18 +1349,6 @@ class AppController:
         return new_person_id
 
 
-
-    # def get_activity_signups(self, activity_id: str):
-    #     cursor = self.conn.cursor()
-    #     cursor.execute("""
-    #         SELECT s.*, p.name AS person_name, p.phone_mobile AS person_phone
-    #         FROM activity_signups s
-    #         JOIN people p ON p.id = s.person_id
-    #         WHERE s.activity_id = ?
-    #         ORDER BY s.signup_time DESC
-    #     """, (activity_id,))
-    #     return [dict(row) for row in cursor.fetchall()]
-
     def get_activity_signups(self, activity_id):
         sql = """
         SELECT
@@ -1370,7 +1358,7 @@ class AppController:
             p.address AS person_address,
             s.total_amount,
             GROUP_CONCAT(ap.name || '×' || sp.qty, '、') AS plan_summary,
-            MAX(CASE WHEN ap.price_type = 'FREE' THEN 1 ELSE 0 END) AS is_donation
+            SUM(CASE WHEN ap.price_type = 'FREE' THEN sp.line_total ELSE 0 END) AS donation_amount
         FROM activity_signups s
         JOIN people p ON p.id = s.person_id
         JOIN activity_signup_plans sp ON sp.signup_id = s.id
