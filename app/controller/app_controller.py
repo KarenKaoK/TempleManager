@@ -1874,14 +1874,42 @@ class AppController:
     # -------------------------
     # Transactions (Income / Expense)
     # -------------------------
-    def get_all_income_items(self):
+    def get_all_income_items(self, active_only: bool = True):
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM income_items ORDER BY id")
+        has_is_active = False
+        try:
+            cols = self._table_columns("income_items")
+            has_is_active = "is_active" in cols
+        except Exception:
+            has_is_active = False
+
+        if active_only and has_is_active:
+            cursor.execute("""
+                SELECT * FROM income_items
+                WHERE COALESCE(is_active, 1) = 1
+                ORDER BY id
+            """)
+        else:
+            cursor.execute("SELECT * FROM income_items ORDER BY id")
         return [dict(row) for row in cursor.fetchall()]
 
-    def get_all_expense_items(self):
+    def get_all_expense_items(self, active_only: bool = True):
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM expense_items ORDER BY id")
+        has_is_active = False
+        try:
+            cols = self._table_columns("expense_items")
+            has_is_active = "is_active" in cols
+        except Exception:
+            has_is_active = False
+
+        if active_only and has_is_active:
+            cursor.execute("""
+                SELECT * FROM expense_items
+                WHERE COALESCE(is_active, 1) = 1
+                ORDER BY id
+            """)
+        else:
+            cursor.execute("SELECT * FROM expense_items ORDER BY id")
         return [dict(row) for row in cursor.fetchall()]
 
     def search_people(self, keyword):

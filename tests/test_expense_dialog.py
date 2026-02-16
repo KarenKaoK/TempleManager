@@ -65,6 +65,37 @@ def test_expense_dialog_load_empty_data(qtbot, empty_expense_db):
 
     assert dialog.table.rowCount() == 0
 
+
+def test_expense_dialog_add_item_success_auto_id(qtbot, temp_expense_db):
+    dialog = ExpenseSetupDialog(db_path=str(temp_expense_db))
+    qtbot.addWidget(dialog)
+
+    next_id = dialog._generate_next_item_id()
+    with patch("app.dialogs.expense_dialog.QMessageBox.information"):
+        dialog.confirm_add_expense_item(
+            dialog=dialog,
+            id=next_id,
+            name="水電費",
+            amount=1500
+        )
+
+    assert dialog.table.rowCount() == 3
+    rows = [
+        (
+            dialog.table.item(i, 0).text(),
+            dialog.table.item(i, 1).text(),
+            dialog.table.item(i, 2).text(),
+        )
+        for i in range(dialog.table.rowCount())
+    ]
+    assert ("03", "水電費", "1500") in rows
+
+
+def test_expense_dialog_generate_next_id_from_empty_db(qtbot, empty_expense_db):
+    dialog = ExpenseSetupDialog(db_path=str(empty_expense_db))
+    qtbot.addWidget(dialog)
+    assert dialog._generate_next_item_id() == "01"
+
 def test_expense_dialog_add_duplicate_id(qtbot, temp_expense_db):
     """測試新增失敗（ID 重複）"""
     from app.dialogs.expense_dialog import ExpenseSetupDialog
@@ -206,11 +237,11 @@ def test_expense_dialog_delete_no_selection(qtbot, temp_expense_db):
     with patch("app.dialogs.expense_dialog.QMessageBox.warning") as mock_warning:
         dialog.delete_expense_item()
 
-        mock_warning.assert_called_once_with(dialog, "錯誤", "請選擇要刪除的支出項目！")
+        mock_warning.assert_called_once_with(dialog, "錯誤", "請選擇要停用/啟用的支出項目！")
 
 
 def test_expense_dialog_delete_success(qtbot, temp_expense_db):
-    """測試刪除存在的支出項目成功"""
+    """測試停用存在的支出項目成功"""
     dialog = ExpenseSetupDialog(db_path=str(temp_expense_db))
     qtbot.addWidget(dialog)
     dialog.table.selectRow(0)  # 選取第一筆資料
@@ -220,16 +251,16 @@ def test_expense_dialog_delete_success(qtbot, temp_expense_db):
 
         dialog.delete_expense_item()
 
-        # ✅ 確認資料已刪除，只剩一筆
-        assert dialog.table.rowCount() == 1
-        assert dialog.table.item(0, 0).text() == "E02"
-        assert dialog.table.item(0, 1).text() == "廟務費用"
-        assert dialog.table.item(0, 2).text() == "1200"
+        # ✅ 確認資料仍在，但狀態改為停用
+        assert dialog.table.rowCount() == 2
+        assert dialog.table.item(0, 0).text() == "E01"
+        assert dialog.table.item(0, 1).text() == "香油支出"
+        assert dialog.table.item(0, 3).text() == "停用"
 
-        mock_info.assert_called_once_with("成功", "支出項目刪除成功！")
+        mock_info.assert_called_once_with("成功", "支出項目停用成功！")
 
 def test_expense_dialog_delete_invalid_id_not_found(qtbot, temp_expense_db):
-    """測試刪除不存在 ID 時應跳錯誤訊息"""
+    """測試停用不存在 ID 時應跳錯誤訊息"""
     dialog = ExpenseSetupDialog(db_path=str(temp_expense_db))
     qtbot.addWidget(dialog)
 
@@ -245,10 +276,10 @@ def test_expense_dialog_delete_invalid_id_not_found(qtbot, temp_expense_db):
 
         dialog.delete_expense_item()
 
-        mock_warning.assert_called_once_with("錯誤", "刪除失敗，請檢查 ID 是否存在！")
+        mock_warning.assert_called_once_with("錯誤", "支出項目不存在，無法停用/啟用！")
 
 def test_expense_dialog_delete_cancelled(qtbot, temp_expense_db):
-    """測試點刪除後選「否」，應取消刪除並保留資料"""
+    """測試點停用後選「否」，應取消停用並保留資料"""
     dialog = ExpenseSetupDialog(db_path=str(temp_expense_db))
     qtbot.addWidget(dialog)
 
@@ -271,7 +302,7 @@ def test_expense_dialog_delete_cancelled(qtbot, temp_expense_db):
         assert dialog.table.item(0, 2).text() == "800"
 
 def test_expense_dialog_delete_confirmed_but_not_found(qtbot, temp_expense_db):
-    """測試點選「是」但資料未刪除（rowcount == 0）應顯示錯誤訊息"""
+    """測試點選「是」但資料不存在應顯示錯誤訊息"""
     dialog = ExpenseSetupDialog(db_path=str(temp_expense_db))
     qtbot.addWidget(dialog)
 
@@ -294,8 +325,8 @@ def test_expense_dialog_delete_confirmed_but_not_found(qtbot, temp_expense_db):
         # ✅ 表格資料應該仍有兩筆（因為沒 reload）
         assert dialog.table.rowCount() == 2
 
-        # ✅ 顯示刪除失敗的錯誤訊息
-        mock_warning.assert_called_once_with("錯誤", "刪除失敗，請檢查 ID 是否存在！")
+        # ✅ 顯示不存在的錯誤訊息
+        mock_warning.assert_called_once_with("錯誤", "支出項目不存在，無法停用/啟用！")
 
         # ✅ 不應該呼叫成功訊息
         mock_info.assert_not_called()
