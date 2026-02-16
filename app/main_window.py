@@ -13,6 +13,7 @@ from app.widgets.main_page import MainPageWidget
 from app.widgets.activity_manage_page import ActivityManagePage
 from app.widgets.activity_signup_page import ActivitySignupPage
 from app.dialogs.income_expense_dialog import IncomeExpenseDialog
+from app.dialogs.finance_report_dialog import FinanceReportDialog
 
 class MainWindow(QMainWindow):
     def __init__(self, username, role, controller):
@@ -74,6 +75,7 @@ class MainWindow(QMainWindow):
         self.main_page = None
         self.activity_manage_page = None
         self.activity_signup_page = None
+        self.finance_report_action = None
 
         # ✅ 空白頁
         self._blank_page = QWidget()
@@ -147,6 +149,12 @@ class MainWindow(QMainWindow):
         
         finance_menu.addAction(income_entry_action)
         finance_menu.addAction(expense_entry_action)
+
+        if self._can_access_finance_report():
+            finance_report_menu = menu_bar.addMenu("財務會計")
+            self.finance_report_action = QAction("會計彙整報表", self)
+            self.finance_report_action.triggered.connect(self.open_finance_report_dialog)
+            finance_report_menu.addAction(self.finance_report_action)
 
     # -------------------------
     # Dialogs
@@ -255,6 +263,17 @@ class MainWindow(QMainWindow):
     def open_income_expense_dialog(self, initial_tab=0):
         # 0=Income, 1=Expense
         dialog = IncomeExpenseDialog(self.controller, self, initial_tab, self.role)
+        dialog.exec_()
+
+    def _can_access_finance_report(self):
+        role = (self.role or "").strip()
+        return role in {"管理員", "會計", "會計人員", "管理者"}
+
+    def open_finance_report_dialog(self):
+        if not self._can_access_finance_report():
+            QMessageBox.warning(self, "權限不足", "此功能僅限管理員與會計人員。")
+            return
+        dialog = FinanceReportDialog(self.controller, self)
         dialog.exec_()
 
     def on_global_font_size_changed(self, label):

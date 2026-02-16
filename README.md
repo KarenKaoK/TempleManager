@@ -19,6 +19,7 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 - **收入項目管理**：設定各類收入項目與金額
 - **支出項目管理**：管理各項支出項目與預算
 - **項目分類**：靈活的收入支出分類系統
+- **財務會計彙整**：支援日/週/月/年彙整、項目維度彙整、明細檢視與匯出
 
 ### 🎯 活動管理
 - **活動建立**：建立各類法會、慶典活動
@@ -37,6 +38,10 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 - **多角色登入**：支援管理員、會計、工作人員（另保留舊角色帳號）
 - **安全登入**：bcrypt 密碼加密保護
 - **權限控制**：依角色限制收支作業、類別維護與停用資料恢復
+
+### 🔤 UI 與日期規範
+- **全域字體大小切換**：主頁可選擇小/中/大，並套用到各頁面與主要對話框
+- **日期格式統一**：畫面日期輸入與顯示統一為 `YYYY/MM/DD`
 
 ## 環境需求與安裝
 
@@ -114,6 +119,11 @@ python -m app.main
 - 使用預設帳號密碼登入
 - **UX 優化**：系統登入後會自動進入「信眾資料建檔」頁面，方便快速作業
 - 系統會根據使用者角色顯示相應功能
+- 可於主頁上方切換全域字體大小（小 / 中 / 大）
+
+#### 日期與字體設定
+- 日期欄位統一採用 `YYYY/MM/DD` 格式（例如：`2026/02/16`）
+- 字體大小切換後，會同步套用至主頁、功能頁與主要彈窗元件
 
 #### 主要功能選單
 
@@ -148,6 +158,13 @@ python -m app.main
     - 資料列印：輸出報名人員清單
   - 活動狀態控制：開啟/關閉活動報名
 
+**財務會計**
+- 依時間粒度（日/週/月/年）彙整收入、支出與淨額
+- 可切換「加入項目維度」改為按項目代號彙整
+- 提供「今日 / 本週 / 本月 / 今年」快速查詢
+- 支援查看收入明細與支出明細
+- 匯出 Excel 相容 CSV（含摘要、本期收支結餘、完整明細）
+
 ### 4. 角色權限與停用規則
 
 #### 角色定義
@@ -159,6 +176,11 @@ python -m app.main
 - 管理員：可新增、查詢、修改、刪除；可補印收入收據；可修改/刪除非當日資料。
 - 會計：可新增、查詢、修改、刪除；可補印收入收據；可修改/刪除非當日資料。
 - 工作人員：可新增、查詢、修改、刪除；可補印收入收據；僅可修改/刪除當日資料。
+
+#### 財務會計（彙整報表）
+- 管理員：可查看摘要與明細、可匯出。
+- 會計：可查看摘要與明細、可匯出。
+- 工作人員：不可使用。
 
 #### 類別設定：收入/支出項目建檔
 - 管理員：可新增、修改、停用/啟用。
@@ -260,60 +282,77 @@ python -m app.main
 ### 檔案結構
 ```
 TempleManager/
-├── app/                          # 主要應用程式目錄
+├── app/
 │   ├── __init__.py
-│   ├── main.py                   # 應用程式入口點
-│   ├── config.py                 # 系統配置設定
-│   ├── main_window.py            # 主視窗控制器
-│   ├── auth/                     # 認證模組
+│   ├── main.py
+│   ├── config.py
+│   ├── main_window.py
+│   ├── auth/
 │   │   ├── __init__.py
-│   │   └── login.py              # 登入功能
-│   ├── controller/               # 業務邏輯控制器
-│   │   └── app_controller.py     # 主要業務邏輯
-│   ├── database/                 # 資料庫模組
+│   │   └── login.py
+│   ├── controller/
+│   │   └── app_controller.py
+│   ├── database/
 │   │   ├── __init__.py
-│   │   ├── setup_db.py           # 資料庫初始化
-│   │   └── temple.db             # SQLite 資料庫檔案
-│   ├── dialogs/                  # 對話框模組
+│   │   └── setup_db.py
+│   ├── dialogs/
 │   │   ├── __init__.py
-│   │   ├── activity_dialog.py    # 活動管理對話框
-│   │   ├── activity_signup_dialog.py # 活動報名對話框
-│   │   ├── base_person_dialog.py # 人員資料基礎對話框
-│   │   ├── edit_member_dialog.py # 編輯成員對話框
-│   │   ├── expense_dialog.py     # 支出項目對話框
-│   │   ├── household_dialog.py   # 戶籍資料對話框
-│   │   ├── income_dialog.py      # 收入項目對話框
-│   │   ├── login_ui.py           # 登入介面
-│   │   ├── member_identity_dialog.py # 身份設定對話框
-│   │   └── new_member_dialog.py  # 新增成員對話框
-│   ├── resources/                # 資源檔案（圖檔等）
-│   │   ├── seal.png              # 收據用印章圖檔
-│   │   └── seal0.png             # 備用印章圖檔
-│   ├── utils/                    # 工具模組
-│   │   ├── id_utils.py           # ID 產生工具
-│   │   ├── lunar_solar_converter.py # 國農曆轉換工具
-│   │   └── print_helper.py       # 列印/轉碼輔助工具
-│   └── widgets/                  # 自定義元件
-│       ├── activity_manage_page.py # 活動管理頁面
-│       ├── auto_resizing_table.py  # 自動調整表格
-│       ├── main_page.py            # 主頁面元件
-│       └── search_bar.py           # 搜尋欄元件
-├── tests/                        # 測試檔案
+│   │   ├── activity_edit_dialog.py
+│   │   ├── activity_signup_edit_dialog.py
+│   │   ├── base_person_dialog.py
+│   │   ├── edit_member_dialog.py
+│   │   ├── expense_dialog.py
+│   │   ├── finance_report_dialog.py
+│   │   ├── income_dialog.py
+│   │   ├── income_expense_dialog.py
+│   │   ├── login_ui.py
+│   │   ├── member_identity_dialog.py
+│   │   ├── new_household_dialog.py
+│   │   ├── new_member_dialog.py
+│   │   ├── plan_edit_dialog.py
+│   │   └── transfer_household_dialog.py
+│   ├── resources/
+│   │   ├── seal.png
+│   │   └── seal0.png
+│   ├── utils/
+│   │   ├── date_utils.py
+│   │   ├── font_manager.py
+│   │   ├── id_utils.py
+│   │   ├── lunar_solar_converter.py
+│   │   └── print_helper.py
+│   └── widgets/
+│       ├── activity_detail_panel.py
+│       ├── activity_list_panel.py
+│       ├── activity_manage_page.py
+│       ├── activity_person_panel.py
+│       ├── activity_plan_panel.py
+│       ├── activity_signup_page.py
+│       ├── auto_resizing_table.py
+│       ├── main_page.py
+│       └── search_bar.py
+├── tests/
 │   ├── __init__.py
-│   ├── conftest.py              # 測試配置
-│   ├── test_database.py         # 資料庫測試
-│   ├── test_expense_dialog.py   # 支出對話框測試
-│   ├── test_income_dialog.py    # 收入對話框測試
-│   ├── test_income_expense_dialog.py # 收支列印整合測試
-│   ├── test_login_dialog.py     # 登入測試
-│   ├── test_main_window.py      # 主視窗測試
-│   ├── test_member_identity_dialog.py # 身份對話框測試
-│   ├── test_print_helper.py     # 列印工具測試
-│   └── test_receipt_logic.py    # 收據編號邏輯測試
-├── temple_venv/                 # Python 虛擬環境
-├── requirements.txt             # 相依套件清單
-├── README.md                    # 專案說明文件
-└── temple.db                    # 資料庫檔案（根目錄備份）
+│   ├── conftest.py
+│   ├── test_activity_controller.py
+│   ├── test_activity_manage_page.py
+│   ├── test_activity_signup_page.py
+│   ├── test_app_controller.py
+│   ├── test_database.py
+│   ├── test_date_utils.py
+│   ├── test_expense_dialog.py
+│   ├── test_finance_report_controller.py
+│   ├── test_household_people_controller.py
+│   ├── test_income_dialog.py
+│   ├── test_income_expense_dialog.py
+│   ├── test_login_dialog.py
+│   ├── test_main_window.py
+│   ├── test_member_identity_dialog.py
+│   ├── test_print_helper.py
+│   ├── test_reactivate_person.py
+│   └── test_receipt_logic.py
+├── requirements.txt
+├── README.md
+└── test.ipynb
 ```
 
 ### 架構設計
