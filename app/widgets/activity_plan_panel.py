@@ -619,16 +619,32 @@ class ActivityPlanPanel(QWidget):
             background: #F6F6F6;
             color: #BDBDBD;
         }
+        
         QSpinBox#qtySpin {
             min-width: 48px;
             min-height: 34px;
+            padding-right: 0px;             
             border-radius: 12px;
             border: 1px solid #F0D9C4;
             background: #FFFFFF;
             font-size: 14px;
             font-weight: 800;
         }
-        QSpinBox::up-button, QSpinBox::down-button { width: 0px; }
+
+        QSpinBox#qtySpin::up-button,
+        QSpinBox#qtySpin::down-button {
+            width: 0px;
+            height: 0px;
+            border: none;
+        }
+
+        QSpinBox#qtySpin::up-arrow,
+        QSpinBox#qtySpin::down-arrow {
+            image: none;
+            width: 0px;
+            height: 0px;
+        }
+
 
         QFrame#totalCard {
             border-radius: 14px;
