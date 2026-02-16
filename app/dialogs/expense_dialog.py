@@ -16,14 +16,14 @@ class ExpenseSetupDialog(QDialog):
         layout = QVBoxLayout()
 
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["支出項目代號", "支出項目名稱", "支出金額"])
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["支出項目代號", "支出項目名稱", "支出金額", "狀態"])
         layout.addWidget(self.table)
 
         button_layout = QHBoxLayout()
         self.btn_add = QPushButton("資料新增")
         self.btn_edit = QPushButton("資料修改")
-        self.btn_delete = QPushButton("資料刪除")
+        self.btn_delete = QPushButton("停用/啟用")
         self.btn_close = QPushButton("關閉返回")
 
         button_layout.addWidget(self.btn_add)
@@ -38,7 +38,9 @@ class ExpenseSetupDialog(QDialog):
         self.btn_edit.clicked.connect(self.edit_expense_item)
         self.btn_delete.clicked.connect(self.delete_expense_item)
         self.btn_close.clicked.connect(self.close)
+        self.table.itemSelectionChanged.connect(self._sync_toggle_button_text)
 
+        self._ensure_active_column()
         self.load_data()
 
     def show_warning(self, title, message):
@@ -56,37 +58,69 @@ class ExpenseSetupDialog(QDialog):
         )
         return reply == QMessageBox.StandardButton.Yes
 
+    def _ensure_active_column(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(expense_items)")
+        cols = [r[1] for r in cursor.fetchall()]
+        if "is_active" not in cols:
+            cursor.execute("ALTER TABLE expense_items ADD COLUMN is_active INTEGER DEFAULT 1")
+            conn.commit()
+        conn.close()
+
     def load_data(self):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM expense_items")
+        cursor.execute("""
+            SELECT id, name, CAST(amount AS INTEGER), COALESCE(is_active, 1)
+            FROM expense_items
+            ORDER BY id
+        """)
         rows = cursor.fetchall()
         conn.close()
 
         self.table.setRowCount(len(rows))
         for row_idx, row in enumerate(rows):
-            for col_idx, item in enumerate(row):
-                self.table.setItem(row_idx, col_idx, QTableWidgetItem(str(item)))
+            self.table.setItem(row_idx, 0, QTableWidgetItem(str(row[0])))
+            self.table.setItem(row_idx, 1, QTableWidgetItem(str(row[1])))
+            self.table.setItem(row_idx, 2, QTableWidgetItem(str(row[2])))
+            status_text = "啟用" if int(row[3] or 0) == 1 else "停用"
+            self.table.setItem(row_idx, 3, QTableWidgetItem(status_text))
+        self._sync_toggle_button_text()
+
+    def _sync_toggle_button_text(self):
+        selected_row = self.table.currentRow()
+        if selected_row < 0:
+            self.btn_delete.setText("停用/啟用")
+            return
+
+        status_item = self.table.item(selected_row, 3)
+        if not status_item:
+            self.btn_delete.setText("停用/啟用")
+            return
+
+        self.btn_delete.setText("啟用" if status_item.text() == "停用" else "停用")
 
     def add_expense_item(self):
         dialog = QDialog(self)
         dialog.setWindowTitle("新增支出項目")
         layout = QFormLayout()
 
-        id_input = QLineEdit()
+        next_id = self._generate_next_item_id()
+        id_label = QLabel(next_id)
         name_input = QLineEdit()
         amount_input = QSpinBox()
         amount_input.setMinimum(0)
         amount_input.setMaximum(1000000000)
 
-        layout.addRow("支出項目代號：", id_input)
+        layout.addRow("支出項目代號：", id_label)
         layout.addRow("支出項目名稱：", name_input)
         layout.addRow("支出金額：", amount_input)
 
         btn_ok = QPushButton("確定")
         btn_cancel = QPushButton("取消")
 
-        btn_ok.clicked.connect(lambda: self.confirm_add_expense_item(dialog, id_input.text(), name_input.text(), amount_input.value()))
+        btn_ok.clicked.connect(lambda: self.confirm_add_expense_item(dialog, next_id, name_input.text(), amount_input.value()))
         btn_cancel.clicked.connect(dialog.reject)
 
         btn_layout = QHBoxLayout()
@@ -96,6 +130,35 @@ class ExpenseSetupDialog(QDialog):
 
         dialog.setLayout(layout)
         dialog.exec_()
+
+    def _generate_next_item_id(self):
+        """產生下一個兩位數代號（01, 02, ...）。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM expense_items")
+        rows = cursor.fetchall()
+        conn.close()
+
+        max_num = 0
+        for (raw_id,) in rows:
+            sid = str(raw_id or "").strip()
+            if not sid:
+                continue
+            if sid.isdigit():
+                max_num = max(max_num, int(sid))
+                continue
+
+            # 相容舊資料（例如 E01 / EXPENSE-03）：取尾端數字
+            tail_digits = ""
+            for ch in reversed(sid):
+                if ch.isdigit():
+                    tail_digits = ch + tail_digits
+                else:
+                    break
+            if tail_digits:
+                max_num = max(max_num, int(tail_digits))
+
+        return f"{max_num + 1:02d}"
 
     def confirm_add_expense_item(self, dialog, id, name, amount):
         id = id.strip()
@@ -116,7 +179,10 @@ class ExpenseSetupDialog(QDialog):
             return
 
         try:
-            cursor.execute("INSERT INTO expense_items (id, name, amount) VALUES (?, ?, ?)", (id, name, int(amount)))
+            cursor.execute(
+                "INSERT INTO expense_items (id, name, amount, is_active) VALUES (?, ?, ?, 1)",
+                (id, name, int(amount))
+            )
             conn.commit()
             self.show_info("成功", "支出項目新增成功！")
             self.load_data()
@@ -184,7 +250,7 @@ class ExpenseSetupDialog(QDialog):
     def delete_expense_item(self):
         selected_row = self.table.currentRow()
         if selected_row < 0:
-            self.show_warning("錯誤", "請選擇要刪除的支出項目！")
+            self.show_warning("錯誤", "請選擇要停用/啟用的支出項目！")
             return
 
         try:
@@ -194,18 +260,26 @@ class ExpenseSetupDialog(QDialog):
             self.show_warning("錯誤", "無效的支出項目！")
             return
 
-        if not self.ask_confirm(f"確定要刪除支出 '項目 {current_id}: {current_name}' 嗎？"):
-            return
-
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM expense_items WHERE id = ?", (current_id,))
-        conn.commit()
+        cursor.execute("SELECT COALESCE(is_active, 1) FROM expense_items WHERE id = ?", (current_id,))
+        row = cursor.fetchone()
+        if row is None:
+            conn.close()
+            self.show_warning("錯誤", "支出項目不存在，無法停用/啟用！")
+            return
 
-        if cursor.rowcount == 0:
-            self.show_warning("錯誤", "刪除失敗，請檢查 ID 是否存在！")
-        else:
-            self.load_data()
-            self.show_info("成功", "支出項目刪除成功！")
+        current_active = int(row[0] or 0)
+        next_active = 0 if current_active == 1 else 1
+        action = "停用" if next_active == 0 else "啟用"
+
+        if not self.ask_confirm(f"確定要{action}支出項目「{current_id}: {current_name}」嗎？"):
+            conn.close()
+            return
+
+        cursor.execute("UPDATE expense_items SET is_active = ? WHERE id = ?", (next_active, current_id))
+        conn.commit()
+        self.load_data()
+        self.show_info("成功", f"支出項目{action}成功！")
 
         conn.close()

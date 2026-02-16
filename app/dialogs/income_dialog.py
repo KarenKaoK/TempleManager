@@ -20,15 +20,15 @@ class IncomeSetupDialog(QDialog):
 
         # 表格
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["收入項目代號", "收入項目名稱", "捐助金額"])
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["收入項目代號", "收入項目名稱", "捐助金額", "狀態"])
         layout.addWidget(self.table)
 
         # 按鈕區域
         button_layout = QHBoxLayout()
         self.btn_add = QPushButton("資料新增")
         self.btn_edit = QPushButton("資料修改")
-        self.btn_delete = QPushButton("資料刪除")
+        self.btn_delete = QPushButton("停用/啟用")
         self.btn_close = QPushButton("關閉返回")
 
         button_layout.addWidget(self.btn_add)
@@ -44,43 +44,77 @@ class IncomeSetupDialog(QDialog):
         self.btn_edit.clicked.connect(self.edit_income_item)
         self.btn_delete.clicked.connect(self.delete_income_item)  # ✅ 確保方法名稱正確
         self.btn_close.clicked.connect(self.close)
+        self.table.itemSelectionChanged.connect(self._sync_toggle_button_text)
+
+        self._ensure_active_column()
 
         # 載入資料
         self.load_data()
+
+    def _ensure_active_column(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(income_items)")
+        cols = [r[1] for r in cursor.fetchall()]
+        if "is_active" not in cols:
+            cursor.execute("ALTER TABLE income_items ADD COLUMN is_active INTEGER DEFAULT 1")
+            conn.commit()
+        conn.close()
 
     def load_data(self):
         """從 SQLite 載入收入項目"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT id, name, CAST(amount AS INTEGER) FROM income_items")  # ✅ 確保金額顯示整數
+        cursor.execute("""
+            SELECT id, name, CAST(amount AS INTEGER), COALESCE(is_active, 1)
+            FROM income_items
+            ORDER BY id
+        """)
         rows = cursor.fetchall()
         conn.close()
 
         self.table.setRowCount(len(rows))
         for row_idx, row in enumerate(rows):
-            for col_idx, item in enumerate(row):
-                self.table.setItem(row_idx, col_idx, QTableWidgetItem(str(item)))
+            self.table.setItem(row_idx, 0, QTableWidgetItem(str(row[0])))
+            self.table.setItem(row_idx, 1, QTableWidgetItem(str(row[1])))
+            self.table.setItem(row_idx, 2, QTableWidgetItem(str(row[2])))
+            status_text = "啟用" if int(row[3] or 0) == 1 else "停用"
+            self.table.setItem(row_idx, 3, QTableWidgetItem(status_text))
+        self._sync_toggle_button_text()
+
+    def _sync_toggle_button_text(self):
+        selected_row = self.table.currentRow()
+        if selected_row < 0:
+            self.btn_delete.setText("停用/啟用")
+            return
+
+        status_item = self.table.item(selected_row, 3)
+        if not status_item:
+            self.btn_delete.setText("停用/啟用")
+            return
+
+        self.btn_delete.setText("啟用" if status_item.text() == "停用" else "停用")
     def add_income_item(self):
         """新增收入項目（一次輸入完整資料）"""
         dialog = QDialog(self)
         dialog.setWindowTitle("新增收入項目")
         layout = QFormLayout()
 
-        id_input = QLineEdit()  # ✅ 使用者輸入 ID
+        next_id = self._generate_next_item_id()
+        id_label = QLabel(next_id)
         name_input = QLineEdit()
         amount_input = QSpinBox()  # ✅ 設定為整數輸入框
         amount_input.setMinimum(0)  
         amount_input.setMaximum(1000000000)  
 
-        layout.addRow("收入項目代號：", id_input)
+        layout.addRow("收入項目代號：", id_label)
         layout.addRow("收入項目名稱：", name_input)
         layout.addRow("捐助金額：", amount_input)
 
         btn_ok = QPushButton("確定")
         btn_cancel = QPushButton("取消")
 
-        # ✅ 確保傳入 `id_input.text()` 而不是 `id_input`
-        btn_ok.clicked.connect(lambda: self.confirm_add_income_item(dialog, id_input.text(), name_input.text(), amount_input.value()))
+        btn_ok.clicked.connect(lambda: self.confirm_add_income_item(dialog, next_id, name_input.text(), amount_input.value()))
         btn_cancel.clicked.connect(dialog.reject)
 
         btn_layout = QHBoxLayout()
@@ -91,6 +125,34 @@ class IncomeSetupDialog(QDialog):
         dialog.setLayout(layout)
         dialog.exec_()
 
+    def _generate_next_item_id(self):
+        """產生下一個兩位數代號（01, 02, ...）。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM income_items")
+        rows = cursor.fetchall()
+        conn.close()
+
+        max_num = 0
+        for (raw_id,) in rows:
+            sid = str(raw_id or "").strip()
+            if not sid:
+                continue
+            if sid.isdigit():
+                max_num = max(max_num, int(sid))
+                continue
+
+            # 相容舊資料（例如 I01 / INCOME-03）：取尾端數字
+            tail_digits = ""
+            for ch in reversed(sid):
+                if ch.isdigit():
+                    tail_digits = ch + tail_digits
+                else:
+                    break
+            if tail_digits:
+                max_num = max(max_num, int(tail_digits))
+
+        return f"{max_num + 1:02d}"
 
     def confirm_add_income_item(self, dialog, id, name, amount):
         """確認並新增收入項目"""
@@ -114,7 +176,10 @@ class IncomeSetupDialog(QDialog):
             return
 
         try:
-            cursor.execute("INSERT INTO income_items (id, name, amount) VALUES (?, ?, ?)", (id, name, int(amount)))
+            cursor.execute(
+                "INSERT INTO income_items (id, name, amount, is_active) VALUES (?, ?, ?, 1)",
+                (id, name, int(amount))
+            )
             conn.commit()
             QMessageBox.information(self, "成功", "收入項目新增成功！")
             self.load_data()
@@ -184,10 +249,10 @@ class IncomeSetupDialog(QDialog):
         dialog.accept()
 
     def delete_income_item(self):
-        """刪除選中的收入項目"""
+        """停用/啟用選中的收入項目（不可刪除歷史資料）。"""
         selected_row = self.table.currentRow()
         if selected_row < 0:
-            QMessageBox.warning(self, "錯誤", "請選擇要刪除的收入項目！")
+            QMessageBox.warning(self, "錯誤", "請選擇要停用/啟用的收入項目！")
             return
 
         try:
@@ -197,35 +262,31 @@ class IncomeSetupDialog(QDialog):
             QMessageBox.warning(self, "錯誤", "無效的收入項目 ID！")
             return
 
-         # ✅ 設定確認刪除的按鈕為「是 / 否」
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COALESCE(is_active, 1) FROM income_items WHERE id = ?", (current_id,))
+        row = cursor.fetchone()
+        if row is None:
+            QMessageBox.warning(self, "錯誤", "收入項目不存在，無法停用/啟用！")
+            conn.close()
+            return
+
+        current_active = int(row[0] or 0)
+        next_active = 0 if current_active == 1 else 1
+        action = "停用" if next_active == 0 else "啟用"
+
+        # ✅ 設定確認刪除的按鈕為「是 / 否」
         msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("確認刪除")
-        msg_box.setText(f"確定要刪除收入'項目{current_id}: {current_name} ' 嗎？")
+        msg_box.setWindowTitle(f"確認{action}")
+        msg_box.setText(f"確定要{action}收入項目「{current_id}: {current_name}」嗎？")
         btn_yes = msg_box.addButton("是", QMessageBox.ButtonRole.AcceptRole)
         btn_no = msg_box.addButton("否", QMessageBox.ButtonRole.RejectRole)
         msg_box.exec_()
 
         if msg_box.clickedButton() == btn_yes:  # ✅ 如果按下的是「是」
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            # ✅ 刪除前先檢查資料是否存在
-            cursor.execute("SELECT * FROM income_items WHERE id = ?", (current_id,))
-            result = cursor.fetchone()
-
-            if result is None:
-                QMessageBox.warning(self, "錯誤", "收入項目不存在，無法刪除！")
-                conn.close()
-                return
-
-            # ✅ 執行刪除
-            cursor.execute("DELETE FROM income_items WHERE id = ?", (current_id,))
+            cursor.execute("UPDATE income_items SET is_active = ? WHERE id = ?", (next_active, current_id))
             conn.commit()
+            self.load_data()  # ✅ 重新載入資料，確保 UI 更新
+            QMessageBox.information(self, "成功", f"收入項目{action}成功！")
 
-            if cursor.rowcount == 0:
-                QMessageBox.warning(self, "錯誤", "刪除失敗，請檢查 ID 是否存在！")
-            else:
-                self.load_data()  # ✅ 重新載入資料，確保 UI 更新
-                QMessageBox.information(self, "成功", "收入項目刪除成功！")
-
-            conn.close()
+        conn.close()

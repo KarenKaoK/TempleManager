@@ -70,27 +70,36 @@ def test_income_dialog_load_empty_data(qtbot, empty_income_db):
 
 
 def test_income_dialog_add_item_success(qtbot, temp_income_db):
-    """測試成功新增收入項目，不跳出 QMessageBox"""
+    """測試成功新增收入項目（代號自動遞增）"""
     from app.dialogs.income_dialog import IncomeSetupDialog
     dialog = IncomeSetupDialog(db_path=str(temp_income_db))
     qtbot.addWidget(dialog)
 
+    next_id = dialog._generate_next_item_id()
     with patch("app.dialogs.income_dialog.QMessageBox.information"):
         dialog.confirm_add_income_item(
             dialog=dialog,
-            id="I03",
+            id=next_id,
             name="平安金",
             amount=3000
         )
 
-    # 查詢表格內容
-    row_count = dialog.table.rowCount()
-    last_row = row_count - 1
+    assert dialog.table.rowCount() == 3
+    rows = [
+        (
+            dialog.table.item(i, 0).text(),
+            dialog.table.item(i, 1).text(),
+            dialog.table.item(i, 2).text(),
+        )
+        for i in range(dialog.table.rowCount())
+    ]
+    assert ("03", "平安金", "3000") in rows
 
-    assert row_count == 3
-    assert dialog.table.item(last_row, 0).text() == "I03"
-    assert dialog.table.item(last_row, 1).text() == "平安金"
-    assert dialog.table.item(last_row, 2).text() == "3000"
+
+def test_income_dialog_generate_next_id_from_empty_db(qtbot, empty_income_db):
+    dialog = IncomeSetupDialog(db_path=str(empty_income_db))
+    qtbot.addWidget(dialog)
+    assert dialog._generate_next_item_id() == "01"
 
 def test_income_dialog_add_duplicate_id(qtbot, temp_income_db):
     """測試新增收入項目時，若 ID 重複，則不新增並顯示錯誤訊息"""
@@ -221,10 +230,10 @@ def test_income_dialog_delete_fail_no_selection(qtbot, temp_income_db):
     with patch("app.dialogs.income_dialog.QMessageBox.warning") as mock_warning:
         dialog.delete_income_item()
 
-        mock_warning.assert_called_once_with(dialog, "錯誤", "請選擇要刪除的收入項目！")
+        mock_warning.assert_called_once_with(dialog, "錯誤", "請選擇要停用/啟用的收入項目！")
 
 def test_income_dialog_delete_success(qtbot, temp_income_db):
-    """測試成功刪除已存在的收入項目"""
+    """測試成功停用已存在的收入項目"""
     from app.dialogs.income_dialog import IncomeSetupDialog
 
     dialog = IncomeSetupDialog(db_path=str(temp_income_db))
@@ -245,16 +254,16 @@ def test_income_dialog_delete_success(qtbot, temp_income_db):
 
         dialog.delete_income_item()
 
-        # 驗證成功刪除
-        assert dialog.table.rowCount() == 1
-        assert dialog.table.item(0, 0).text() == "I02"
-        assert dialog.table.item(0, 1).text() == "補運金"
-        assert dialog.table.item(0, 2).text() == "5000"
+        # 驗證成功停用（資料仍在）
+        assert dialog.table.rowCount() == 2
+        assert dialog.table.item(0, 0).text() == "I01"
+        assert dialog.table.item(0, 1).text() == "香油錢"
+        assert dialog.table.item(0, 3).text() == "停用"
 
-        mock_info.assert_called_once_with(dialog, "成功", "收入項目刪除成功！")
+        mock_info.assert_called_once_with(dialog, "成功", "收入項目停用成功！")
 
 def test_income_dialog_delete_nonexistent_item(qtbot, temp_income_db):
-    """測試刪除不存在的收入項目時跳出錯誤訊息"""
+    """測試停用不存在的收入項目時跳出錯誤訊息"""
     from app.dialogs.income_dialog import IncomeSetupDialog
     import sqlite3
 
@@ -285,7 +294,7 @@ def test_income_dialog_delete_nonexistent_item(qtbot, temp_income_db):
         dialog.delete_income_item()
 
         # 驗證有跳出錯誤訊息
-        mock_warning.assert_called_once_with(dialog, "錯誤", "收入項目不存在，無法刪除！")
+        mock_warning.assert_called_once_with(dialog, "錯誤", "收入項目不存在，無法停用/啟用！")
 
 def test_income_dialog_delete_cancelled(qtbot, temp_income_db):
     """測試使用者選擇「否」後取消刪除收入項目"""
