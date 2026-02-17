@@ -244,9 +244,36 @@ class MainPageWidget(QWidget):
         tab_widget.addTab(base_widget, "基本資料")
 
         # 👉 可擴充其他分頁（例如：安燈紀錄、拜斗紀錄...）
-        for tab_name in ["安燈紀錄", "活動紀錄", "添油香記錄"]:
+        for tab_name in ["安燈紀錄", "活動紀錄"]:
             placeholder = QWidget()
             tab_widget.addTab(placeholder, tab_name)
+
+        donation_tab = QWidget()
+        donation_layout = QVBoxLayout(donation_tab)
+        donation_layout.setContentsMargins(10, 10, 10, 10)
+        donation_layout.setSpacing(8)
+
+        self.donation_summary_label = QLabel("添油香記錄：尚未選取信眾")
+        donation_layout.addWidget(self.donation_summary_label)
+
+        self.donation_table = QTableWidget()
+        self.donation_table.setColumnCount(6)
+        self.donation_table.setHorizontalHeaderLabels(["日期", "收據號碼", "項目", "金額", "經手人", "備註"])
+        self.donation_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.donation_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.donation_table.setTextElideMode(Qt.ElideNone)
+        self.donation_table.setWordWrap(False)
+        self.donation_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.donation_table.horizontalHeader().setStretchLastSection(True)
+        self.donation_table.setColumnWidth(0, 120)  # 日期
+        self.donation_table.setColumnWidth(1, 140)  # 收據號碼
+        self.donation_table.setColumnWidth(2, 180)  # 項目
+        self.donation_table.setColumnWidth(3, 110)  # 金額
+        self.donation_table.setColumnWidth(4, 120)  # 經手人
+        self.donation_table.setColumnWidth(5, 280)  # 備註
+        donation_layout.addWidget(self.donation_table)
+
+        tab_widget.addTab(donation_tab, "添油香記錄")
 
         splitter.addWidget(tab_widget)
         layout.addWidget(splitter)
@@ -728,6 +755,48 @@ class MainPageWidget(QWidget):
         set_text("聯絡地址：", p.get("address", "") or "")
         set_text("郵遞區號：", p.get("zip_code", "") or "")
         set_text("備註說明：", p.get("note", "") or "")
+        self._refresh_donation_records(p)
+
+    def _refresh_donation_records(self, person: dict):
+        if not hasattr(self, "donation_table"):
+            return
+        person_id = str(person.get("id") or "")
+        name = person.get("name", "") or ""
+        if not person_id:
+            self.donation_summary_label.setText("添油香記錄：尚未選取信眾")
+            self.donation_table.setRowCount(0)
+            return
+
+        rows = self.controller.get_income_transactions_by_person(person_id)
+        self.donation_table.setRowCount(len(rows))
+        total_amount = 0.0
+        for tx in rows:
+            try:
+                total_amount += float(tx.get("amount") or 0)
+            except (TypeError, ValueError):
+                continue
+        self.donation_summary_label.setText(
+            f"添油香記錄：{name}（共 {len(rows)} 筆，總額 {total_amount:,.0f} 元）"
+        )
+
+        for r, tx in enumerate(rows):
+            self.donation_table.setItem(r, 0, QTableWidgetItem(self._fmt_date_text(tx.get("date", "") or "")))
+            self.donation_table.setItem(r, 1, QTableWidgetItem(tx.get("receipt_number", "") or ""))
+            self.donation_table.setItem(r, 2, QTableWidgetItem(tx.get("category_name", "") or ""))
+            amount = tx.get("amount")
+            if amount is None:
+                amount_text = ""
+            else:
+                try:
+                    amount_text = f"{float(amount):,.0f}"
+                except (TypeError, ValueError):
+                    amount_text = str(amount)
+            self.donation_table.setItem(r, 3, QTableWidgetItem(amount_text))
+            self.donation_table.setItem(r, 4, QTableWidgetItem(tx.get("handler", "") or ""))
+            note = tx.get("note", "") or ""
+            note_item = QTableWidgetItem(note)
+            note_item.setToolTip(note)
+            self.donation_table.setItem(r, 5, note_item)
     
     
 

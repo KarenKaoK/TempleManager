@@ -2402,6 +2402,30 @@ class AppController:
         cursor.execute(query, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_income_transactions_by_person(self, person_id: str) -> List[Dict]:
+        """依信眾取得添油香（收入）交易紀錄。"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                t.id,
+                t.date,
+                t.category_id,
+                t.category_name,
+                t.amount,
+                t.handler,
+                t.receipt_number,
+                t.note
+            FROM transactions t
+            WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
+              AND t.type = 'income'
+              AND t.payer_person_id = ?
+            ORDER BY t.date DESC, t.created_at DESC
+            """,
+            (person_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
     def _period_expr(self, granularity: str) -> str:
         g = (granularity or "").strip().lower()
         if g == "day":
