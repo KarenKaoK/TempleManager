@@ -85,7 +85,8 @@ class MainPageWidget(QWidget):
 
         self.household_table.setTextElideMode(Qt.ElideNone)
         self.household_table.setWordWrap(False)
-        self.household_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.household_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.household_table.verticalHeader().setDefaultSectionSize(32)
 
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
 
@@ -134,7 +135,8 @@ class MainPageWidget(QWidget):
 
         self.member_table.setTextElideMode(Qt.ElideNone)
         self.member_table.setWordWrap(False)
-        self.member_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.member_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.member_table.verticalHeader().setDefaultSectionSize(32)
 
         self.member_table.cellClicked.connect(self.on_member_row_clicked)
         left_inner.addWidget(self.member_table)

@@ -91,9 +91,9 @@ class BasePersonDialog(QDialog):
 
         # row 3
         form.addWidget(QLabel("手機號碼："), 3, 0)
-        form.addWidget(self.phone_home_input, 3, 1)
+        form.addWidget(self.phone_mobile_input, 3, 1)
         form.addWidget(QLabel("聯絡電話："), 3, 2)
-        form.addWidget(self.phone_mobile_input, 3, 3)
+        form.addWidget(self.phone_home_input, 3, 3)
 
         # row 4
         form.addWidget(QLabel("地址："), 4, 0)

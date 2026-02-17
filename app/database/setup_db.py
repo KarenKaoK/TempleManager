@@ -171,6 +171,7 @@ def create_people_table(db_name=DB_NAME):
         lunar_is_leap INTEGER DEFAULT 0,               -- 0/1
         birth_time TEXT,
         age INTEGER,
+        age_offset INTEGER DEFAULT 0,                  -- 手動校正值（顯示年齡 = 自動年齡 + age_offset）
         zodiac TEXT,
 
         -- 聯絡資訊
