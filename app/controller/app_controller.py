@@ -17,6 +17,7 @@ class AppController:
     def __init__(self, db_path=DB_NAME):
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
+        self._ensure_security_schema()
 
     # -------------------------
     # Helpers 
@@ -26,6 +27,227 @@ class AppController:
     
     def _now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _column_exists(self, table: str, column: str) -> bool:
+        cur = self.conn.cursor()
+        cur.execute(f"PRAGMA table_info({table})")
+        return any(r[1] == column for r in cur.fetchall())
+
+    def _ensure_security_schema(self):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS security_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_username TEXT NOT NULL,
+                action TEXT NOT NULL,
+                target_username TEXT,
+                detail TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        if not self._column_exists("users", "must_change_password"):
+            cur.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0")
+        if not self._column_exists("users", "password_changed_at"):
+            cur.execute("ALTER TABLE users ADD COLUMN password_changed_at TEXT")
+        if not self._column_exists("users", "is_active"):
+            cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
+        if not self._column_exists("users", "updated_at"):
+            cur.execute("ALTER TABLE users ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
+        if not self._column_exists("users", "last_login_at"):
+            cur.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
+        self._ensure_setting("security/password_reminder_days", "90")
+        self._ensure_setting("security/idle_logout_minutes", "15")
+        self.conn.commit()
+
+    def _ensure_setting(self, key: str, default_value: str):
+        cur = self.conn.cursor()
+        cur.execute("SELECT value FROM app_settings WHERE key=?", (key,))
+        if not cur.fetchone():
+            cur.execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                (key, str(default_value), self._now()),
+            )
+
+    def get_setting(self, key: str, default_value: str = "") -> str:
+        cur = self.conn.cursor()
+        cur.execute("SELECT value FROM app_settings WHERE key=?", (key,))
+        row = cur.fetchone()
+        return str(row[0]) if row and row[0] is not None else str(default_value)
+
+    def set_setting(self, key: str, value: str):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """,
+            (key, str(value), self._now()),
+        )
+        self.conn.commit()
+
+    def get_password_reminder_days(self) -> int:
+        try:
+            return max(0, int(self.get_setting("security/password_reminder_days", "90")))
+        except Exception:
+            return 90
+
+    def get_idle_logout_minutes(self) -> int:
+        try:
+            return max(0, int(self.get_setting("security/idle_logout_minutes", "15")))
+        except Exception:
+            return 15
+
+    def save_security_settings(self, reminder_days: int, idle_minutes: int):
+        self.set_setting("security/password_reminder_days", str(max(0, int(reminder_days))))
+        self.set_setting("security/idle_logout_minutes", str(max(0, int(idle_minutes))))
+
+    def log_security_event(self, actor_username: str, action: str, target_username: Optional[str], detail: str = ""):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO security_logs (actor_username, action, target_username, detail, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (actor_username or "", action or "", target_username, detail or "", self._now()),
+        )
+        self.conn.commit()
+
+    def list_users(self) -> List[Dict]:
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT username, role, COALESCE(is_active, 1) AS is_active,
+                   password_changed_at, created_at, last_login_at
+            FROM users
+            ORDER BY username COLLATE NOCASE ASC
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def create_user_account(self, actor_username: str, username: str, password: str, role: str):
+        username = (username or "").strip()
+        role = (role or "").strip()
+        if not username:
+            raise ValueError("username is required")
+        if len(password or "") < 4:
+            raise ValueError("password is too short")
+        cur = self.conn.cursor()
+        cur.execute("SELECT 1 FROM users WHERE username=?", (username,))
+        if cur.fetchone():
+            raise ValueError("username already exists")
+        import bcrypt
+
+        pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        now = self._now()
+        cur.execute(
+            """
+            INSERT INTO users (id, username, password_hash, role, created_at, updated_at, is_active, password_changed_at, must_change_password)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, 0)
+            """,
+            (self._uuid(), username, pw_hash, role, now, now, now),
+        )
+        self.conn.commit()
+        self.log_security_event(actor_username, "create_user", username, f"role={role}")
+
+    def reset_user_password(self, actor_username: str, target_username: str, new_password: str, mode: str = "manual"):
+        if len(new_password or "") < 4:
+            raise ValueError("password is too short")
+        cur = self.conn.cursor()
+        cur.execute("SELECT username FROM users WHERE username=?", (target_username,))
+        if not cur.fetchone():
+            raise ValueError("target user not found")
+        import bcrypt
+
+        pw_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        now = self._now()
+        cur.execute(
+            """
+            UPDATE users
+            SET password_hash=?, password_changed_at=?, updated_at=?
+            WHERE username=?
+            """,
+            (pw_hash, now, now, target_username),
+        )
+        self.conn.commit()
+        self.log_security_event(actor_username, "reset_password", target_username, f"mode={mode}")
+
+    def toggle_user_active(self, actor_username: str, target_username: str, is_active: bool):
+        cur = self.conn.cursor()
+        cur.execute("SELECT role, COALESCE(is_active,1) FROM users WHERE username=?", (target_username,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("target user not found")
+        target_role = row[0]
+        if not is_active and target_role == "管理員":
+            cur.execute("SELECT COUNT(*) FROM users WHERE role='管理員' AND COALESCE(is_active,1)=1")
+            active_admin_count = int(cur.fetchone()[0] or 0)
+            if active_admin_count <= 1:
+                raise ValueError("至少需要保留一位啟用中的管理員")
+        now = self._now()
+        cur.execute(
+            "UPDATE users SET is_active=?, updated_at=? WHERE username=?",
+            (1 if is_active else 0, now, target_username),
+        )
+        self.conn.commit()
+        action = "enable_user" if is_active else "disable_user"
+        self.log_security_event(actor_username, action, target_username, "")
+
+    def delete_user_account(self, actor_username: str, target_username: str):
+        target_username = (target_username or "").strip()
+        if not target_username:
+            raise ValueError("target user is required")
+        cur = self.conn.cursor()
+        cur.execute("SELECT role FROM users WHERE username=?", (target_username,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("target user not found")
+        target_role = row[0]
+        if target_role == "管理員":
+            cur.execute("SELECT COUNT(*) FROM users WHERE role='管理員'")
+            admin_count = int(cur.fetchone()[0] or 0)
+            if admin_count <= 1:
+                raise ValueError("至少需要保留一位管理員，無法刪除最後一位管理員")
+        cur.execute("DELETE FROM users WHERE username=?", (target_username,))
+        self.conn.commit()
+        self.log_security_event(actor_username, "delete_user", target_username, "")
+
+    def update_last_login(self, username: str):
+        cur = self.conn.cursor()
+        cur.execute("UPDATE users SET last_login_at=?, updated_at=? WHERE username=?", (self._now(), self._now(), username))
+        self.conn.commit()
+
+    def get_password_reminder_message(self, username: str) -> str:
+        days_threshold = self.get_password_reminder_days()
+        if days_threshold <= 0:
+            return ""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT COALESCE(password_changed_at, created_at) AS base_time FROM users WHERE username=?",
+            (username,),
+        )
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return ""
+        try:
+            base = datetime.strptime(str(row[0]), "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return ""
+        days = (datetime.now() - base).days
+        if days >= days_threshold:
+            return f"提醒：此帳號已 {days} 天未變更密碼。"
+        return ""
 
 
     # -------------------------

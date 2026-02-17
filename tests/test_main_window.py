@@ -84,6 +84,20 @@ class FakeFinanceReportDialog:
         self.exec_called = True
 
 
+class FakeAccountManagementDialog:
+    last_instance = None
+
+    def __init__(self, controller, actor_username, parent):
+        self.controller = controller
+        self.actor_username = actor_username
+        self.parent = parent
+        self.exec_called = False
+        FakeAccountManagementDialog.last_instance = self
+
+    def exec_(self):
+        self.exec_called = True
+
+
 # -------------------------
 # Tests
 # -------------------------
@@ -300,4 +314,38 @@ def test_open_finance_report_dialog_blocks_staff(qtbot, monkeypatch):
     qtbot.addWidget(window)
 
     window.open_finance_report_dialog()
+    warn_mock.assert_called_once()
+
+
+def test_admin_can_open_account_management_dialog(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "AccountManagementDialog", FakeAccountManagementDialog)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    window = MainWindow("admin", "管理員", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_account_management_dialog()
+    instance = FakeAccountManagementDialog.last_instance
+    assert instance is not None
+    assert instance.controller is mock_controller
+    assert instance.actor_username == "admin"
+    assert instance.parent is window
+    assert instance.exec_called is True
+
+
+def test_staff_open_account_management_dialog_is_blocked(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    warn_mock = MagicMock()
+    monkeypatch.setattr(main_window_module.QMessageBox, "warning", warn_mock)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    window = MainWindow("staff", "工作人員", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_account_management_dialog()
     warn_mock.assert_called_once()

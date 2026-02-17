@@ -35,9 +35,10 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 - **資料列印**：報名人員資料列印功能
 
 ### 👥 使用者權限
-- **多角色登入**：支援管理員、會計、工作人員（另保留舊角色帳號）
+- **多角色登入**：支援管理員、會計、工作人員
 - **安全登入**：bcrypt 密碼加密保護
 - **權限控制**：依角色限制收支作業、類別維護與停用資料恢復
+- **帳號管理**：僅管理員可新增/重設/停用啟用/刪除帳號，並保留審計紀錄
 
 ### 🔤 UI 與日期規範
 - **全域字體大小切換**：主頁可選擇小/中/大，並套用到各頁面與主要對話框
@@ -102,24 +103,33 @@ python -m app.database.setup_db
 初始化過程會：
 - 建立 `temple.db` SQLite 資料庫
 - 建立所有必要的資料表（users、households、people、activities 等）
-- 建立預設使用者帳號：
-  - **管理員**: `admin` / `admin123`
-  - **會計**: `accountant` / `acc123`
-  - **委員**: `committee` / `com123`
-  - **工作人員**: `staff` / `staff123`
+- 建立安全設定與審計紀錄資料表（`app_settings`、`security_logs`）
+- 不再建立預設三個帳號；首次啟動會引導建立管理員帳號
 
 ### 2. 啟動應用程式
 ```bash
 python -m app.main
 ```
 
+### 2-1. （可選）重建資料庫後搬回既有資料
+若因 schema 調整需刪除重建資料庫，可先備份舊資料再複製回新 DB：
+```bash
+cp app/database/temple.db ./temple_old.db
+rm -f app/database/temple.db
+python -m app.database.setup_db
+python -m app.database.copy_data --source ./temple_old.db --target app/database/temple.db
+rm -rf ./temple_old.db
+```
+如需連 `users` 一併複製，額外加上 `--include-users`。
+
 ### 3. 系統功能導覽
 
 #### 登入系統
-- 使用預設帳號密碼登入
+- 首次啟動若尚未有管理員帳號，會先進入管理員建立流程
 - **UX 優化**：系統登入後會自動進入「信眾資料建檔」頁面，方便快速作業
 - 系統會根據使用者角色顯示相應功能
 - 可於主頁上方切換全域字體大小（小 / 中 / 大）
+- 支援密碼到期提醒（提醒不強制）與閒置自動登出
 
 #### 日期與字體設定
 - 日期欄位統一採用 `YYYY/MM/DD` 格式（例如：`2026/02/16`）
@@ -165,6 +175,12 @@ python -m app.main
 - 支援查看收入明細與支出明細
 - 匯出 Excel 相容 CSV（含摘要、本期收支結餘、完整明細）
 
+**系統管理（僅管理員）**
+- 帳號管理：新增帳號、重設密碼（手動輸入或系統產生臨時密碼）
+- 帳號狀態：停用/啟用、刪除（至少保留一位管理員）
+- 安全設定：密碼提醒天數、閒置自動登出分鐘
+- 審計紀錄：記錄誰在何時對哪個帳號執行重設/刪除/停用等操作
+
 ### 4. 角色權限與停用規則
 
 #### 角色定義
@@ -180,6 +196,11 @@ python -m app.main
 #### 財務會計（彙整報表）
 - 管理員：可查看摘要與明細、可匯出。
 - 會計：可查看摘要與明細、可匯出。
+- 工作人員：不可使用。
+
+#### 系統管理（帳號管理）
+- 管理員：可新增、重設密碼、停用/啟用、刪除帳號與調整安全設定。
+- 會計：不可使用。
 - 工作人員：不可使用。
 
 #### 類別設定：收入/支出項目建檔
@@ -294,9 +315,11 @@ TempleManager/
 │   │   └── app_controller.py
 │   ├── database/
 │   │   ├── __init__.py
+│   │   ├── copy_data.py
 │   │   └── setup_db.py
 │   ├── dialogs/
 │   │   ├── __init__.py
+│   │   ├── account_management_dialog.py
 │   │   ├── activity_edit_dialog.py
 │   │   ├── activity_signup_edit_dialog.py
 │   │   ├── base_person_dialog.py
@@ -339,6 +362,7 @@ TempleManager/
 │   ├── test_app_controller.py
 │   ├── test_database.py
 │   ├── test_date_utils.py
+│   ├── test_account_security.py
 │   ├── test_expense_dialog.py
 │   ├── test_finance_report_controller.py
 │   ├── test_household_people_controller.py
@@ -500,13 +524,13 @@ pytest
 ## 常見問題
 
 ### Q: 如何重置資料庫？
-A: 刪除 `temple.db` 檔案，然後重新執行 `python -m app.database.setup_db`
+A: 刪除 `app/database/temple.db`，再執行 `python -m app.database.setup_db`
 
 ### Q: 忘記管理員密碼怎麼辦？
-A: 可以透過資料庫工具直接修改 `users` 表中的 `password_hash` 欄位，或重新初始化資料庫
+A: 可由其他管理員在「系統管理 -> 帳號管理」執行重設密碼；若系統中已無可登入管理員，請先備份資料庫後重建並重新建立管理員帳號。
 
 ### Q: 如何備份資料？
-A: 直接複製 `temple.db` 檔案即可完成資料備份
+A: 直接複製 `app/database/temple.db` 檔案即可完成資料備份
 
 ### Q: 系統支援哪些作業系統？
 A: 支援 Windows、macOS、Linux 等所有支援 Python 和 PyQt5 的作業系統
