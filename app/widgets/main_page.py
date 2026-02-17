@@ -175,11 +175,26 @@ class MainPageWidget(QWidget):
 
         # 詳情表單分頁（右側）
         tab_widget = QTabWidget()
+        tab_widget.setMinimumWidth(600)
 
         # ➤ 基本資料頁籤內容（改為符合圖示布局）
         base_form = QGridLayout()
-        base_form.setSpacing(6)
+        base_form.setSpacing(8)
+        base_form.setVerticalSpacing(10)
         base_form.setContentsMargins(10, 10, 10, 10)
+        # 避免中文標籤（如「農曆生日」）在大字體下被截斷
+        base_form.setColumnMinimumWidth(0, 96)   # 左側標籤
+        base_form.setColumnMinimumWidth(1, 180)  # 左側輸入
+        base_form.setColumnMinimumWidth(2, 96)   # 中間標籤
+        base_form.setColumnMinimumWidth(3, 180)  # 中間輸入
+        base_form.setColumnMinimumWidth(4, 96)   # 右側標籤
+        base_form.setColumnMinimumWidth(5, 140)  # 右側輸入
+        base_form.setColumnStretch(0, 0)
+        base_form.setColumnStretch(1, 3)
+        base_form.setColumnStretch(2, 0)
+        base_form.setColumnStretch(3, 3)
+        base_form.setColumnStretch(4, 0)
+        base_form.setColumnStretch(5, 2)
 
         entries = [
             ("姓名：", 0, 0), ("性別：", 0, 2), 
@@ -192,32 +207,35 @@ class MainPageWidget(QWidget):
 
 
         for label, row, col in entries:
-            base_form.addWidget(QLabel(label), row, col)
+            label_widget = QLabel(label)
+            label_widget.setMinimumWidth(90)
+            label_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+            base_form.addWidget(label_widget, row, col)
 
         self.fields = {}  #
         for label, row, col in entries:
             if label == "備註說明：":
                 widget = QTextEdit()
                 widget.setReadOnly(True)  # 設為唯讀
+                widget.setMinimumHeight(90)
                 base_form.addWidget(widget, row, col + 1, 1, 5)
             elif label == "聯絡地址：":
                 widget = QLineEdit()
                 widget.setReadOnly(True)  # 設為唯讀
+                widget.setMinimumHeight(34)
                 base_form.addWidget(widget, row, col + 1, 1, 5)
 
             else:
                 widget = QLineEdit()
                 widget.setReadOnly(True)  # 設為唯讀
-                # 只針對 row1(生日列) / row3(電話列) 加長：讓 input 跨兩欄
-                if row in (1, 3):
-                    base_form.addWidget(widget, row, col + 1, 1, 2)  # 從 col+1 開始，跨 2 欄
-                else:
-                    base_form.addWidget(widget, row, col + 1)
+                widget.setMinimumHeight(34)  # 避免大字體時內容被裁切
+                # 不使用跨欄，避免壓到右側標籤（曾造成「農曆生日」只剩冒號）
+                base_form.addWidget(widget, row, col + 1)
             self.fields[label] = widget
 
         base_widget = QWidget()
         base_widget.setLayout(base_form)
-        base_widget.setMinimumWidth(500)
+        # base_widget.setMinimumWidth(500)
         base_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         for label, widget in self.fields.items():
             if isinstance(widget, QLineEdit):
@@ -235,12 +253,12 @@ class MainPageWidget(QWidget):
 
         splitter.setChildrenCollapsible(False)
 
-        # 左:右 = 40:60
-        splitter.setStretchFactor(0, 40)
-        splitter.setStretchFactor(1, 60)
+        # 左:右 接近 1:1（較接近實際操作需求）
+        splitter.setStretchFactor(0, 50)
+        splitter.setStretchFactor(1, 50)
 
-        # 初始寬度比例（可調整）
-        splitter.setSizes([900, 400])
+        # 初始寬度比例（會覆蓋 stretch 的初始效果，因此需同步調整）
+        splitter.setSizes([860, 860])
 
         layout.setStretchFactor(household_group, 55)  # 上：戶長表格
         layout.setStretchFactor(splitter, 45)         # 下：成員+詳情
