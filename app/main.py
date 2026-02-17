@@ -212,6 +212,21 @@ def run_app():
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
             height: 0px;
         }
+        QScrollBar:horizontal {
+            height: 10px;
+            background: transparent;
+        }
+        QScrollBar::handle:horizontal {
+            background: #D6CFC6;
+            border-radius: 4px;
+            min-width: 30px;
+        }
+        QScrollBar::handle:horizontal:hover {
+            background: #C0B8AE;
+        }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            width: 0px;
+        }
     """)
     app.font_manager = GlobalFontManager(app)
 

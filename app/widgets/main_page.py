@@ -2,7 +2,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
     QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout,
     QComboBox,
-    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView
+    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView,
+    QAbstractScrollArea
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -59,6 +60,7 @@ class MainPageWidget(QWidget):
         # 戶長表格
         # self.household_table = QTableWidget() # AutoResizingTableWidget 代替，已經繼承 QTableWidget
         self.household_table = AutoResizingTableWidget()
+        self.household_table.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
         self.household_table.setColumnCount(12)
         self.household_table.setHorizontalHeaderLabels([
             "類型", "姓名", "性別", "國曆生日", "農曆生日", "時辰", "生肖", "年齡",
@@ -66,7 +68,7 @@ class MainPageWidget(QWidget):
         ])
         
         header = self.household_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
         header.resizeSection(0, 50) # 類型
         header.resizeSection(1, 100) # 姓名
         header.resizeSection(2, 50) # 性別
@@ -79,9 +81,12 @@ class MainPageWidget(QWidget):
         header.resizeSection(8, 130) # 聯絡電話
         header.resizeSection(9, 130) # 手機號碼
         header.resizeSection(10, 380)
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
 
-        self.household_table.setTextElideMode(Qt.ElideRight)
+        self.household_table.setTextElideMode(Qt.ElideNone)
+        self.household_table.setWordWrap(False)
+        self.household_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.household_table.verticalHeader().setDefaultSectionSize(32)
 
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
 
@@ -106,6 +111,7 @@ class MainPageWidget(QWidget):
 
         # self.member_table = QTableWidget()
         self.member_table = AutoResizingTableWidget()
+        self.member_table.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
         self.member_table.setColumnCount(11)
         self.member_table.setHorizontalHeaderLabels([
             "姓名", "性別", "國曆生日", "農曆生日", "時辰", "生肖", "年齡",
@@ -113,7 +119,7 @@ class MainPageWidget(QWidget):
         ])
 
         header = self.member_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
 
         header.resizeSection(1, 50) # 性別
         header.resizeSection(2, 100) # 國曆生日
@@ -125,9 +131,12 @@ class MainPageWidget(QWidget):
         header.resizeSection(7, 130) # 聯絡電話
         header.resizeSection(8, 130) # 手機號碼
         header.resizeSection(9, 380)
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
 
-        self.member_table.setTextElideMode(Qt.ElideRight)
+        self.member_table.setTextElideMode(Qt.ElideNone)
+        self.member_table.setWordWrap(False)
+        self.member_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.member_table.verticalHeader().setDefaultSectionSize(32)
 
         self.member_table.cellClicked.connect(self.on_member_row_clicked)
         left_inner.addWidget(self.member_table)
@@ -175,11 +184,26 @@ class MainPageWidget(QWidget):
 
         # 詳情表單分頁（右側）
         tab_widget = QTabWidget()
+        tab_widget.setMinimumWidth(600)
 
         # ➤ 基本資料頁籤內容（改為符合圖示布局）
         base_form = QGridLayout()
-        base_form.setSpacing(6)
+        base_form.setSpacing(8)
+        base_form.setVerticalSpacing(10)
         base_form.setContentsMargins(10, 10, 10, 10)
+        # 避免中文標籤（如「農曆生日」）在大字體下被截斷
+        base_form.setColumnMinimumWidth(0, 96)   # 左側標籤
+        base_form.setColumnMinimumWidth(1, 180)  # 左側輸入
+        base_form.setColumnMinimumWidth(2, 96)   # 中間標籤
+        base_form.setColumnMinimumWidth(3, 180)  # 中間輸入
+        base_form.setColumnMinimumWidth(4, 96)   # 右側標籤
+        base_form.setColumnMinimumWidth(5, 140)  # 右側輸入
+        base_form.setColumnStretch(0, 0)
+        base_form.setColumnStretch(1, 3)
+        base_form.setColumnStretch(2, 0)
+        base_form.setColumnStretch(3, 3)
+        base_form.setColumnStretch(4, 0)
+        base_form.setColumnStretch(5, 2)
 
         entries = [
             ("姓名：", 0, 0), ("性別：", 0, 2), 
@@ -192,32 +216,35 @@ class MainPageWidget(QWidget):
 
 
         for label, row, col in entries:
-            base_form.addWidget(QLabel(label), row, col)
+            label_widget = QLabel(label)
+            label_widget.setMinimumWidth(90)
+            label_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+            base_form.addWidget(label_widget, row, col)
 
         self.fields = {}  #
         for label, row, col in entries:
             if label == "備註說明：":
                 widget = QTextEdit()
                 widget.setReadOnly(True)  # 設為唯讀
+                widget.setMinimumHeight(90)
                 base_form.addWidget(widget, row, col + 1, 1, 5)
             elif label == "聯絡地址：":
                 widget = QLineEdit()
                 widget.setReadOnly(True)  # 設為唯讀
+                widget.setMinimumHeight(34)
                 base_form.addWidget(widget, row, col + 1, 1, 5)
 
             else:
                 widget = QLineEdit()
                 widget.setReadOnly(True)  # 設為唯讀
-                # 只針對 row1(生日列) / row3(電話列) 加長：讓 input 跨兩欄
-                if row in (1, 3):
-                    base_form.addWidget(widget, row, col + 1, 1, 2)  # 從 col+1 開始，跨 2 欄
-                else:
-                    base_form.addWidget(widget, row, col + 1)
+                widget.setMinimumHeight(34)  # 避免大字體時內容被裁切
+                # 不使用跨欄，避免壓到右側標籤（曾造成「農曆生日」只剩冒號）
+                base_form.addWidget(widget, row, col + 1)
             self.fields[label] = widget
 
         base_widget = QWidget()
         base_widget.setLayout(base_form)
-        base_widget.setMinimumWidth(500)
+        # base_widget.setMinimumWidth(500)
         base_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         for label, widget in self.fields.items():
             if isinstance(widget, QLineEdit):
@@ -226,21 +253,48 @@ class MainPageWidget(QWidget):
         tab_widget.addTab(base_widget, "基本資料")
 
         # 👉 可擴充其他分頁（例如：安燈紀錄、拜斗紀錄...）
-        for tab_name in ["安燈紀錄", "活動紀錄", "添油香記錄"]:
+        for tab_name in ["安燈紀錄", "活動紀錄"]:
             placeholder = QWidget()
             tab_widget.addTab(placeholder, tab_name)
+
+        donation_tab = QWidget()
+        donation_layout = QVBoxLayout(donation_tab)
+        donation_layout.setContentsMargins(10, 10, 10, 10)
+        donation_layout.setSpacing(8)
+
+        self.donation_summary_label = QLabel("添油香記錄：尚未選取信眾")
+        donation_layout.addWidget(self.donation_summary_label)
+
+        self.donation_table = QTableWidget()
+        self.donation_table.setColumnCount(6)
+        self.donation_table.setHorizontalHeaderLabels(["日期", "收據號碼", "項目", "金額", "經手人", "備註"])
+        self.donation_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.donation_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.donation_table.setTextElideMode(Qt.ElideNone)
+        self.donation_table.setWordWrap(False)
+        self.donation_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.donation_table.horizontalHeader().setStretchLastSection(True)
+        self.donation_table.setColumnWidth(0, 120)  # 日期
+        self.donation_table.setColumnWidth(1, 140)  # 收據號碼
+        self.donation_table.setColumnWidth(2, 180)  # 項目
+        self.donation_table.setColumnWidth(3, 110)  # 金額
+        self.donation_table.setColumnWidth(4, 120)  # 經手人
+        self.donation_table.setColumnWidth(5, 280)  # 備註
+        donation_layout.addWidget(self.donation_table)
+
+        tab_widget.addTab(donation_tab, "添油香記錄")
 
         splitter.addWidget(tab_widget)
         layout.addWidget(splitter)
 
         splitter.setChildrenCollapsible(False)
 
-        # 左:右 = 40:60
-        splitter.setStretchFactor(0, 40)
-        splitter.setStretchFactor(1, 60)
+        # 左:右 接近 1:1（較接近實際操作需求）
+        splitter.setStretchFactor(0, 50)
+        splitter.setStretchFactor(1, 50)
 
-        # 初始寬度比例（可調整）
-        splitter.setSizes([900, 400])
+        # 初始寬度比例（會覆蓋 stretch 的初始效果，因此需同步調整）
+        splitter.setSizes([860, 860])
 
         layout.setStretchFactor(household_group, 55)  # 上：戶長表格
         layout.setStretchFactor(splitter, 45)         # 下：成員+詳情
@@ -565,6 +619,7 @@ class MainPageWidget(QWidget):
             note_item = QTableWidgetItem(note)
             note_item.setToolTip(note)
             self.household_table.setItem(r, 11, note_item)
+        self.household_table.resizeColumnsToContents()
 
 
 
@@ -656,6 +711,7 @@ class MainPageWidget(QWidget):
             note_item = QTableWidgetItem(note)
             note_item.setToolTip(note)
             self.member_table.setItem(r, 10, note_item)
+        self.member_table.resizeColumnsToContents()
 
     def on_member_row_clicked(self, row, col):
         """
@@ -710,6 +766,48 @@ class MainPageWidget(QWidget):
         set_text("聯絡地址：", p.get("address", "") or "")
         set_text("郵遞區號：", p.get("zip_code", "") or "")
         set_text("備註說明：", p.get("note", "") or "")
+        self._refresh_donation_records(p)
+
+    def _refresh_donation_records(self, person: dict):
+        if not hasattr(self, "donation_table"):
+            return
+        person_id = str(person.get("id") or "")
+        name = person.get("name", "") or ""
+        if not person_id:
+            self.donation_summary_label.setText("添油香記錄：尚未選取信眾")
+            self.donation_table.setRowCount(0)
+            return
+
+        rows = self.controller.get_income_transactions_by_person(person_id)
+        self.donation_table.setRowCount(len(rows))
+        total_amount = 0.0
+        for tx in rows:
+            try:
+                total_amount += float(tx.get("amount") or 0)
+            except (TypeError, ValueError):
+                continue
+        self.donation_summary_label.setText(
+            f"添油香記錄：{name}（共 {len(rows)} 筆，總額 {total_amount:,.0f} 元）"
+        )
+
+        for r, tx in enumerate(rows):
+            self.donation_table.setItem(r, 0, QTableWidgetItem(self._fmt_date_text(tx.get("date", "") or "")))
+            self.donation_table.setItem(r, 1, QTableWidgetItem(tx.get("receipt_number", "") or ""))
+            self.donation_table.setItem(r, 2, QTableWidgetItem(tx.get("category_name", "") or ""))
+            amount = tx.get("amount")
+            if amount is None:
+                amount_text = ""
+            else:
+                try:
+                    amount_text = f"{float(amount):,.0f}"
+                except (TypeError, ValueError):
+                    amount_text = str(amount)
+            self.donation_table.setItem(r, 3, QTableWidgetItem(amount_text))
+            self.donation_table.setItem(r, 4, QTableWidgetItem(tx.get("handler", "") or ""))
+            note = tx.get("note", "") or ""
+            note_item = QTableWidgetItem(note)
+            note_item.setToolTip(note)
+            self.donation_table.setItem(r, 5, note_item)
     
     
 
@@ -736,7 +834,11 @@ class MainPageWidget(QWidget):
 
             try:
                 self.controller.create_people(head_person_id, member_data)
-                self._load_household(self.selected_household_id, head_person_id)
+                # 新增後需要同步刷新上方「信眾戶長戶員資料」與下方明細
+                self.refresh_all_panels(
+                    select_household_id=self.selected_household_id,
+                    select_head_person_id=head_person_id
+                )
 
             except Exception as e:
                 QMessageBox.critical(self, "❌ 錯誤", f"新增成員時發生錯誤：{e}")

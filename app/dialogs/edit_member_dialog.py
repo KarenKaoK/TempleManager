@@ -29,6 +29,8 @@ class EditMemberDialog(BasePersonDialog):
         self.birthday_lunar_input.setText(normalize_ymd_text(p.get("birthday_lunar", "")))
         self.lunar_leap_checkbox.setChecked(bool(p.get("lunar_is_leap", 0)))
         self.birth_time_input.setCurrentText(p.get("birth_time", "子"))
+        self.age_input.setText("" if p.get("age") is None else str(p.get("age")))
+        self.zodiac_input.setText(str(p.get("zodiac", "") or ""))
         self.phone_home_input.setText(p.get("phone_home", ""))
         self.phone_mobile_input.setText(p.get("phone_mobile", ""))
         self.address_input.setText(p.get("address", ""))

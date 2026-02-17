@@ -4,7 +4,7 @@ import locale
 import sqlite3
 from typing import Tuple, Optional,  List, Dict, Any
 
-from datetime import datetime
+from datetime import datetime, date
 
 
 from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
@@ -18,6 +18,7 @@ class AppController:
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self._ensure_security_schema()
+        self._ensure_people_schema()
 
     # -------------------------
     # Helpers 
@@ -32,6 +33,59 @@ class AppController:
         cur = self.conn.cursor()
         cur.execute(f"PRAGMA table_info({table})")
         return any(r[1] == column for r in cur.fetchall())
+
+    def _table_exists(self, table: str) -> bool:
+        cur = self.conn.cursor()
+        row = cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        return bool(row)
+
+    @staticmethod
+    def _parse_ymd_to_date(text: Optional[str]) -> Optional[date]:
+        s = (text or "").strip()
+        if not s:
+            return None
+        s = s.replace("-", "/")
+        try:
+            return datetime.strptime(s, "%Y/%m/%d").date()
+        except Exception:
+            return None
+
+    def _calc_age_by_birthday(self, birthday_text: Optional[str]) -> Optional[int]:
+        birthday = self._parse_ymd_to_date(birthday_text)
+        if not birthday:
+            return None
+        today = date.today()
+        age = today.year - birthday.year
+        if (today.month, today.day) < (birthday.month, birthday.day):
+            age -= 1
+        return max(0, age)
+
+    def _derive_age_offset(self, birthday_text: Optional[str], input_age: Any) -> Optional[int]:
+        if input_age in (None, ""):
+            return None
+        try:
+            age_value = int(str(input_age).strip())
+        except Exception:
+            return None
+        auto_age = self._calc_age_by_birthday(birthday_text)
+        if auto_age is None:
+            return 0
+        return age_value - auto_age
+
+    def _apply_effective_age(self, person: Dict[str, Any]) -> Dict[str, Any]:
+        data = dict(person)
+        auto_age = self._calc_age_by_birthday(data.get("birthday_ad"))
+        if auto_age is None:
+            return data
+        try:
+            offset = int(data.get("age_offset") or 0)
+        except Exception:
+            offset = 0
+        data["age"] = max(0, auto_age + offset)
+        return data
 
     def _ensure_security_schema(self):
         cur = self.conn.cursor()
@@ -69,6 +123,14 @@ class AppController:
         self._ensure_setting("security/password_reminder_days", "90")
         self._ensure_setting("security/idle_logout_minutes", "15")
         self.conn.commit()
+
+    def _ensure_people_schema(self):
+        if not self._table_exists("people"):
+            return
+        cur = self.conn.cursor()
+        if not self._column_exists("people", "age_offset"):
+            cur.execute("ALTER TABLE people ADD COLUMN age_offset INTEGER DEFAULT 0")
+            self.conn.commit()
 
     def _ensure_setting(self, key: str, default_value: str):
         cur = self.conn.cursor()
@@ -346,13 +408,16 @@ class AppController:
         }
 
         # 選填欄位：payload 有帶、且不是空字串/None 才寫入
-        optional_cols = {"phone_home", "zip_code", "note"}
+        optional_cols = {"phone_home", "zip_code", "note", "lunar_is_leap", "zodiac"}
         for col in optional_cols:
             v = person_payload.get(col, None)
             if isinstance(v, str):
                 v = v.strip()
             if v not in (None, ""):
                 data[col] = v
+        age_offset = self._derive_age_offset(cleaned_required["birthday_ad"], person_payload.get("age"))
+        if age_offset is not None:
+            data["age_offset"] = age_offset
 
         # 3) 寫入 DB
         cur = self.conn.cursor()
@@ -447,7 +512,6 @@ class AppController:
             "zip_code",
             "note",
             "lunar_is_leap",
-            "age",
             "zodiac",
         }
         for col in optional_cols:
@@ -456,6 +520,9 @@ class AppController:
                 v = v.strip()
             if v not in (None, ""):
                 data[col] = v
+        age_offset = self._derive_age_offset(cleaned_required["birthday_ad"], person_payload.get("age"))
+        if age_offset is not None:
+            data["age_offset"] = age_offset
 
         # 4) 寫入 DB
         keys = list(data.keys())
@@ -515,6 +582,7 @@ class AppController:
             p.birth_time,
             p.zodiac,
             p.age,
+            p.age_offset,
             p.phone_home,
             p.phone_mobile,
             p.address,
@@ -548,13 +616,13 @@ class AppController:
                 "birth_time": r[7],
                 "zodiac": r[8],
                 "age": r[9],
-                "phone_home": r[10],
-                "phone_mobile": r[11],
-                "address": r[12],
-                "note": r[13],
+                "age_offset": r[10],
+                "phone_home": r[11],
+                "phone_mobile": r[12],
+                "address": r[13],
+                "note": r[14],
             })
-
-        return result
+        return [self._apply_effective_age(x) for x in result]
 
 
     def list_people_by_household(self, household_id: str, status: str = "ACTIVE") -> List[Dict]:
@@ -592,6 +660,7 @@ class AppController:
             lunar_is_leap,
             birth_time,
             age,
+            age_offset,
             zodiac,
             phone_home,
             phone_mobile,
@@ -626,16 +695,16 @@ class AppController:
                 "lunar_is_leap": r[8],
                 "birth_time": r[9],
                 "age": r[10],
-                "zodiac": r[11],
-                "phone_home": r[12],
-                "phone_mobile": r[13],
-                "address": r[14],
-                "zip_code": r[15],
-                "note": r[16],
-                "joined_at": r[17],
+                "age_offset": r[11],
+                "zodiac": r[12],
+                "phone_home": r[13],
+                "phone_mobile": r[14],
+                "address": r[15],
+                "zip_code": r[16],
+                "note": r[17],
+                "joined_at": r[18],
             })
-
-        return result
+        return [self._apply_effective_age(x) for x in result]
 
     def update_person(self, person_id: str, payload: Dict[str, Any]) -> int:
 
@@ -654,6 +723,9 @@ class AppController:
             "birthday_lunar",
             "lunar_is_leap",
             "birth_time",
+            "age",
+            "age_offset",
+            "zodiac",
             "phone_home",
             "phone_mobile",
             "address",
@@ -667,7 +739,17 @@ class AppController:
         if payload is None or not isinstance(payload, dict):
             raise ValueError("payload must be a dict")
 
-        # 1) 過濾出允許更新的欄位
+        # 1) 先確認 person 存在（同時拿既有生日，供年齡校正計算）
+        cur = self.conn.cursor()
+        existing = cur.execute(
+            "SELECT birthday_ad, phone_home, phone_mobile FROM people WHERE id = ?",
+            (person_id,),
+        ).fetchone()
+        if not existing:
+            raise ValueError("person not found")
+        existing_birthday_ad = existing[0]
+
+        # 2) 過濾出允許更新的欄位
         updates: Dict[str, Any] = {}
         for k, v in payload.items():
             if k not in UPDATABLE_FIELDS:
@@ -677,8 +759,8 @@ class AppController:
             if isinstance(v, str):
                 v = v.strip()
 
-            # 你也可以選擇：不允許把欄位更新成空字串
-            if v == "":
+            # 預設空字串視為「不更新」；但電話欄位允許清空
+            if v == "" and k not in {"phone_mobile", "phone_home"}:
                 continue
 
             # lunar_is_leap 建議確保是 0/1（但不強制也可）
@@ -690,16 +772,28 @@ class AppController:
                 if v not in (0, 1):
                     raise ValueError("lunar_is_leap must be 0 or 1")
 
+            if k == "age" and v not in (None, ""):
+                try:
+                    v = int(v)
+                except Exception:
+                    raise ValueError("age must be an integer")
+                if v < 0 or v > 150:
+                    raise ValueError("age must be between 0 and 150")
+                birthday_for_age = payload.get("birthday_ad", existing_birthday_ad)
+                offset = self._derive_age_offset(birthday_for_age, v)
+                updates["age_offset"] = 0 if offset is None else int(offset)
+
             updates[k] = v
 
         if not updates:
             raise ValueError("no updatable fields in payload")
 
-        # 2) 先確認 person 存在（避免 rowcount=0 你不好判斷）
-        cur = self.conn.cursor()
-        exists = cur.execute("SELECT 1 FROM people WHERE id = ?", (person_id,)).fetchone()
-        if not exists:
-            raise ValueError("person not found")
+        # 2.5) 電話規則：聯絡電話/手機號碼至少一個有值
+        if "phone_mobile" in updates or "phone_home" in updates:
+            new_mobile = updates["phone_mobile"] if "phone_mobile" in updates else (existing["phone_mobile"] or "")
+            new_home = updates["phone_home"] if "phone_home" in updates else (existing["phone_home"] or "")
+            if not str(new_mobile).strip() and not str(new_home).strip():
+                raise ValueError("聯絡電話與手機號碼不可同時為空，請至少保留一個")
 
         # 3) 組 SQL
         set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
@@ -2387,6 +2481,30 @@ class AppController:
         cursor.execute(query, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_income_transactions_by_person(self, person_id: str) -> List[Dict]:
+        """依信眾取得添油香（收入）交易紀錄。"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                t.id,
+                t.date,
+                t.category_id,
+                t.category_name,
+                t.amount,
+                t.handler,
+                t.receipt_number,
+                t.note
+            FROM transactions t
+            WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
+              AND t.type = 'income'
+              AND t.payer_person_id = ?
+            ORDER BY t.date DESC, t.created_at DESC
+            """,
+            (person_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
     def _period_expr(self, granularity: str) -> str:
         g = (granularity or "").strip().lower()
         if g == "day":
@@ -2556,7 +2674,7 @@ class AppController:
         
         cursor = self.conn.cursor()
         cursor.execute(sql, tuple(params))
-        return [dict(row) for row in cursor.fetchall()]
+        return [self._apply_effective_age(dict(row)) for row in cursor.fetchall()]
 
     def search_people_unified(self, keyword: str) -> List[Dict]:
         """
@@ -2572,8 +2690,7 @@ class AppController:
               AND (name LIKE ? OR phone_mobile LIKE ? OR address LIKE ?)
             ORDER BY joined_at DESC
         """, (kw, kw, kw))
-        
-        return [dict(row) for row in cursor.fetchall()]
+        return [self._apply_effective_age(dict(row)) for row in cursor.fetchall()]
 
     def search_by_any_name(self, keyword: str) -> Tuple[Optional[Dict], List[Dict]]:
         """
@@ -2604,7 +2721,7 @@ class AppController:
             LIMIT 1
         """, (household_id,))
         head_row = cursor.fetchone()
-        head_result = dict(head_row) if head_row else None
+        head_result = self._apply_effective_age(dict(head_row)) if head_row else None
         
         # 3) 取得該戶的所有成員
         members = self.list_people_by_household(household_id)
