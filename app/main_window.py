@@ -2,7 +2,8 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QAction, QMessageBox, QWidget, QStackedWidget, QDialog,
     QHBoxLayout, QPushButton, QVBoxLayout, QFrame
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QEvent, QTimer
+import time
 
 from app.dialogs.income_dialog import IncomeSetupDialog
 from app.dialogs.expense_dialog import ExpenseSetupDialog
@@ -14,6 +15,7 @@ from app.widgets.activity_manage_page import ActivityManagePage
 from app.widgets.activity_signup_page import ActivitySignupPage
 from app.dialogs.income_expense_dialog import IncomeExpenseDialog
 from app.dialogs.finance_report_dialog import FinanceReportDialog
+from app.dialogs.account_management_dialog import AccountManagementDialog
 
 class MainWindow(QMainWindow):
     def __init__(self, username, role, controller):
@@ -22,6 +24,8 @@ class MainWindow(QMainWindow):
         self.role = role
         self.controller = controller
         self.font_manager = getattr(QApplication.instance(), "font_manager", None)
+        self._last_activity_ts = time.monotonic()
+        self._idle_filter_installed = False
 
         self.setWindowTitle(f"宮廟管理系統 - {role}")
         self.setGeometry(300, 150, 1000, 700)
@@ -83,6 +87,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self._blank_page)
 
         self.setup_menu()
+        self._setup_idle_logout()
         
         # ✅ 自動進入「信眾資料建檔」（UX 優化）
         self.open_household_entry()
@@ -155,6 +160,12 @@ class MainWindow(QMainWindow):
             self.finance_report_action = QAction("會計彙整報表", self)
             self.finance_report_action.triggered.connect(self.open_finance_report_dialog)
             finance_report_menu.addAction(self.finance_report_action)
+
+        if self._can_manage_accounts():
+            system_menu = menu_bar.addMenu("系統管理")
+            account_action = QAction("帳號管理", self)
+            account_action.triggered.connect(self.open_account_management_dialog)
+            system_menu.addAction(account_action)
 
     # -------------------------
     # Dialogs
@@ -269,12 +280,79 @@ class MainWindow(QMainWindow):
         role = (self.role or "").strip()
         return role in {"管理員", "會計", "會計人員", "管理者"}
 
+    def _can_manage_accounts(self):
+        return (self.role or "").strip() in {"管理員", "管理者"}
+
     def open_finance_report_dialog(self):
         if not self._can_access_finance_report():
             QMessageBox.warning(self, "權限不足", "此功能僅限管理員與會計人員。")
             return
         dialog = FinanceReportDialog(self.controller, self)
         dialog.exec_()
+
+    def open_account_management_dialog(self):
+        if not self._can_manage_accounts():
+            QMessageBox.warning(self, "權限不足", "此功能僅限管理員。")
+            return
+        dialog = AccountManagementDialog(self.controller, self.username, self)
+        dialog.exec_()
+
+    def _setup_idle_logout(self):
+        app = QApplication.instance()
+        if app:
+            app.installEventFilter(self)
+            self._idle_filter_installed = True
+        self._idle_timer = QTimer(self)
+        self._idle_timer.setInterval(30 * 1000)
+        self._idle_timer.timeout.connect(self._check_idle_timeout)
+        self._idle_timer.start()
+
+    def eventFilter(self, obj, event):
+        if event.type() in {
+            QEvent.MouseMove,
+            QEvent.MouseButtonPress,
+            QEvent.MouseButtonRelease,
+            QEvent.KeyPress,
+            QEvent.Wheel,
+            QEvent.TouchBegin,
+            QEvent.TouchUpdate,
+        }:
+            self._last_activity_ts = time.monotonic()
+        return super().eventFilter(obj, event)
+
+    def _check_idle_timeout(self):
+        get_idle = getattr(self.controller, "get_idle_logout_minutes", None)
+        if not callable(get_idle):
+            return
+        try:
+            minutes = int(get_idle())
+        except Exception:
+            return
+        if minutes <= 0:
+            return
+        elapsed = time.monotonic() - self._last_activity_ts
+        if elapsed >= minutes * 60:
+            # 不跳阻塞式彈窗，避免卡住流程與關閉時潛在 crash
+            if hasattr(self, "_idle_timer") and self._idle_timer is not None:
+                self._idle_timer.stop()
+            self._is_logout = True
+            self.close()
+
+    def closeEvent(self, event):
+        # 避免 QApp 持有已銷毀視窗的 event filter，造成關閉時 crash / segmentation fault
+        try:
+            if hasattr(self, "_idle_timer") and self._idle_timer is not None:
+                self._idle_timer.stop()
+        except Exception:
+            pass
+        try:
+            app = QApplication.instance()
+            if app and self._idle_filter_installed:
+                app.removeEventFilter(self)
+                self._idle_filter_installed = False
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     def on_global_font_size_changed(self, label):
         if self.font_manager:

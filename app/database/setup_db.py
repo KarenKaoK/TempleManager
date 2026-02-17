@@ -14,13 +14,59 @@ def create_users_table(db_name=DB_NAME):
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         role TEXT CHECK(role IN {USER_ROLES}) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        is_active INTEGER DEFAULT 1,
+        must_change_password INTEGER DEFAULT 0,
+        password_changed_at TEXT,
+        last_login_at TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
     
     conn.commit()
     conn.close()
     print("✅ `users` 資料表檢查完成（如不存在則建立）")
+
+
+def create_security_tables(db_name=DB_NAME):
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS security_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_username TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target_username TEXT,
+            detail TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('security/password_reminder_days', '90', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('security/idle_logout_minutes', '15', CURRENT_TIMESTAMP)
+        """
+    )
+    conn.commit()
+    conn.close()
+    print("✅ 安全設定與稽核資料表檢查完成")
 
 def create_income_items_table(db_name=DB_NAME):
     """建立 `income_items` 表"""
@@ -332,13 +378,11 @@ def create_activity_signup_plans_table(db_name=DB_NAME):
 if __name__ == "__main__":
     print("🔄 初始化資料庫...")
     create_users_table()
+    create_security_tables()
     create_income_items_table()
     create_expense_items_table()  
     create_member_identity_table()
-    add_default_users()
-
-
-
+    # 第二階段：不再建立預設帳號，改由首次啟動建立管理員
     create_people_table() # 所有人的基本資料表
     create_activities_table() # 活動主檔
     create_activity_plans_table() # 活動方案
