@@ -3,9 +3,11 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QComboBox, QPushButton, QCheckBox, QMessageBox, QWidget
 )
+from PyQt5.QtGui import QIntValidator
 
 from app.utils.date_utils import is_valid_ymd_text, make_ymd_validator
 from app.utils.lunar_solar_converter import solar_to_lunar, lunar_to_solar
+from datetime import datetime, date
 
 class BasePersonDialog(QDialog):
     """
@@ -18,7 +20,7 @@ class BasePersonDialog(QDialog):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
-        self.setFixedSize(600, 420)
+        self.setFixedSize(620, 460)
 
         layout = QVBoxLayout()
         form = QGridLayout()
@@ -45,6 +47,11 @@ class BasePersonDialog(QDialog):
 
         self.birth_time_input = QComboBox()
         self.birth_time_input.addItems(["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥", "吉時"])
+        self.age_input = QLineEdit()
+        self.age_input.setPlaceholderText("自動計算（可手動修改）")
+        self.age_input.setValidator(QIntValidator(0, 150, self))
+        self.zodiac_input = QLineEdit()
+        self.zodiac_input.setPlaceholderText("自動帶入（可手動修改）")
 
         self.phone_home_input = QLineEdit()
         self.phone_mobile_input = QLineEdit()
@@ -98,12 +105,57 @@ class BasePersonDialog(QDialog):
         form.addWidget(QLabel("備註："), 5, 2)
         form.addWidget(self.note_input, 5, 3)
 
+        # row 6
+        form.addWidget(QLabel("年齡："), 6, 0)
+        form.addWidget(self.age_input, 6, 1)
+        form.addWidget(QLabel("生肖："), 6, 2)
+        form.addWidget(self.zodiac_input, 6, 3)
+
         layout.addLayout(form)
         self.setLayout(layout)
 
         # ✅ 綁事件
         self.btn_to_lunar.clicked.connect(self.on_convert_to_lunar_clicked)
         self.btn_to_ad.clicked.connect(self.on_convert_to_ad_clicked)
+        self.birthday_ad_input.editingFinished.connect(self._on_birthday_input_changed)
+        self.birthday_lunar_input.editingFinished.connect(self._on_birthday_input_changed)
+        self.lunar_leap_checkbox.stateChanged.connect(lambda _: self._on_birthday_input_changed())
+
+    @staticmethod
+    def _zodiac_from_year(year: int) -> str:
+        zodiacs = ["鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬"]
+        return zodiacs[(year - 4) % 12]
+
+    @staticmethod
+    def _parse_ymd(text: str):
+        s = (text or "").strip().replace("-", "/")
+        try:
+            return datetime.strptime(s, "%Y/%m/%d").date()
+        except Exception:
+            return None
+
+    def _calc_age(self, birthday: date) -> int:
+        today = date.today()
+        age = today.year - birthday.year
+        if (today.month, today.day) < (birthday.month, birthday.day):
+            age -= 1
+        return max(0, age)
+
+    def _on_birthday_input_changed(self):
+        ad_date = self._parse_ymd(self.birthday_ad_input.text())
+        if ad_date is None:
+            lunar_text = self.birthday_lunar_input.text().strip()
+            if lunar_text and is_valid_ymd_text(lunar_text):
+                try:
+                    ad_text = lunar_to_solar(lunar_text, is_leap=1 if self.lunar_leap_checkbox.isChecked() else 0)
+                    self.birthday_ad_input.setText(ad_text)
+                    ad_date = self._parse_ymd(ad_text)
+                except Exception:
+                    ad_date = None
+        if ad_date is None:
+            return
+        self.age_input.setText(str(self._calc_age(ad_date)))
+        self.zodiac_input.setText(self._zodiac_from_year(ad_date.year))
 
     def _confirm_overwrite(self, field_name: str) -> bool:
         ret = QMessageBox.question(
@@ -136,6 +188,7 @@ class BasePersonDialog(QDialog):
 
         self.birthday_lunar_input.setText(lunar_str)
         self.lunar_leap_checkbox.setChecked(bool(is_leap))
+        self._on_birthday_input_changed()
         QMessageBox.information(self, "完成", "已換算並填入農曆生日")
 
     def on_convert_to_ad_clicked(self):
@@ -160,6 +213,7 @@ class BasePersonDialog(QDialog):
                 return
 
         self.birthday_ad_input.setText(solar_str)
+        self._on_birthday_input_changed()
         QMessageBox.information(self, "完成", "已換算並填入國曆生日")
 
     def _warn_if_inconsistent(self) -> bool:
@@ -204,4 +258,6 @@ class BasePersonDialog(QDialog):
             "address": self.address_input.text().strip(),
             "zip_code": self.zip_code_input.text().strip(),
             "note": self.note_input.text().strip(),
+            "age": self.age_input.text().strip(),
+            "zodiac": self.zodiac_input.text().strip(),
         }

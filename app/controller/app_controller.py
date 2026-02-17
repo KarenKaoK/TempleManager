@@ -346,12 +346,17 @@ class AppController:
         }
 
         # 選填欄位：payload 有帶、且不是空字串/None 才寫入
-        optional_cols = {"phone_home", "zip_code", "note"}
+        optional_cols = {"phone_home", "zip_code", "note", "lunar_is_leap", "age", "zodiac"}
         for col in optional_cols:
             v = person_payload.get(col, None)
             if isinstance(v, str):
                 v = v.strip()
             if v not in (None, ""):
+                if col == "age":
+                    try:
+                        v = int(v)
+                    except Exception:
+                        continue
                 data[col] = v
 
         # 3) 寫入 DB
@@ -654,6 +659,8 @@ class AppController:
             "birthday_lunar",
             "lunar_is_leap",
             "birth_time",
+            "age",
+            "zodiac",
             "phone_home",
             "phone_mobile",
             "address",
@@ -689,6 +696,14 @@ class AppController:
                     raise ValueError("lunar_is_leap must be 0 or 1")
                 if v not in (0, 1):
                     raise ValueError("lunar_is_leap must be 0 or 1")
+
+            if k == "age" and v not in (None, ""):
+                try:
+                    v = int(v)
+                except Exception:
+                    raise ValueError("age must be an integer")
+                if v < 0 or v > 150:
+                    raise ValueError("age must be between 0 and 150")
 
             updates[k] = v
 
