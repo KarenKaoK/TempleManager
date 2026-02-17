@@ -43,6 +43,7 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 ### 🔤 UI 與日期規範
 - **全域字體大小切換**：主頁可選擇小/中/大，並套用到各頁面與主要對話框
 - **日期格式統一**：畫面日期輸入與顯示統一為 `YYYY/MM/DD`
+- **主頁表格可讀性**：信眾戶長/戶員清單支援水平捲動，欄位內容過長時可左右查看
 
 ## 環境需求與安裝
 
@@ -134,6 +135,8 @@ rm -rf ./temple_old.db
 #### 日期與字體設定
 - 日期欄位統一採用 `YYYY/MM/DD` 格式（例如：`2026/02/16`）
 - 字體大小切換後，會同步套用至主頁、功能頁與主要彈窗元件
+- 年齡顯示採「依國曆生日即時計算」，若有人工修正則以校正值（`age_offset`）持續套用於後續年度
+- 修改信眾電話時，聯絡電話與手機號碼至少需保留一個（可清空其中一個）
 
 #### 主要功能選單
 
@@ -262,7 +265,7 @@ rm -rf ./temple_old.db
 
 #### 信眾管理
 - **people**: 個人基本資料
-  - `id`, `name`, `gender`, `birthday_ad`, `birthday_lunar`, `birth_time`, `age`, `zodiac`, `phone_home`, `phone_mobile`, `email`, `address`, `zip_code`, `identity`, `note`, `joined_at`
+  - `id`, `name`, `gender`, `birthday_ad`, `birthday_lunar`, `birth_time`, `age`, `age_offset`, `zodiac`, `phone_home`, `phone_mobile`, `address`, `zip_code`, `note`, `joined_at`
 
 - **households**: 戶長資料
   - `id`, `head_name`, `head_gender`, `head_birthday_ad`, `head_birthday_lunar`, `head_birth_time`, `head_age`, `head_zodiac`, `head_phone_home`, `head_phone_mobile`, `head_email`, `head_address`, `head_zip_code`, `head_identity`, `head_note`, `head_joined_at`, `household_note`
