@@ -823,7 +823,11 @@ class MainPageWidget(QWidget):
 
             try:
                 self.controller.create_people(head_person_id, member_data)
-                self._load_household(self.selected_household_id, head_person_id)
+                # 新增後需要同步刷新上方「信眾戶長戶員資料」與下方明細
+                self.refresh_all_panels(
+                    select_household_id=self.selected_household_id,
+                    select_head_person_id=head_person_id
+                )
 
             except Exception as e:
                 QMessageBox.critical(self, "❌ 錯誤", f"新增成員時發生錯誤：{e}")
