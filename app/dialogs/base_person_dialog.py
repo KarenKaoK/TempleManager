@@ -90,9 +90,9 @@ class BasePersonDialog(QDialog):
         form.addWidget(self.lunar_leap_checkbox, 2, 2, 1, 2)
 
         # row 3
-        form.addWidget(QLabel("聯絡電話："), 3, 0)
+        form.addWidget(QLabel("手機號碼："), 3, 0)
         form.addWidget(self.phone_home_input, 3, 1)
-        form.addWidget(QLabel("手機號碼："), 3, 2)
+        form.addWidget(QLabel("聯絡電話："), 3, 2)
         form.addWidget(self.phone_mobile_input, 3, 3)
 
         # row 4
@@ -100,9 +100,9 @@ class BasePersonDialog(QDialog):
         form.addWidget(self.address_input, 4, 1, 1, 3)
 
         # row 5
-        form.addWidget(QLabel("郵遞區號："), 5, 0)
+        form.addWidget(QLabel("備註："), 5, 0)
         form.addWidget(self.zip_code_input, 5, 1)
-        form.addWidget(QLabel("備註："), 5, 2)
+        form.addWidget(QLabel("郵遞區號："), 5, 2)
         form.addWidget(self.note_input, 5, 3)
 
         # row 6

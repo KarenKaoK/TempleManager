@@ -2,7 +2,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
     QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout,
     QComboBox,
-    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView
+    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView,
+    QAbstractScrollArea
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -59,6 +60,7 @@ class MainPageWidget(QWidget):
         # 戶長表格
         # self.household_table = QTableWidget() # AutoResizingTableWidget 代替，已經繼承 QTableWidget
         self.household_table = AutoResizingTableWidget()
+        self.household_table.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
         self.household_table.setColumnCount(12)
         self.household_table.setHorizontalHeaderLabels([
             "類型", "姓名", "性別", "國曆生日", "農曆生日", "時辰", "生肖", "年齡",
@@ -66,7 +68,7 @@ class MainPageWidget(QWidget):
         ])
         
         header = self.household_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
         header.resizeSection(0, 50) # 類型
         header.resizeSection(1, 100) # 姓名
         header.resizeSection(2, 50) # 性別
@@ -79,9 +81,11 @@ class MainPageWidget(QWidget):
         header.resizeSection(8, 130) # 聯絡電話
         header.resizeSection(9, 130) # 手機號碼
         header.resizeSection(10, 380)
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
 
-        self.household_table.setTextElideMode(Qt.ElideRight)
+        self.household_table.setTextElideMode(Qt.ElideNone)
+        self.household_table.setWordWrap(False)
+        self.household_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
         self.household_table.cellClicked.connect(self.on_household_row_clicked)
 
@@ -106,6 +110,7 @@ class MainPageWidget(QWidget):
 
         # self.member_table = QTableWidget()
         self.member_table = AutoResizingTableWidget()
+        self.member_table.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
         self.member_table.setColumnCount(11)
         self.member_table.setHorizontalHeaderLabels([
             "姓名", "性別", "國曆生日", "農曆生日", "時辰", "生肖", "年齡",
@@ -113,7 +118,7 @@ class MainPageWidget(QWidget):
         ])
 
         header = self.member_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
 
         header.resizeSection(1, 50) # 性別
         header.resizeSection(2, 100) # 國曆生日
@@ -125,9 +130,11 @@ class MainPageWidget(QWidget):
         header.resizeSection(7, 130) # 聯絡電話
         header.resizeSection(8, 130) # 手機號碼
         header.resizeSection(9, 380)
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
 
-        self.member_table.setTextElideMode(Qt.ElideRight)
+        self.member_table.setTextElideMode(Qt.ElideNone)
+        self.member_table.setWordWrap(False)
+        self.member_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
         self.member_table.cellClicked.connect(self.on_member_row_clicked)
         left_inner.addWidget(self.member_table)
@@ -610,6 +617,7 @@ class MainPageWidget(QWidget):
             note_item = QTableWidgetItem(note)
             note_item.setToolTip(note)
             self.household_table.setItem(r, 11, note_item)
+        self.household_table.resizeColumnsToContents()
 
 
 
@@ -701,6 +709,7 @@ class MainPageWidget(QWidget):
             note_item = QTableWidgetItem(note)
             note_item.setToolTip(note)
             self.member_table.setItem(r, 10, note_item)
+        self.member_table.resizeColumnsToContents()
 
     def on_member_row_clicked(self, row, col):
         """
