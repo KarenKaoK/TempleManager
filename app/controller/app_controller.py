@@ -2,9 +2,11 @@
 import uuid
 import locale
 import sqlite3
+import json
+import re
 from typing import Tuple, Optional,  List, Dict, Any
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 
 from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
@@ -1295,13 +1297,132 @@ class AppController:
         return [dict(row) for row in cursor.fetchall()]
 
 
+    def _period_date_range(self, period_filter: str) -> tuple[Optional[str], Optional[str]]:
+        p = (period_filter or "all").strip().lower()
+        today = date.today()
+        if p == "week":
+            start = today - timedelta(days=today.weekday())
+            end = start + timedelta(days=6)
+            return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+        if p == "month":
+            start = today.replace(day=1)
+            if start.month == 12:
+                next_month = start.replace(year=start.year + 1, month=1, day=1)
+            else:
+                next_month = start.replace(month=start.month + 1, day=1)
+            end = next_month - timedelta(days=1)
+            return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+        if p == "next_month":
+            this_month_start = today.replace(day=1)
+            if this_month_start.month == 12:
+                start = this_month_start.replace(year=this_month_start.year + 1, month=1, day=1)
+            else:
+                start = this_month_start.replace(month=this_month_start.month + 1, day=1)
+            if start.month == 12:
+                next_month = start.replace(year=start.year + 1, month=1, day=1)
+            else:
+                next_month = start.replace(month=start.month + 1, day=1)
+            end = next_month - timedelta(days=1)
+            return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+        return None, None
 
-    def search_activities(self, keyword: str, active_only: bool = False):
+    def get_activities_for_manage(
+        self,
+        keyword: str = "",
+        period_filter: str = "all",
+        include_ended: bool = False,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> List[Dict]:
+        """
+        活動管理頁專用查詢：
+        - 預設排除已結束（status=0 或 end_date < today）
+        - 可選 period_filter: all/week/month（依活動開始日期）
+        - keyword: 名稱 / 起日 / 迄日
+        """
+        cursor = self.conn.cursor()
+        params: List[Any] = []
+        query = """
+            SELECT id, name, activity_start_date, activity_end_date, note, status, created_at, updated_at
+            FROM activities
+            WHERE COALESCE(status, 1) != -1
+        """
+
+        if not include_ended:
+            query += """
+                AND COALESCE(status, 1) != 0
+                AND (
+                    activity_end_date IS NULL
+                    OR TRIM(activity_end_date) = ''
+                    OR date(replace(activity_end_date, '/', '-')) IS NULL
+                    OR date(replace(activity_end_date, '/', '-')) >= date('now', 'localtime')
+                )
+            """
+
+        start_d, end_d = self._period_date_range(period_filter)
+        if start_date:
+            start_d = start_date
+        if end_date:
+            end_d = end_date
+
+        if start_d and end_d:
+            query += """
+                AND date(replace(activity_start_date, '/', '-')) BETWEEN ? AND ?
+            """
+            params.extend([start_d, end_d])
+        elif start_d:
+            query += """
+                AND date(replace(activity_start_date, '/', '-')) >= ?
+            """
+            params.append(start_d)
+        elif end_d:
+            query += """
+                AND date(replace(activity_start_date, '/', '-')) <= ?
+            """
+            params.append(end_d)
+
+        kw = (keyword or "").strip()
+        if kw:
+            like = f"%{kw}%"
+            query += """
+                AND (name LIKE ? OR activity_start_date LIKE ? OR activity_end_date LIKE ?)
+            """
+            params.extend([like, like, like])
+
+        query += """
+            ORDER BY
+                COALESCE(
+                    date(replace(activity_start_date, '/', '-')),
+                    replace(activity_start_date, '/', '-')
+                ) DESC,
+                datetime(created_at) DESC
+        """
+        cursor.execute(query, tuple(params))
+        return [dict(row) for row in cursor.fetchall()]
+
+
+    def search_activities(
+        self,
+        keyword: str,
+        active_only: bool = False,
+        period_filter: str = "all",
+        include_ended: Optional[bool] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ):
         """
         keyword 搜尋：活動名稱 / 起日 / 迄日
         - active_only=True  : status = 1
         - active_only=False : status != -1
         """
+        if include_ended is not None:
+            return self.get_activities_for_manage(
+                keyword=keyword,
+                period_filter=period_filter,
+                include_ended=bool(include_ended),
+                start_date=start_date,
+                end_date=end_date,
+            )
         cursor = self.conn.cursor()
         like = f"%{(keyword or '').strip()}%"
 
@@ -1375,12 +1496,19 @@ class AppController:
             items = r.get("description")
             if items is None:
                 items = r.get("items", "") or ""
+            parsed_items = self._parse_plan_items(items)
+            display_items = self._format_plan_items(parsed_items)
+            raw_items_text = str(items or "").strip()
+            if raw_items_text == "[]":
+                raw_items_text = ""
 
             result.append({
                 "id": r.get("id"),
                 "activity_id": r.get("activity_id"),
                 "name": r.get("name") or "",
-                "items": items,
+                "items": display_items or raw_items_text,
+                "items_raw": raw_items_text,
+                "plan_items": parsed_items,
                 "fee_type": fee_type,
                 "amount": amount,
 
@@ -1477,7 +1605,10 @@ class AppController:
         if "fee_type" in (plan or {}):
             # UI payload
             name = (plan.get("name") or "").strip()
-            items = (plan.get("items") or "").strip()
+            if isinstance(plan.get("plan_items"), list):
+                items = self._serialize_plan_items(plan.get("plan_items") or [])
+            else:
+                items = (plan.get("items") or "").strip()
             fee_type = (plan.get("fee_type") or "fixed")
             amount = plan.get("amount", None)
             note = plan.get("note") or ""
@@ -1559,6 +1690,65 @@ class AppController:
         cur = self.conn.cursor()
         cur.execute(f"PRAGMA table_info({table})")
         return {row[1] for row in cur.fetchall()}
+
+    @staticmethod
+    def _parse_plan_items(items_raw: Any) -> List[Dict[str, Any]]:
+        text = str(items_raw or "").strip()
+        if not text:
+            return []
+
+        if text.startswith("["):
+            try:
+                arr = json.loads(text)
+                result: List[Dict[str, Any]] = []
+                for x in arr or []:
+                    name = str((x or {}).get("name", "")).strip()
+                    if not name:
+                        continue
+                    try:
+                        qty = int((x or {}).get("qty", 1))
+                    except Exception:
+                        qty = 1
+                    result.append({"name": name, "qty": max(1, qty)})
+                return result
+            except Exception:
+                pass
+
+        parts = re.split(r"[\/、,\n]+", text)
+        result: List[Dict[str, Any]] = []
+        for p in parts:
+            token = p.strip()
+            if not token:
+                continue
+            m = re.match(r"^(.*?)(?:[xX＊*×]\s*(\d+))?$", token)
+            if not m:
+                continue
+            name = (m.group(1) or "").strip()
+            if not name:
+                continue
+            qty = int(m.group(2) or 1)
+            result.append({"name": name, "qty": max(1, qty)})
+        return result
+
+    @staticmethod
+    def _format_plan_items(items: List[Dict[str, Any]]) -> str:
+        if not items:
+            return ""
+        return "、".join([f"{x.get('name','')}×{int(x.get('qty',1) or 1)}" for x in items if x.get("name")])
+
+    @staticmethod
+    def _serialize_plan_items(items: List[Dict[str, Any]]) -> str:
+        clean: List[Dict[str, Any]] = []
+        for x in items or []:
+            name = str((x or {}).get("name", "")).strip()
+            if not name:
+                continue
+            try:
+                qty = int((x or {}).get("qty", 1))
+            except Exception:
+                qty = 1
+            clean.append({"name": name, "qty": max(1, qty)})
+        return json.dumps(clean, ensure_ascii=False)
     
     def get_activity_plan_by_id(self, plan_id: str):
         """Get a single plan and map it into UI-friendly keys."""
@@ -1582,12 +1772,18 @@ class AppController:
             items = r.get("description")
         if items is None:
             items = ""
+        parsed_items = self._parse_plan_items(items)
+        raw_items_text = str(items or "").strip()
+        if raw_items_text == "[]":
+            raw_items_text = ""
 
         return {
             "id": r.get("id"),
             "activity_id": r.get("activity_id"),
             "name": r.get("name") or "",
-            "items": items or "",
+            "items": self._format_plan_items(parsed_items) or raw_items_text,
+            "items_raw": raw_items_text,
+            "plan_items": parsed_items,
             "fee_type": fee_type,
             "amount": amount,
             "note": r.get("note") or "",
@@ -1731,7 +1927,14 @@ class AppController:
             p.phone_mobile AS person_phone,
             p.address AS person_address,
             s.total_amount,
-            GROUP_CONCAT(ap.name || '×' || sp.qty, '、') AS plan_summary,
+            GROUP_CONCAT(
+                CASE
+                    WHEN ap.price_type = 'FREE'
+                        THEN ap.name || COALESCE(CAST(sp.line_total AS TEXT), '0') || '元'
+                    ELSE ap.name || '×' || COALESCE(CAST(sp.qty AS TEXT), '0')
+                END,
+                '、'
+            ) AS plan_summary,
             SUM(CASE WHEN ap.price_type = 'FREE' THEN sp.line_total ELSE 0 END) AS donation_amount
         FROM activity_signups s
         JOIN people p ON p.id = s.person_id
@@ -1739,7 +1942,10 @@ class AppController:
         JOIN activity_plans ap ON ap.id = sp.plan_id
         WHERE s.activity_id = ?
         GROUP BY s.id
-        ORDER BY s.created_at ASC
+        ORDER BY
+            datetime(replace(COALESCE(s.signup_time, s.created_at), '/', '-')) ASC,
+            datetime(replace(s.created_at, '/', '-')) ASC,
+            s.id ASC
         """
 
         cur = self.conn.cursor()
@@ -2129,6 +2335,32 @@ class AppController:
             self.conn.rollback()
             raise
 
+    def get_activity_signup_id_by_person(self, activity_id: str, person_id: str) -> Optional[str]:
+        """
+        取得某活動中某人目前的報名單 id（若有）。
+        用於覆蓋式重存：先刪舊再存新。
+        """
+        aid = (activity_id or "").strip()
+        pid = (person_id or "").strip()
+        if not aid or not pid:
+            return None
+
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT id
+            FROM activity_signups
+            WHERE activity_id = ? AND person_id = ?
+            ORDER BY datetime(replace(COALESCE(signup_time, created_at), '/', '-')) DESC, id DESC
+            LIMIT 1
+            """,
+            (aid, pid),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return str(row[0])
+
     
     def insert_activity_new(self, data: dict) -> str:
         """
@@ -2286,7 +2518,20 @@ class AppController:
         cursor = self.conn.cursor()
         kw = f"%{keyword}%"
         cursor.execute("""
-            SELECT id, name, phone_mobile, phone_home, address 
+            SELECT
+                id,
+                name,
+                gender,
+                birthday_ad,
+                birthday_lunar,
+                birth_time,
+                zodiac,
+                role_in_household,
+                phone_mobile,
+                phone_home,
+                address,
+                note,
+                joined_at
             FROM people 
             WHERE status='ACTIVE'
               AND (name LIKE ? OR phone_mobile LIKE ? OR phone_home LIKE ?)
@@ -2295,7 +2540,12 @@ class AppController:
         """, (kw, kw, kw))
         return [dict(row) for row in cursor.fetchall()]
 
-    def search_people_unified_dedup_name_birthday(self, keyword: str, limit: int = 50) -> List[Dict]:
+    def search_people_unified_dedup_name_birthday(
+        self,
+        keyword: str,
+        limit: int = 50,
+        dedup: bool = True,
+    ) -> List[Dict]:
         """
         給「活動報名頁：參加人員資料 / 快速搜尋」使用
         - 來源：people 表（不分 HEAD / MEMBER）
@@ -2310,51 +2560,38 @@ class AppController:
         # 1) 先用既有方法查（避免重複寫 SQL）
         rows = self.search_people(kw)  # -> [{id,name,phone_mobile,phone_home,address,...}]
 
-        # 2) 如果活動頁 UI 需要生日去重，那就補查生日欄位（因為 search_people 現在沒帶生日）
-        #    這裡用一次性 query 把這批 id 的 birthday 撈回來，避免 UI 自己亂處理
-        ids = [r.get("id") for r in rows if r.get("id")]
-        if not ids:
-            return []
-
-        placeholders = ",".join(["?"] * len(ids))
-        cur = self.conn.cursor()
-        cur.execute(
-            f"""
-            SELECT id, birthday_ad, birthday_lunar
-            FROM people
-            WHERE id IN ({placeholders})
-            """,
-            tuple(ids),
-        )
-        bmap = {x["id"]: dict(x) for x in cur.fetchall()}
-
-        # 3) 去重：name + birthday（優先 birthday_ad，沒有就 birthday_lunar）
+        # 2) 去重：name + birthday（優先 birthday_ad，沒有就 birthday_lunar）
         seen = set()
         result = []
         for r in rows:
             pid = r.get("id")
-            b = bmap.get(pid, {})
-            birthday_key = (b.get("birthday_ad") or b.get("birthday_lunar") or "").strip()
+            birthday_key = (r.get("birthday_ad") or r.get("birthday_lunar") or "").strip()
             name_key = (r.get("name") or "").strip()
             dedup_key = (name_key, birthday_key)
 
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
+            if dedup:
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
 
-            # 4) 統一輸出欄位（活動頁最常用）
+            # 3) 統一輸出欄位（活動頁最常用）
             phone_mobile = (r.get("phone_mobile") or "").strip()
             phone_home = (r.get("phone_home") or "").strip()
 
             result.append({
                 "id": pid,
                 "name": name_key,
+                "gender": (r.get("gender") or "").strip(),
+                "role_in_household": (r.get("role_in_household") or "").strip(),
                 "phone_mobile": phone_mobile,                 # ✅ 統一活動頁用這個
                 "phone_home": phone_home,
                 "phone_display": phone_mobile or phone_home,  # ✅ 顯示用（可選）
                 "address": (r.get("address") or "").strip(),
-                "birthday_ad": (b.get("birthday_ad") or "").strip(),
-                "birthday_lunar": (b.get("birthday_lunar") or "").strip(),
+                "birthday_ad": (r.get("birthday_ad") or "").strip(),
+                "birthday_lunar": (r.get("birthday_lunar") or "").strip(),
+                "birth_time": (r.get("birth_time") or "").strip(),
+                "zodiac": (r.get("zodiac") or "").strip(),
+                "note": (r.get("note") or "").strip(),
             })
 
             if len(result) >= int(limit):
@@ -2727,6 +2964,35 @@ class AppController:
         members = self.list_people_by_household(household_id)
         
         return head_result, members
+
+    def get_household_people_by_person_id(self, person_id: str, status: str = "ACTIVE") -> List[Dict]:
+        """
+        由任一 person_id 取出同 household 的所有成員（含戶長與戶員）。
+        用於活動報名：搜尋到任一人後，彈整戶勾選。
+        """
+        pid = (person_id or "").strip()
+        if not pid:
+            return []
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT household_id
+            FROM people
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (pid,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return []
+
+        household_id = (row[0] or "").strip()
+        if not household_id:
+            return []
+
+        return self.list_people_by_household(household_id, status=status)
 
     def format_head_data(self, row: Dict) -> Dict:
         """將 DB row 格式化為 UI table 期待的格式 (與 list_household 一致)"""

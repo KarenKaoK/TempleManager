@@ -10,8 +10,19 @@ YMD_SLASH = "%Y/%m/%d"
 
 
 def normalize_ymd_text(value: str) -> str:
-    """Normalize supported date separators to YYYY/MM/DD style text."""
-    return str(value or "").strip().replace("-", "/")
+    """Normalize supported date separators to canonical YYYY/MM/DD text."""
+    text = str(value or "").strip().replace("-", "/")
+    if not text:
+        return ""
+    m = re.match(r"^(\d{4})/(\d{1,2})/(\d{1,2})$", text)
+    if not m:
+        return text
+    y, mo, d = m.groups()
+    try:
+        dt = datetime(int(y), int(mo), int(d))
+    except Exception:
+        return text
+    return dt.strftime(YMD_SLASH)
 
 
 def is_valid_ymd_text(value: str) -> bool:
@@ -26,7 +37,8 @@ def is_valid_ymd_text(value: str) -> bool:
 
 
 def make_ymd_validator(parent=None) -> QRegularExpressionValidator:
-    return QRegularExpressionValidator(QRegularExpression(r"^\d{4}/\d{2}/\d{2}$"), parent)
+    # Allow 1-2 digit month/day while typing; normalized on blur/save.
+    return QRegularExpressionValidator(QRegularExpression(r"^\d{0,4}([/-]\d{0,2}([/-]\d{0,2})?)?$"), parent)
 
 
 def parse_qdate_flexible(value: str) -> Optional[QDate]:

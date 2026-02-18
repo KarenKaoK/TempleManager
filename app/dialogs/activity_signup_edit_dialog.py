@@ -61,8 +61,8 @@ class ActivitySignupEditDialog(QDialog):
         top_lay.addLayout(row("地址", self.le_addr))
         top_lay.addLayout(row("性別", self.le_gender))
         top_lay.addLayout(row("生肖", self.le_zodiac))
-        top_lay.addLayout(row("生日(國曆)", self.le_bday_ad))
-        top_lay.addLayout(row("生日(農曆)", self.le_bday_lunar))
+        top_lay.addLayout(row("國曆", self.le_bday_ad))
+        top_lay.addLayout(row("農曆", self.le_bday_lunar))
         top_lay.addLayout(row("時辰", self.le_birth_time))
 
         root.addWidget(top)

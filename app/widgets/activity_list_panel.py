@@ -5,9 +5,10 @@ from typing import List, Optional
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QScrollArea, QFrame
+    QScrollArea, QFrame, QCheckBox, QMessageBox
 )
 from datetime import datetime, date
+from app.utils.date_utils import make_ymd_validator, is_valid_ymd_text
 
 @dataclass
 class ActivityListItem:
@@ -149,6 +150,7 @@ class ActivityListPanel(QWidget):
         self._items: List[ActivityListItem] = []
         self._cards: List[ActivityCard] = []
         self._selected_id: Optional[str] = None
+        self._period_filter: str = "all"  # all / week / month / next_month
         self._build_ui()
 
         # ✅ 初始化載入活動清單
@@ -184,6 +186,54 @@ class ActivityListPanel(QWidget):
         search_row.addWidget(self.btn_search, 0)
         search_row.addWidget(self.btn_clear, 0)
         root.addLayout(search_row)
+
+        # 篩選列：本週/本月 + 顯示已結束
+        filter_row = QHBoxLayout()
+        self.btn_all = QPushButton("全部")
+        self.btn_week = QPushButton("本週")
+        self.btn_month = QPushButton("本月")
+        self.btn_next_month = QPushButton("下個月")
+        self.btn_all.setCheckable(True)
+        self.btn_week.setCheckable(True)
+        self.btn_month.setCheckable(True)
+        self.btn_next_month.setCheckable(True)
+        self.btn_all.setChecked(True)
+        self.btn_all.clicked.connect(self._on_all_filter_clicked)
+        self.btn_week.clicked.connect(self._on_week_filter_clicked)
+        self.btn_month.clicked.connect(self._on_month_filter_clicked)
+        self.btn_next_month.clicked.connect(self._on_next_month_filter_clicked)
+
+        self.chk_show_ended = QCheckBox("顯示已結束")
+        self.chk_show_ended.setChecked(False)
+        self.chk_show_ended.stateChanged.connect(lambda _: self._refresh_by_filters())
+
+        filter_row.addWidget(self.btn_all, 0)
+        filter_row.addWidget(self.btn_week, 0)
+        filter_row.addWidget(self.btn_month, 0)
+        filter_row.addWidget(self.btn_next_month, 0)
+        filter_row.addStretch(1)
+        filter_row.addWidget(self.chk_show_ended, 0)
+        root.addLayout(filter_row)
+
+        # 自訂日期區間
+        range_row = QHBoxLayout()
+        self.range_start = QLineEdit()
+        self.range_end = QLineEdit()
+        ymd_validator = make_ymd_validator(self)
+        self.range_start.setValidator(ymd_validator)
+        self.range_end.setValidator(ymd_validator)
+        self.range_start.setPlaceholderText("起日 YYYY/MM/DD")
+        self.range_end.setPlaceholderText("迄日 YYYY/MM/DD")
+
+        self.btn_apply_range = QPushButton("查詢")
+        self.btn_apply_range.clicked.connect(self._on_apply_range)
+
+        range_row.addWidget(QLabel("起日"), 0)
+        range_row.addWidget(self.range_start, 1)
+        range_row.addWidget(QLabel("迄日"), 0)
+        range_row.addWidget(self.range_end, 1)
+        range_row.addWidget(self.btn_apply_range, 0)
+        root.addLayout(range_row)
 
         # Scroll area for cards
         self.scroll = QScrollArea()
@@ -248,15 +298,26 @@ class ActivityListPanel(QWidget):
         items = [self._map_activity_row_to_item(r) for r in rows]
         self.set_activities(items, auto_select_first=True)
 
+    def refresh_current_filters(self):
+        keyword = self.search_edit.text().strip() if hasattr(self, "search_edit") else ""
+        self.refresh(keyword)
+
     # ---------- internal ----------
     def _fetch_activities(self, keyword: str):
         """
         透過 controller 查活動資料（新 schema）
         """
+        start_date = self._normalized_date(self.range_start.text().strip()) if hasattr(self, "range_start") else None
+        end_date = self._normalized_date(self.range_end.text().strip()) if hasattr(self, "range_end") else None
         kw = (keyword or "").strip()
-        if not kw:
-            return self.controller.get_all_activities(active_only=False)
-        return self.controller.search_activities(kw)
+        rows = self.controller.get_activities_for_manage(
+            keyword=kw,
+            period_filter=self._period_filter,
+            include_ended=self.chk_show_ended.isChecked(),
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return sorted(rows, key=self._activity_nearness_key)
 
     def _map_activity_row_to_item(self, row: dict) -> ActivityListItem:
         """
@@ -314,25 +375,106 @@ class ActivityListPanel(QWidget):
         self.list_layout.addStretch(1)
 
     def _on_search(self):
+        if not self._validate_range_inputs():
+            return
         keyword = self.search_edit.text().strip()
-
-        # ✅ 如果有 controller：直接刷新（接起來）
         if self.controller is not None:
             self.refresh(keyword)
             return
-
-        # 保留原本 signal 行為
         self.search_requested.emit(keyword)
 
     def _on_clear(self):
         self.search_edit.clear()
+        self._period_filter = "all"
+        self.btn_all.setChecked(True)
+        self.btn_week.setChecked(False)
+        self.btn_month.setChecked(False)
+        self.btn_next_month.setChecked(False)
+        self.chk_show_ended.setChecked(False)
+        self.range_start.clear()
+        self.range_end.clear()
 
-        # ✅ 如果有 controller：直接刷新（接起來）
         if self.controller is not None:
             self.refresh("")
             return
 
         self.search_requested.emit("")
+
+    def _refresh_by_filters(self):
+        keyword = self.search_edit.text().strip()
+        self.refresh(keyword)
+
+    def _normalized_date(self, text: str) -> Optional[str]:
+        t = (text or "").strip()
+        if not t:
+            return None
+        if not is_valid_ymd_text(t):
+            return None
+        return t.replace("/", "-")
+
+    def _validate_range_inputs(self) -> bool:
+        s = self.range_start.text().strip()
+        e = self.range_end.text().strip()
+        if s and not is_valid_ymd_text(s):
+            QMessageBox.warning(self, "格式錯誤", "起日請使用 YYYY/MM/DD")
+            return False
+        if e and not is_valid_ymd_text(e):
+            QMessageBox.warning(self, "格式錯誤", "迄日請使用 YYYY/MM/DD")
+            return False
+        if s and e:
+            try:
+                ds = datetime.strptime(s.replace("-", "/"), "%Y/%m/%d").date()
+                de = datetime.strptime(e.replace("-", "/"), "%Y/%m/%d").date()
+                if ds > de:
+                    QMessageBox.warning(self, "區間錯誤", "起日不可大於迄日")
+                    return False
+            except Exception:
+                QMessageBox.warning(self, "格式錯誤", "日期請使用 YYYY/MM/DD")
+                return False
+        return True
+
+    def _on_apply_range(self):
+        if not self._validate_range_inputs():
+            return
+        self._refresh_by_filters()
+
+    def _on_all_filter_clicked(self):
+        self._period_filter = "all"
+        self.btn_all.setChecked(True)
+        self.btn_week.setChecked(False)
+        self.btn_month.setChecked(False)
+        self.btn_next_month.setChecked(False)
+        self._refresh_by_filters()
+
+    def _on_week_filter_clicked(self):
+        self._period_filter = "week" if self.btn_week.isChecked() else "all"
+        if self.btn_week.isChecked():
+            self.btn_all.setChecked(False)
+            self.btn_month.setChecked(False)
+            self.btn_next_month.setChecked(False)
+        else:
+            self.btn_all.setChecked(True)
+        self._refresh_by_filters()
+
+    def _on_month_filter_clicked(self):
+        self._period_filter = "month" if self.btn_month.isChecked() else "all"
+        if self.btn_month.isChecked():
+            self.btn_all.setChecked(False)
+            self.btn_week.setChecked(False)
+            self.btn_next_month.setChecked(False)
+        else:
+            self.btn_all.setChecked(True)
+        self._refresh_by_filters()
+
+    def _on_next_month_filter_clicked(self):
+        self._period_filter = "next_month" if self.btn_next_month.isChecked() else "all"
+        if self.btn_next_month.isChecked():
+            self.btn_all.setChecked(False)
+            self.btn_week.setChecked(False)
+            self.btn_month.setChecked(False)
+        else:
+            self.btn_all.setChecked(True)
+        self._refresh_by_filters()
 
     def _parse_date_any(self, s: str) -> Optional[date]:
         if not s:
@@ -344,6 +486,38 @@ class ActivityListPanel(QWidget):
             except Exception:
                 pass
         return None
+
+    def _parse_datetime_any(self, s: str) -> Optional[datetime]:
+        if not s:
+            return None
+        text = str(s).strip()
+        for fmt in ("%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y-%m-%d %H:%M"):
+            try:
+                return datetime.strptime(text, fmt)
+            except Exception:
+                pass
+        return None
+
+    def _activity_nearness_key(self, row: dict):
+        """
+        依「距今天近」排序：
+        1) 與今天天數差絕對值由小到大（近到遠）
+        2) 同距離時，優先未來/今日，再來過去
+        3) 再用活動起日、建立時間做穩定排序
+        """
+        start_dt = self._parse_date_any(row.get("activity_start_date", ""))
+        created_dt = self._parse_datetime_any(row.get("created_at", ""))
+        if start_dt is None:
+            return (10**9, 1, date.max, datetime.max)
+
+        today = date.today()
+        delta = (start_dt - today).days
+        return (
+            abs(delta),
+            0 if delta >= 0 else 1,
+            start_dt,
+            created_dt or datetime.min,
+        )
 
     def compute_display_status(self, start: str, end: str, status_int) -> str:
         # 若 DB 明確標 0：視為已結束/停用（手動結束）
@@ -362,4 +536,3 @@ class ActivityListPanel(QWidget):
         if d1 and today > d1:
             return "已結束"
         return "進行中"
-

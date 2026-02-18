@@ -102,10 +102,10 @@ class ActivityManagePage(QWidget):
 
     def on_activity_saved(self, activity_id: str):
         # 讓左側 panel 重新抓 DB
-        self.activity_list_panel.refresh(keyword="")
+        self.activity_list_panel.refresh_current_filters()
         # 並選到剛新增的活動
         self.activity_list_panel.set_selected(activity_id)
 
     def on_activity_deleted(self, activity_id: str):
         # 刷新左側清單；ActivityListPanel 會 auto_select_first=True
-        self.activity_list_panel.refresh(keyword="")
+        self.activity_list_panel.refresh_current_filters()

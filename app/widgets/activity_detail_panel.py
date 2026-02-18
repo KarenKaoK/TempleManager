@@ -168,6 +168,12 @@ class ActivityDetailPanel(QWidget):
         self.f_note.setMaximumHeight(180)
         self.f_note.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
+        # 活動資料頁僅供檢視，修改請使用「修改活動」按鈕開啟 dialog
+        self.f_name.setReadOnly(True)
+        self.f_start.setReadOnly(True)
+        self.f_end.setReadOnly(True)
+        self.f_note.setReadOnly(True)
+
 
         form.addRow("活動名稱", self.f_name)
 
@@ -275,26 +281,7 @@ class ActivityDetailPanel(QWidget):
         self.tbl_signups.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_signups.setAlternatingRowColors(True)
 
-        # ✅ 改成：雙擊直接開修改 dialog（之後你再接 dialog）
-        self.tbl_signups.itemDoubleClicked.connect(lambda _it: self.on_edit_signup())
-
         g.addWidget(self.tbl_signups, 1)
-
-        # 右下角按鈕：修改 / 刪除（不再需要右側明細區）
-        btn_row = QHBoxLayout()
-        btn_row.addStretch(1)
-
-        self.btn_signup_edit = QPushButton("修改報名")
-        self.btn_signup_delete = QPushButton("刪除報名")
-        for b in (self.btn_signup_edit, self.btn_signup_delete):
-            b.setMinimumHeight(32)
-
-        self.btn_signup_edit.clicked.connect(self.on_edit_signup)
-        self.btn_signup_delete.clicked.connect(self.on_delete_signup)
-
-        btn_row.addWidget(self.btn_signup_edit)
-        btn_row.addWidget(self.btn_signup_delete)
-        g.addLayout(btn_row)
 
         layout.addWidget(grp, 1)
 
@@ -806,9 +793,11 @@ class ActivityDetailPanel(QWidget):
 
     def _collect_activity_form(self) -> Optional[dict]:
         name = self.f_name.text().strip()
-        start = self.f_start.text().strip()
-        end = self.f_end.text().strip()
+        start = normalize_ymd_text(self.f_start.text().strip())
+        end = normalize_ymd_text(self.f_end.text().strip())
         note = self.f_note.toPlainText().strip()
+        self.f_start.setText(start)
+        self.f_end.setText(end)
 
         # 必填檢查
         if not name:

@@ -221,8 +221,8 @@ class ActivityPlanPanel(QWidget):
         self._rows: List[PlanRowWidget] = []
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(12)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
 
         # Header
         header = QHBoxLayout()
@@ -250,66 +250,55 @@ class ActivityPlanPanel(QWidget):
         self.scroll.setWidget(self.scroll_body)
         root.addWidget(self.scroll, 1)
 
-        # Total card
-        self.total_card = QFrame()
-        self.total_card.setObjectName("totalCard")
-        total_layout = QHBoxLayout(self.total_card)
-        total_layout.setContentsMargins(14, 12, 14, 12)
-
-        left_col = QVBoxLayout()
-        left_col.setSpacing(4)
+        # Summary + receipt + activity amount (compact)
+        form = QFrame()
+        form.setObjectName("formCard")
+        form_layout = QHBoxLayout(form)
+        form_layout.setContentsMargins(12, 10, 12, 10)
+        form_layout.setSpacing(10)
 
         self.lbl_total_title = QLabel("總金額")
         self.lbl_total_title.setObjectName("totalTitle")
-
         self.lbl_total_sub = QLabel("已選 0 項，合計 0 份")
         self.lbl_total_sub.setObjectName("totalSub")
-
-        left_col.addWidget(self.lbl_total_title)
-        left_col.addWidget(self.lbl_total_sub)
-
         self.lbl_total_amount = QLabel("$0")
         self.lbl_total_amount.setObjectName("totalAmount")
 
-        total_layout.addLayout(left_col, 1)
-        total_layout.addWidget(self.lbl_total_amount, 0, Qt.AlignRight | Qt.AlignVCenter)
+        total_col = QVBoxLayout()
+        total_col.setSpacing(2)
+        total_col.addWidget(self.lbl_total_title)
+        total_col.addWidget(self.lbl_total_sub)
+        total_col_wrap = QHBoxLayout()
+        total_col_wrap.setSpacing(8)
+        total_col_wrap.addLayout(total_col)
+        total_col_wrap.addWidget(self.lbl_total_amount, 0, Qt.AlignRight | Qt.AlignVCenter)
+        total_col_wrap.addStretch(1)
 
-        root.addWidget(self.total_card, 0)
+        total_wrap_widget = QFrame()
+        total_wrap_widget.setObjectName("totalInline")
+        total_wrap_widget.setLayout(total_col_wrap)
 
-        # Receipt + activity amount
-        form = QFrame()
-        form.setObjectName("formCard")
-        form_layout = QVBoxLayout(form)
-        form_layout.setContentsMargins(14, 12, 14, 12)
-        form_layout.setSpacing(10)
-
-        # 收據號碼
-        row1 = QHBoxLayout()
-        row1.setSpacing(10)
-        lbl_receipt = QLabel("收據號碼")
+        lbl_receipt = QLabel("收據")
         lbl_receipt.setObjectName("formLabel")
         self.edt_receipt = QLineEdit()
         self.edt_receipt.setObjectName("formEdit")
         self.edt_receipt.setPlaceholderText("可選填")
+        self.edt_receipt.setMaximumWidth(180)
 
-        row1.addWidget(lbl_receipt, 0)
-        row1.addWidget(self.edt_receipt, 1)
-        form_layout.addLayout(row1)
-
-        # 活動金額
-        row2 = QHBoxLayout()
-        row2.setSpacing(10)
         lbl_amount = QLabel("活動金額")
         lbl_amount.setObjectName("formLabel")
         self.edt_amount = QLineEdit()
         self.edt_amount.setObjectName("formEdit")
         self.edt_amount.setValidator(QIntValidator(0, 99999999, self))
         self.edt_amount.setText("0")
+        self.edt_amount.setMaximumWidth(140)
         self.edt_amount.textChanged.connect(self._on_manual_amount_changed)
 
-        row2.addWidget(lbl_amount, 0)
-        row2.addWidget(self.edt_amount, 1)
-        form_layout.addLayout(row2)
+        form_layout.addWidget(total_wrap_widget, 1)
+        form_layout.addWidget(lbl_receipt, 0)
+        form_layout.addWidget(self.edt_receipt, 0)
+        form_layout.addWidget(lbl_amount, 0)
+        form_layout.addWidget(self.edt_amount, 0)
 
         root.addWidget(form, 0)
 
@@ -495,8 +484,8 @@ class ActivityPlanPanel(QWidget):
             if r.plan.fee_type == "donation":
                 # donation：使用者可輸入單價（隨喜金額）
                 unit = r.unit_price()
-                if unit <= 0:
-                    raise ValueError(f"方案「{r.plan.name}」為隨喜金額，請輸入大於 0 的金額")
+                if unit < 0:
+                    raise ValueError(f"方案「{r.plan.name}」為隨喜金額，請輸入 0 以上的金額")
                 amount_override = unit
             else:
                 # fixed：用 DB 的固定價，不需要 override
@@ -509,6 +498,40 @@ class ActivityPlanPanel(QWidget):
             })
 
         return payload
+
+    def apply_selected_plans_payload(self, selected_plans: List[Dict[str, Any]]):
+        """
+        將既有 payload 回填到 UI（供編輯同一位人員方案時使用）。
+        payload 格式同 get_selected_plans_payload()。
+        """
+        payload_map: Dict[str, Dict[str, Any]] = {}
+        for p in (selected_plans or []):
+            plan_id = str(p.get("plan_id") or "")
+            if not plan_id:
+                continue
+            payload_map[plan_id] = dict(p)
+
+        for row in self._rows:
+            p = payload_map.get(row.plan.plan_id)
+            if not p:
+                row.chk.setChecked(False)
+                row.spin_qty.setValue(max(row.plan.min_qty, row.plan.default_qty))
+                if row.plan.fee_type == "donation" and row.edt_unit is not None:
+                    row.edt_unit.setText(_money(row.plan.unit_price))
+                continue
+
+            row.chk.setChecked(True)
+            qty = int(p.get("qty", row.plan.default_qty) or row.plan.default_qty)
+            qty = min(max(qty, row.plan.min_qty), row.plan.max_qty)
+            row.spin_qty.setValue(qty)
+
+            if row.plan.fee_type == "donation" and row.edt_unit is not None:
+                amt = p.get("amount_override")
+                if amt is None:
+                    amt = row.plan.unit_price
+                row.edt_unit.setText(_money(int(amt or 0)))
+
+        self.recalculate()
 
     # -------------------------
     # Calculation
@@ -582,6 +605,21 @@ class ActivityPlanPanel(QWidget):
             font-size: 12px;
             color: #8A7E74;
         }
+        QFrame#planRow QCheckBox::indicator {
+            width: 22px;
+            height: 22px;
+            border: 2px solid #7C4A28;
+            border-radius: 6px;
+            background: #FFFFFF;
+        }
+        QFrame#planRow QCheckBox::indicator:hover {
+            border: 2px solid #B66A22;
+            background: #FFF3DE;
+        }
+        QFrame#planRow QCheckBox::indicator:checked {
+            border: 2px solid #A04A00;
+            background: #F59E0B;
+        }
         QLabel#unitTag {
             font-size: 12px;
             color: #8A7E74;
@@ -646,22 +684,22 @@ class ActivityPlanPanel(QWidget):
         }
 
 
-        QFrame#totalCard {
-            border-radius: 14px;
+        QFrame#totalInline {
+            border-radius: 10px;
             background: #FFF7EF;
             border: 1px solid #F3E1CF;
         }
         QLabel#totalTitle {
-            font-size: 15px;
+            font-size: 14px;
             font-weight: 900;
             color: #2B2B2B;
         }
         QLabel#totalSub {
-            font-size: 12px;
+            font-size: 11px;
             color: #8A7E74;
         }
         QLabel#totalAmount {
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 1000;
             color: #D63B2E;
         }
@@ -672,13 +710,14 @@ class ActivityPlanPanel(QWidget):
             border: 1px solid #F3E1CF;
         }
         QLabel#formLabel {
-            min-width: 72px;
+            min-width: 56px;
             font-size: 13px;
             font-weight: 800;
             color: #5A4A3F;
         }
         QLineEdit#formEdit {
-            padding: 8px 10px;
+            min-height: 32px;
+            padding: 6px 10px;
             border-radius: 12px;
             border: 1px solid #F0D9C4;
             background: #FFFFFF;
