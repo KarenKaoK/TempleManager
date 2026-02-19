@@ -402,7 +402,18 @@ class TransactionTab(QWidget):
         cols = ["日期", "單號", "項目", "對象", "金額", "經手人", "摘要"]
         self.table.setColumnCount(len(cols))
         self.table.setHorizontalHeaderLabels(cols)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table.setTextElideMode(Qt.ElideNone)
+        self.table.setWordWrap(False)
+        self.table.setColumnWidth(0, 120)  # 日期
+        self.table.setColumnWidth(1, 140)  # 單號
+        self.table.setColumnWidth(2, 180)  # 項目
+        self.table.setColumnWidth(3, 180)  # 對象
+        self.table.setColumnWidth(4, 110)  # 金額
+        self.table.setColumnWidth(5, 120)  # 經手人
+        self.table.setColumnWidth(6, 420)  # 摘要
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         
