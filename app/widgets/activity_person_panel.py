@@ -1,19 +1,23 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QComboBox, QTextEdit, QDateEdit, QFormLayout, QFrame, QSizePolicy,
-    QGridLayout, QListWidget, QListWidgetItem
+    QComboBox, QTextEdit, QFormLayout, QFrame, QSizePolicy,
+    QGridLayout, QListWidget, QListWidgetItem, QApplication
 )
-from PyQt5.QtCore import Qt, QDate, pyqtSignal
-from app.utils.date_utils import make_ymd_validator, parse_qdate_flexible
+from PyQt5.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint
+from PyQt5.QtGui import QFontMetrics
+from app.utils.date_utils import make_ymd_validator
 
 
 class ActivityPersonPanel(QWidget):
     search_requested = pyqtSignal(str)
+    person_picked = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._build_ui()
         self._person_id = None
+        self._set_birth_ad_empty()
+        self._sync_result_list_font()
 
     
     def _build_ui(self):
@@ -24,7 +28,7 @@ class ActivityPersonPanel(QWidget):
         # ===== Header row =====
         header_row = QHBoxLayout()
         title = QLabel("參加人員資料")
-        title.setStyleSheet("font-size: 14px; font-weight: 700;")
+        title.setStyleSheet("font-size: 20px; font-weight: 900;")
 
         header_row.addWidget(title)
         header_row.addStretch(1)
@@ -40,9 +44,9 @@ class ActivityPersonPanel(QWidget):
 
         # ===== Quick search row =====
         quick_row = QHBoxLayout()
-        lbl_quick = QLabel("快速搜尋")
-        lbl_quick.setStyleSheet("color: #666; font-weight: 600;")
-        lbl_quick.setFixedWidth(70)
+        self.lbl_quick = QLabel("快速搜尋")
+        self.lbl_quick.setStyleSheet("color: #666; font-weight: 600;")
+        self.lbl_quick.setFixedWidth(70)
 
         self.edit_quick = QLineEdit()
         self.edit_quick.setPlaceholderText("輸入姓名或電話，例如：李阿姨 / 0912")
@@ -54,7 +58,7 @@ class ActivityPersonPanel(QWidget):
             b.setMinimumHeight(34)
             b.setCursor(Qt.PointingHandCursor)
 
-        quick_row.addWidget(lbl_quick)
+        quick_row.addWidget(self.lbl_quick)
         quick_row.addWidget(self.edit_quick, 1)
         quick_row.addWidget(self.btn_search)
         quick_row.addWidget(self.btn_clear)
@@ -65,21 +69,25 @@ class ActivityPersonPanel(QWidget):
 
         # ===== 搜尋結果清單（點選後帶入資料）=====
 
-        self.list_results = QListWidget()
-
-        # 🔑 關鍵：限制搜尋結果高度（約 5 列）
-        self.list_results.setMaximumHeight(160)
+        self.list_results = QListWidget(None)
+        self.list_results.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        self.list_results.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.list_results.setMinimumHeight(0)
-
-        # 出現 scrollbar，而不是撐開畫面
         self.list_results.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        # 預設不顯示
         self.list_results.hide()
-
         self.list_results.itemClicked.connect(self._on_pick_person)
-
-        root.addWidget(self.list_results)
+        self.list_results.setStyleSheet("""
+            QListWidget {
+                background: #FFFFFF;
+                border: 1px solid #D9CCBE;
+                border-radius: 8px;
+                padding: 2px;
+            }
+            QListWidget::item:selected {
+                background: #FBECDD;
+                color: #1F2937;
+            }
+        """)
 
 
 
@@ -103,18 +111,15 @@ class ActivityPersonPanel(QWidget):
         self.edit_name.setPlaceholderText("例如：李阿姨")
 
         self.combo_gender = QComboBox()
-        self.combo_gender.addItems(["女", "男", "其他"])
+        self.combo_gender.addItems(["", "女", "男", "其他"])
 
         self.edit_phone = QLineEdit()
         self.edit_phone.setPlaceholderText("例如：0912-345-678")
 
-        self.date_birth_ad = QDateEdit()
-        self.date_birth_ad.setCalendarPopup(True)
-        self.date_birth_ad.setDisplayFormat("yyyy/MM/dd")
-        min_date = QDate(1900, 1, 1)
-        self.date_birth_ad.setMinimumDate(min_date)
-        self.date_birth_ad.setSpecialValueText("")   # 顯示空白
-        self.date_birth_ad.setDate(min_date)         # 預設空白狀態
+        ad_validator = make_ymd_validator(self)
+        self.edit_birth_ad = QLineEdit()
+        self.edit_birth_ad.setPlaceholderText("YYYY/MM/DD")
+        self.edit_birth_ad.setValidator(ad_validator)
 
     
         self.edit_birth_lunar = QLineEdit()
@@ -124,13 +129,13 @@ class ActivityPersonPanel(QWidget):
 
         self.combo_birth_time = QComboBox()
         self.combo_birth_time.addItems([
-            "吉時", "子時(23-01)", "丑時(01-03)", "寅時(03-05)", "卯時(05-07)",
+            "", "吉時", "子時(23-01)", "丑時(01-03)", "寅時(03-05)", "卯時(05-07)",
             "辰時(07-09)", "巳時(09-11)", "午時(11-13)", "未時(13-15)",
             "申時(15-17)", "酉時(17-19)", "戌時(19-21)", "亥時(21-23)"
         ])
 
         self.combo_zodiac = QComboBox()
-        self.combo_zodiac.addItems(["鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬"])
+        self.combo_zodiac.addItems(["", "鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬"])
 
         # ✅ 地址/備註：先用 QLineEdit（最穩、最像單行）
         self.edit_address = QLineEdit()
@@ -147,7 +152,6 @@ class ActivityPersonPanel(QWidget):
                 border-radius: 8px;
                 padding: 6px 10px;
                 color: #222;
-                font-size: 13px;
             }
             QLineEdit:focus, QComboBox:focus, QDateEdit:focus {
                 border: 1px solid #F29B38;
@@ -165,15 +169,15 @@ class ActivityPersonPanel(QWidget):
             w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         for w in (
-            self.edit_name, self.edit_phone, self.date_birth_ad,
+            self.edit_name, self.edit_phone, self.edit_birth_ad,
             self.combo_birth_time, self.combo_gender, self.edit_birth_lunar,
             self.combo_zodiac, self.edit_address, self.edit_note
         ):
             _fix_field(w)
 
-        self.edit_birth_lunar.setMinimumWidth(260)
+        self.edit_birth_lunar.setMinimumWidth(180)
         
-        MIN_W = 240
+        MIN_W = 160
         self.edit_name.setMinimumWidth(MIN_W)
         self.edit_phone.setMinimumWidth(MIN_W)
         self.edit_address.setMinimumWidth(MIN_W)
@@ -185,7 +189,7 @@ class ActivityPersonPanel(QWidget):
         grid.setHorizontalSpacing(18)   # ✅ 兩欄中間距離拉開
         grid.setVerticalSpacing(18)     # ✅ 每列不要擠
 
-        LABEL_W = 92
+        LABEL_W = 74
 
         def _label(text: str) -> QLabel:
             lbl = QLabel(text)
@@ -217,9 +221,9 @@ class ActivityPersonPanel(QWidget):
         grid.addWidget(self.combo_zodiac, 1, 3)
 
         # Row 2
-        grid.addWidget(_label("國曆生日"), 2, 0)
-        grid.addWidget(self.date_birth_ad, 2, 1)
-        grid.addWidget(_label("農曆生日"), 2, 2)
+        grid.addWidget(_label("國曆"), 2, 0)
+        grid.addWidget(self.edit_birth_ad, 2, 1)
+        grid.addWidget(_label("農曆"), 2, 2)
         grid.addWidget(self.edit_birth_lunar, 2, 3)
 
         # Row 3
@@ -255,23 +259,99 @@ class ActivityPersonPanel(QWidget):
         if keyword:
             self.search_requested.emit(keyword)
 
+    def _set_birth_ad_empty(self):
+        self.edit_birth_ad.clear()
+
     def _clear_form(self):
         self._person_id = None
+        self.list_results.hide()
         self.edit_quick.clear()
         self.edit_name.clear()
         self.edit_phone.clear()
         self.edit_birth_lunar.clear()
         self.edit_address.clear()
         self.edit_note.clear()
-        self.date_birth_ad.setDate(self.date_birth_ad.minimumDate())
+        self._set_birth_ad_empty()
+        self.combo_gender.setCurrentIndex(0)
+        self.combo_birth_time.setCurrentIndex(0)
+        self.combo_zodiac.setCurrentIndex(0)
 
     def show_search_results(self, people: list[dict]):
         self.list_results.clear()
+        self._sync_result_list_font()
         for p in people:
-            item = QListWidgetItem(f"{p['name']}（{p.get('phone_mobile','')}）")
+            name = p.get("name", "")
+            phone = p.get("phone_mobile") or p.get("phone_home") or ""
+            birthday = p.get("birthday_ad") or p.get("birthday_lunar") or ""
+            role = "戶長" if p.get("role_in_household") == "HEAD" else ("戶員" if p.get("role_in_household") == "MEMBER" else "")
+            label = f"{name}｜{phone}｜{birthday}"
+            if role:
+                label = f"{label}｜{role}"
+            item = QListWidgetItem(label)
+            item.setFont(self.list_results.font())
+            row_h = max(30, QFontMetrics(self.list_results.font()).height() + 12)
+            item.setSizeHint(QSize(0, row_h))
             item.setData(Qt.UserRole, p)
             self.list_results.addItem(item)
-        self.list_results.setVisible(bool(people))
+        self._show_results_popup(bool(people))
+
+    def _sync_result_list_font(self):
+        f = self.font()
+        self.list_results.setFont(f)
+        row_h = max(30, QFontMetrics(f).height() + 12)
+        for i in range(self.list_results.count()):
+            it = self.list_results.item(i)
+            if it is None:
+                continue
+            it.setFont(f)
+            it.setSizeHint(QSize(0, row_h))
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:
+            self._sync_result_list_font()
+            if self.list_results.isVisible():
+                self._show_results_popup(True)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.list_results.isVisible():
+            self._show_results_popup(True)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if self.list_results.isVisible():
+            self._show_results_popup(True)
+
+    def _show_results_popup(self, visible: bool):
+        if not visible or self.list_results.count() == 0:
+            self.list_results.hide()
+            return
+
+        row_h = max(30, QFontMetrics(self.list_results.font()).height() + 12)
+        content_h = min(8, self.list_results.count()) * row_h + 8
+
+        left_x = self.lbl_quick.mapToGlobal(QPoint(0, 0)).x()
+        right_x = self.btn_clear.mapToGlobal(QPoint(self.btn_clear.width(), 0)).x()
+        quick_top = self.edit_quick.mapToGlobal(QPoint(0, 0)).y()
+        quick_bottom = self.edit_quick.mapToGlobal(QPoint(0, self.edit_quick.height())).y()
+
+        popup_w = max(260, right_x - left_x)
+        popup_h = max(90, content_h)
+
+        screen_geo = QApplication.desktop().availableGeometry(self)
+        gap = 4
+        y_up = quick_top - popup_h - gap
+        y_down = quick_bottom + gap
+
+        if y_up >= screen_geo.top():
+            popup_y = y_up  # 優先往上展開
+        else:
+            popup_y = y_down  # 上方不夠才往下
+
+        self.list_results.setGeometry(left_x, popup_y, popup_w, popup_h)
+        self.list_results.raise_()
+        self.list_results.show()
 
     def _on_pick_person(self, item):
         data = item.data(Qt.UserRole)
@@ -280,32 +360,23 @@ class ActivityPersonPanel(QWidget):
 
         self.edit_name.setText(data.get("name", ""))
         self.edit_phone.setText(data.get("phone_mobile", ""))
+        self.combo_gender.setCurrentText(data.get("gender", "") or self.combo_gender.currentText())
 
         self.edit_birth_lunar.setText(data.get("birthday_lunar") or "")
-        
-        birthday_ad = (data.get("birthday_ad") or "").strip()
-        min_date = self.date_birth_ad.minimumDate()
-        self.date_birth_ad.setDate(min_date)
-
-        if birthday_ad:
-            qd = parse_qdate_flexible(birthday_ad)
-            if qd and qd.isValid():
-                self.date_birth_ad.setDate(qd)
+        self.edit_birth_ad.setText((data.get("birthday_ad") or "").strip())
 
 
         self.edit_address.setText(data.get("address", ""))
         self.edit_note.setText(data.get("note", ""))
+        self.combo_birth_time.setCurrentText(data.get("birth_time", "") or self.combo_birth_time.currentText())
+        self.combo_zodiac.setCurrentText(data.get("zodiac", "") or self.combo_zodiac.currentText())
 
+        self.person_picked.emit(dict(data or {}))
         self.list_results.hide()
 
 
     def get_person_payload(self) -> dict:
-        d = self.date_birth_ad.date()
-        min_date = self.date_birth_ad.minimumDate()
-
-        birthday_ad = ""
-        if d.isValid() and d != min_date:
-            birthday_ad = d.toString("yyyy/MM/dd") 
+        birthday_ad = self.edit_birth_ad.text().strip()
 
         return {
             "id": self._person_id,
@@ -319,5 +390,3 @@ class ActivityPersonPanel(QWidget):
             "address": self.edit_address.text().strip(),
             "note": self.edit_note.text().strip(),
         }
-
-

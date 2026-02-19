@@ -181,10 +181,13 @@ class ActivityEditDialog(QDialog):
     # -----------------------------
     def _collect_payload(self) -> Optional[Dict]:
         name = self.f_name.text().strip()
-        start = self.f_start.text().strip()
-        end = self.f_end.text().strip()
+        start = normalize_ymd_text(self.f_start.text().strip())
+        end = normalize_ymd_text(self.f_end.text().strip())
         note = self.f_note.toPlainText().strip()
         status = 1 if self.mode == "new" else int(self.f_status.currentData())
+
+        self.f_start.setText(start)
+        self.f_end.setText(end)
 
 
         if not name:

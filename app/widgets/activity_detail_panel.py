@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
+import re
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -7,7 +8,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QFrame, QFormLayout, QLineEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QGridLayout,
-    QSizePolicy, QGroupBox
+    QSizePolicy, QGroupBox, QDialog, QCheckBox
 )
 from PyQt5.QtWidgets import QMessageBox, QTextEdit
 from app.utils.id_utils import compute_display_status
@@ -16,9 +17,9 @@ from app.utils.date_utils import (
     make_ymd_validator,
     normalize_ymd_text,
 )
+from app.utils.print_helper import PrintHelper
 from app.dialogs.activity_edit_dialog import ActivityEditDialog
 from app.dialogs.plan_edit_dialog import PlanEditDialog
-from app.dialogs.activity_signup_edit_dialog import ActivitySignupEditDialog
 
 
 # -----------------------------
@@ -50,6 +51,196 @@ class SignupRow:
     phone: str
     address: str
     items: List[SignupItemRow]
+
+
+class WenshuPrintDialog(QDialog):
+    def __init__(self, rows: List[Dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("文疏列印")
+        self.resize(980, 620)
+        self._rows = list(rows or [])
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        top = QHBoxLayout()
+        self.chk_activity_birthday_format = QPushButton("☐ 活動祝壽格式")
+        self.chk_activity_birthday_format.setCheckable(True)
+        self.chk_activity_birthday_format.toggled.connect(
+            lambda on: self.chk_activity_birthday_format.setText("☑ 活動祝壽格式" if on else "☐ 活動祝壽格式")
+        )
+        self.edt_prayer_default = QLineEdit()
+        self.edt_prayer_default.setPlaceholderText("預設祈求（可留空）")
+        self.edt_prayer_default.setText("")
+        self.chk_apply_default_prayer = QCheckBox("套用預設祈求")
+        self.chk_apply_default_prayer.setChecked(False)
+        btn_all = QPushButton("全選")
+        btn_none = QPushButton("清空")
+
+        self.chk_apply_default_prayer.toggled.connect(self._on_toggle_apply_default_prayer)
+        btn_all.clicked.connect(lambda: self._set_all_checked(True))
+        btn_none.clicked.connect(lambda: self._set_all_checked(False))
+        top.addWidget(self.chk_activity_birthday_format)
+        top.addWidget(QLabel("預設祈求"))
+        top.addWidget(self.edt_prayer_default, 1)
+        top.addWidget(self.chk_apply_default_prayer)
+        top.addWidget(btn_all)
+        top.addWidget(btn_none)
+        root.addLayout(top)
+
+        self.tbl = QTableWidget(0, 5)
+        self.tbl.setHorizontalHeaderLabels(["列印", "姓名", "生日", "地址", "祈求"])
+        self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.tbl.setAlternatingRowColors(True)
+        root.addWidget(self.tbl, 1)
+
+        bottom = QHBoxLayout()
+        bottom.addStretch(1)
+        btn_print = QPushButton("列印文疏（單筆/批次）")
+        btn_close = QPushButton("關閉")
+        btn_print.clicked.connect(self._on_print)
+        btn_close.clicked.connect(self.reject)
+        bottom.addWidget(btn_print)
+        bottom.addWidget(btn_close)
+        root.addLayout(bottom)
+
+        self._render_rows()
+
+    def _render_rows(self):
+        self.tbl.setRowCount(0)
+        for r in self._rows:
+            row = self.tbl.rowCount()
+            self.tbl.insertRow(row)
+            chk = QTableWidgetItem("")
+            chk.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
+            chk.setCheckState(Qt.Unchecked)
+            self.tbl.setItem(row, 0, chk)
+            self.tbl.setItem(row, 1, QTableWidgetItem(str(r.get("person_name", ""))))
+            lunar = normalize_ymd_text(str(r.get("person_birthday_lunar", "") or ""))
+            ad = normalize_ymd_text(str(r.get("person_birthday_ad", "") or ""))
+            is_leap = int(r.get("person_lunar_is_leap") or 0) == 1
+            if lunar:
+                if is_leap:
+                    birthday_text = f"農曆 {lunar}(閏)"
+                else:
+                    birthday_text = f"農曆 {lunar}"
+            elif ad:
+                birthday_text = f"國曆 {ad}"
+            else:
+                birthday_text = ""
+            self.tbl.setItem(row, 2, QTableWidgetItem(birthday_text))
+            name_item = self.tbl.item(row, 1)
+            birthday_item = self.tbl.item(row, 2)
+            address_item = QTableWidgetItem(str(r.get("person_address", "")))
+            self.tbl.setItem(row, 3, address_item)
+            prayer_item = QTableWidgetItem("")
+            self.tbl.setItem(row, 4, prayer_item)
+
+            # 姓名/生日/地址為唯讀；祈求欄可手動編輯
+            for readonly_item in (name_item, birthday_item, address_item):
+                if readonly_item:
+                    readonly_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            prayer_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
+
+    def _set_all_checked(self, checked: bool):
+        for r in range(self.tbl.rowCount()):
+            it = self.tbl.item(r, 0)
+            if it:
+                it.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+
+    def _on_toggle_apply_default_prayer(self, checked: bool):
+        if not checked:
+            return
+        default_prayer = (self.edt_prayer_default.text() or "").strip()
+        if not default_prayer:
+            return
+        for r in range(self.tbl.rowCount()):
+            it = self.tbl.item(r, 4)
+            if it is None:
+                it = QTableWidgetItem("")
+                it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
+                self.tbl.setItem(r, 4, it)
+            it.setText(default_prayer)
+
+    def _on_print(self):
+        default_prayer = (self.edt_prayer_default.text() or "").strip()
+        use_default_prayer = self.chk_apply_default_prayer.isChecked()
+        rows = []
+        for r in range(self.tbl.rowCount()):
+            chk = self.tbl.item(r, 0)
+            if not chk or chk.checkState() != Qt.Checked:
+                continue
+            name = self.tbl.item(r, 1).text() if self.tbl.item(r, 1) else ""
+            birthday = self.tbl.item(r, 2).text() if self.tbl.item(r, 2) else ""
+            address = self.tbl.item(r, 3).text() if self.tbl.item(r, 3) else ""
+            row_prayer = self.tbl.item(r, 4).text().strip() if self.tbl.item(r, 4) else ""
+            rows.append({
+                "name": name,
+                "birthday": birthday,
+                "address": address,
+                "prayer": row_prayer if row_prayer else (default_prayer if use_default_prayer else ""),
+            })
+        if not rows:
+            QMessageBox.information(self, "請先選擇", "請先勾選至少一位報名者再列印文疏")
+            return
+        template = "activity_birthday" if self.chk_activity_birthday_format.isChecked() else "blessing"
+        PrintHelper.print_wenshu_report(rows, template=template)
+
+
+class ItemStatsDialog(QDialog):
+    def __init__(self, rows: List[Tuple[str, int]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("總品項列印")
+        self.resize(760, 560)
+        self._rows = list(rows or [])
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        self.tbl = QTableWidget(0, 2)
+        self.tbl.setHorizontalHeaderLabels(["品項", "總數量"])
+        self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.tbl.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tbl.setAlternatingRowColors(True)
+        root.addWidget(self.tbl, 1)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_print = QPushButton("列印統計")
+        btn_close = QPushButton("關閉")
+        btn_print.clicked.connect(self._on_print)
+        btn_close.clicked.connect(self.reject)
+        btn_row.addWidget(btn_print)
+        btn_row.addWidget(btn_close)
+        root.addLayout(btn_row)
+
+        self._render()
+
+    def _render(self):
+        self.tbl.setRowCount(0)
+        for item_name, qty in self._rows:
+            row = self.tbl.rowCount()
+            self.tbl.insertRow(row)
+            self.tbl.setItem(row, 0, QTableWidgetItem(str(item_name)))
+            self.tbl.setItem(row, 1, QTableWidgetItem(str(int(qty))))
+
+    def _on_print(self):
+        rows = [[k, str(v)] for k, v in (self._rows or [])]
+        if not rows:
+            QMessageBox.information(self, "列印統計", "沒有可列印內容")
+            return
+        PrintHelper.print_table_report("總品項列印", ["品項", "總數量"], rows)
 
 
 # -----------------------------
@@ -128,12 +319,11 @@ class ActivityDetailPanel(QWidget):
         self.tabs.addTab(self.tab_manage, "① 新增活動 / 方案")
         self._build_tab_manage()
 
-        # Tab 2：報名狀況 / 名單
+        # Tab 2：報名統計與列印
         self.tab_signup = QWidget()
-        self.tabs.addTab(self.tab_signup, "② 報名狀況 / 報名名單")
+        self.tabs.addTab(self.tab_signup, "② 報名統計與列印")
         self._build_tab_signup()
 
-        self.signup_q.textChanged.connect(self._on_signup_search_changed)
 
         # （可選）簡單 QSS，讓整體更接近 HTML 的暖色系
         self._apply_qss()
@@ -167,6 +357,12 @@ class ActivityDetailPanel(QWidget):
         self.f_note.setMinimumHeight(120)
         self.f_note.setMaximumHeight(180)
         self.f_note.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        # 活動資料頁僅供檢視，修改請使用「修改活動」按鈕開啟 dialog
+        self.f_name.setReadOnly(True)
+        self.f_start.setReadOnly(True)
+        self.f_end.setReadOnly(True)
+        self.f_note.setReadOnly(True)
 
 
         form.addRow("活動名稱", self.f_name)
@@ -232,6 +428,9 @@ class ActivityDetailPanel(QWidget):
         layout = QVBoxLayout(self.tab_signup)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(12)
+        self._signup_filter_mode = "all"
+        self._signup_rows = []
+        self._signup_rows_filtered = []
 
         # 統計卡片（3格）
         stats = QGridLayout()
@@ -250,53 +449,64 @@ class ActivityDetailPanel(QWidget):
 
         layout.addLayout(stats)
 
-        # 報名名單（唯一區塊）
-        grp = QGroupBox("報名名單")
-        g = QVBoxLayout(grp)
-        g.setContentsMargins(12, 12, 12, 12)
-        g.setSpacing(10)
+        # 區塊 1：報名名單（明細）
+        grp_detail = QGroupBox("報名名單（明細）")
+        g1 = QVBoxLayout(grp_detail)
+        g1.setContentsMargins(12, 12, 12, 12)
+        g1.setSpacing(8)
 
-        # 搜尋列
         search_row = QHBoxLayout()
-        search_row.setSpacing(8)
-        self.signup_q = QLineEdit()
-        self.signup_q.setPlaceholderText("搜尋姓名 / 電話")
-        search_row.addWidget(self.signup_q, 1)
-        g.addLayout(search_row)
+        self.edt_signup_search = QLineEdit()
+        self.edt_signup_search.setPlaceholderText("搜尋姓名 / 電話")
+        self.btn_clear_signup_search = QPushButton("清空")
+        self.edt_signup_search.textChanged.connect(self._on_signup_search_changed)
+        self.btn_clear_signup_search.clicked.connect(lambda: self.edt_signup_search.setText(""))
+        search_row.addWidget(QLabel("搜尋"))
+        search_row.addWidget(self.edt_signup_search, 1)
+        search_row.addWidget(self.btn_clear_signup_search)
+        g1.addLayout(search_row)
 
-        # 表格：姓名、電話、方案、費用
-        self.tbl_signups = QTableWidget(0, 4)
-        self.tbl_signups.setHorizontalHeaderLabels(["姓名", "電話", "方案", "費用"])
+        self.tbl_signups = QTableWidget(0, 5)
+        self.tbl_signups.setHorizontalHeaderLabels(["繳費", "姓名", "電話", "方案", "金額"])
         self.tbl_signups.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_signups.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.tbl_signups.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tbl_signups.setSelectionMode(QTableWidget.MultiSelection)
         self.tbl_signups.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_signups.setAlternatingRowColors(True)
+        g1.addWidget(self.tbl_signups, 1)
 
-        # ✅ 改成：雙擊直接開修改 dialog（之後你再接 dialog）
-        self.tbl_signups.itemDoubleClicked.connect(lambda _it: self.on_edit_signup())
+        row_btn_1 = QHBoxLayout()
+        self.btn_show_all_signups = QPushButton("全部")
+        self.btn_show_unpaid_signups = QPushButton("篩選未繳費")
+        self.btn_mark_paid = QPushButton("繳費")
+        self.btn_print_signup_list = QPushButton("列印名單")
+        self.edt_payment_handler = QLineEdit()
+        self.edt_payment_handler.setPlaceholderText("經手人（必填）")
+        self.btn_mark_paid.setEnabled(False)
+        self.btn_show_all_signups.clicked.connect(self._on_show_all_signups)
+        self.btn_show_unpaid_signups.clicked.connect(self._on_show_unpaid_signups)
+        self.btn_mark_paid.clicked.connect(self._on_mark_signup_paid)
+        self.edt_payment_handler.textChanged.connect(self._sync_mark_paid_enabled)
+        self.btn_print_signup_list.clicked.connect(self._on_print_signup_list)
+        row_btn_1.addWidget(self.btn_show_all_signups)
+        row_btn_1.addWidget(self.btn_show_unpaid_signups)
+        row_btn_1.addWidget(self.btn_mark_paid)
+        row_btn_1.addWidget(self.edt_payment_handler, 1)
+        self.btn_open_item_stats_dialog = QPushButton("總品項列印")
+        self.btn_open_item_stats_dialog.clicked.connect(self._open_item_stats_dialog)
+        row_btn_1.addWidget(self.btn_open_item_stats_dialog)
+        self.btn_open_wenshu_dialog = QPushButton("文疏列印")
+        self.btn_open_wenshu_dialog.clicked.connect(self._open_wenshu_dialog)
+        row_btn_1.addWidget(self.btn_open_wenshu_dialog)
+        row_btn_1.addStretch(1)
+        row_btn_1.addWidget(self.btn_print_signup_list)
+        g1.addLayout(row_btn_1)
 
-        g.addWidget(self.tbl_signups, 1)
-
-        # 右下角按鈕：修改 / 刪除（不再需要右側明細區）
-        btn_row = QHBoxLayout()
-        btn_row.addStretch(1)
-
-        self.btn_signup_edit = QPushButton("修改報名")
-        self.btn_signup_delete = QPushButton("刪除報名")
-        for b in (self.btn_signup_edit, self.btn_signup_delete):
-            b.setMinimumHeight(32)
-
-        self.btn_signup_edit.clicked.connect(self.on_edit_signup)
-        self.btn_signup_delete.clicked.connect(self.on_delete_signup)
-
-        btn_row.addWidget(self.btn_signup_edit)
-        btn_row.addWidget(self.btn_signup_delete)
-        g.addLayout(btn_row)
-
-        layout.addWidget(grp, 1)
+        layout.addWidget(grp_detail, 1)
 
 
 
@@ -362,14 +572,17 @@ class ActivityDetailPanel(QWidget):
 
             plans_text = "、".join([f"{it.plan_name}×{it.qty}" for it in s.items])
             total = sum(int(it.subtotal) for it in s.items)
-
-            self.tbl_signups.setItem(r, 0, QTableWidgetItem(s.name))
-            self.tbl_signups.setItem(r, 1, QTableWidgetItem(s.phone))
-            self.tbl_signups.setItem(r, 2, QTableWidgetItem(plans_text))
-            self.tbl_signups.setItem(r, 3, QTableWidgetItem(str(total)))
+            paid_item = QTableWidgetItem("")
+            paid_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            paid_item.setCheckState(Qt.Unchecked)
+            self.tbl_signups.setItem(r, 0, paid_item)
+            self.tbl_signups.setItem(r, 1, QTableWidgetItem(s.name))
+            self.tbl_signups.setItem(r, 2, QTableWidgetItem(s.phone))
+            self.tbl_signups.setItem(r, 3, QTableWidgetItem(plans_text))
+            self.tbl_signups.setItem(r, 4, QTableWidgetItem(str(total)))
 
             # 存 signup_id 到 UserRole（修改/刪除要用）
-            for c in range(4):
+            for c in range(5):
                 self.tbl_signups.item(r, c).setData(Qt.UserRole, s.id)
 
         self.tbl_signups.resizeRowsToContents()
@@ -415,8 +628,8 @@ class ActivityDetailPanel(QWidget):
         name = ""
         phone = ""
         if row >= 0:
-            it_name = self.tbl_signups.item(row, 0)
-            it_phone = self.tbl_signups.item(row, 1)
+            it_name = self.tbl_signups.item(row, 1)
+            it_phone = self.tbl_signups.item(row, 2)
             name = (it_name.text().strip() if it_name else "")
             phone = (it_phone.text().strip() if it_phone else "")
 
@@ -451,22 +664,198 @@ class ActivityDetailPanel(QWidget):
             QMessageBox.critical(self, "刪除失敗", f"刪除報名失敗：\n{e}")
 
     def _clear_signup_tab(self):
-        # 清資料
         self._signup_rows = []
         self._signup_rows_filtered = []
-
-        # 清搜尋框（如果你有這個 widget）
-        if hasattr(self, "signup_search"):
-            self.signup_search.clear()
+        self._signup_filter_mode = "all"
 
         # 清統計卡
         self._set_stat_value(self.stat_signup_cnt, "0")
         self._set_stat_value(self.stat_total, "0")
         self._set_stat_value(self.stat_donation, "0")
 
-        # 清表格
         self.tbl_signups.setRowCount(0)
-        self.tbl_signups.clearSelection()
+
+    def _parse_plan_items_text(self, text: str) -> List[Tuple[str, int]]:
+        items: List[Tuple[str, int]] = []
+        for token in re.split(r"[、,\n/]+", str(text or "")):
+            t = token.strip()
+            if not t:
+                continue
+            m = re.match(r"^(.*?)(?:[xX×*＊]\s*(\d+))?$", t)
+            if not m:
+                continue
+            name = (m.group(1) or "").strip()
+            if not name:
+                continue
+            qty = int(m.group(2) or 1)
+            items.append((name, max(1, qty)))
+        return items
+
+    def _plan_qty_map_from_summary(self, summary: str) -> Dict[str, int]:
+        out: Dict[str, int] = {}
+        for token in re.split(r"[、,\n]+", str(summary or "")):
+            t = token.strip()
+            if not t:
+                continue
+            m = re.match(r"^(.*?)[xX×*＊]\s*(\d+)$", t)
+            if not m:
+                continue
+            name = (m.group(1) or "").strip()
+            qty = int(m.group(2) or 0)
+            if name and qty > 0:
+                out[name] = out.get(name, 0) + qty
+        return out
+
+    def _build_item_stats_rows(self, rows: List[Dict]) -> List[Tuple[str, int]]:
+        plan_item_map: Dict[str, List[Tuple[str, int]]] = {}
+        for p in (getattr(self, "_plans", []) or []):
+            plan_item_map[str(p.name)] = self._parse_plan_items_text(p.items)
+
+        agg: Dict[str, int] = {}
+        for r in rows or []:
+            plan_qty_map = self._plan_qty_map_from_summary(str((r or {}).get("plan_summary", "")))
+            for plan_name, plan_qty in plan_qty_map.items():
+                for item_name, item_qty in plan_item_map.get(plan_name, []):
+                    agg[item_name] = agg.get(item_name, 0) + plan_qty * item_qty
+
+        return sorted(agg.items(), key=lambda x: x[0])
+
+    def _render_signup_detail_table(self, rows: List[Dict]):
+        self.tbl_signups.setRowCount(0)
+        for r in rows or []:
+            row = self.tbl_signups.rowCount()
+            self.tbl_signups.insertRow(row)
+            paid_item = QTableWidgetItem("")
+            paid = int(r.get("is_paid") or 0) == 1
+            if paid:
+                paid_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                paid_item.setCheckState(Qt.Checked)
+            else:
+                paid_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
+                paid_item.setCheckState(Qt.Unchecked)
+            self.tbl_signups.setItem(row, 0, paid_item)
+            self.tbl_signups.setItem(row, 1, QTableWidgetItem(str(r.get("person_name", ""))))
+            self.tbl_signups.setItem(row, 2, QTableWidgetItem(str(r.get("person_phone", ""))))
+            self.tbl_signups.setItem(row, 3, QTableWidgetItem(str(r.get("plan_summary", ""))))
+            self.tbl_signups.setItem(row, 4, QTableWidgetItem(str(int(r.get("total_amount", 0) or 0))))
+            sid = str(r.get("signup_id", ""))
+            for c in range(5):
+                it = self.tbl_signups.item(row, c)
+                if it:
+                    it.setData(Qt.UserRole, sid)
+                    it.setData(Qt.UserRole + 1, 1 if paid else 0)
+            receipt_no = str(r.get("payment_receipt_number", "") or "")
+            if receipt_no:
+                self.tbl_signups.item(row, 0).setToolTip(f"已繳費，收據號碼：{receipt_no}")
+        self.tbl_signups.resizeRowsToContents()
+
+    def _simple_print_preview(self, title: str, lines: List[str]):
+        text = "\n".join(lines or [])
+        QMessageBox.information(self, title, text if text else "沒有可列印內容")
+
+    def _on_print_signup_list(self):
+        rows = []
+        for r in self._signup_rows_filtered or []:
+            paid_mark = "✓" if int(r.get("is_paid") or 0) == 1 else ""
+            amount = int(r.get("total_amount", 0) or 0)
+            rows.append([
+                paid_mark,
+                str(r.get("person_name", "") or ""),
+                str(r.get("person_phone", "") or ""),
+                str(r.get("plan_summary", "") or ""),
+                str(amount),
+            ])
+        if not rows:
+            QMessageBox.information(self, "列印名單", "沒有可列印內容")
+            return
+        PrintHelper.print_table_report("報名名單（明細）", ["繳費", "姓名", "電話", "方案", "金額"], rows)
+
+    def _on_show_all_signups(self):
+        self._signup_filter_mode = "all"
+        self._apply_signup_filter()
+
+    def _on_show_unpaid_signups(self):
+        self._signup_filter_mode = "unpaid"
+        self._apply_signup_filter()
+
+    def _apply_signup_filter(self):
+        rows = self._signup_rows or []
+        kw = (self.edt_signup_search.text() or "").strip().lower() if hasattr(self, "edt_signup_search") else ""
+        if self._signup_filter_mode == "unpaid":
+            rows = [r for r in rows if int((r or {}).get("is_paid") or 0) == 0]
+        if kw:
+            rows = [
+                r for r in rows
+                if kw in str((r or {}).get("person_name", "")).lower()
+                or kw in str((r or {}).get("person_phone", "")).lower()
+            ]
+        self._signup_rows_filtered = rows
+        self._render_signup_detail_table(rows)
+        self._sync_mark_paid_enabled()
+
+    def _on_signup_search_changed(self, _text):
+        self._apply_signup_filter()
+
+    def _sync_mark_paid_enabled(self):
+        has_handler = bool((self.edt_payment_handler.text() or "").strip()) if hasattr(self, "edt_payment_handler") else False
+        if hasattr(self, "btn_mark_paid"):
+            self.btn_mark_paid.setEnabled(has_handler)
+
+    def _get_checked_signup_ids(self) -> List[str]:
+        ids = set()
+        for row in range(self.tbl_signups.rowCount()):
+            it = self.tbl_signups.item(row, 0)
+            if not it:
+                continue
+            if int(it.data(Qt.UserRole + 1) or 0) == 1:
+                continue
+            if it.checkState() != Qt.Checked:
+                continue
+            sid = str(it.data(Qt.UserRole) or "").strip()
+            if sid:
+                ids.add(sid)
+        return sorted(ids)
+
+    def _on_mark_signup_paid(self):
+        if not self._current_activity_id:
+            QMessageBox.information(self, "請先選擇活動", "請先選擇活動再進行繳費。")
+            return
+        handler = (self.edt_payment_handler.text() or "").strip()
+        if not handler:
+            QMessageBox.information(self, "欄位不足", "請先輸入經手人，再進行繳費。")
+            return
+        signup_ids = self._get_checked_signup_ids()
+        if not signup_ids:
+            QMessageBox.information(self, "請先選擇", "請先勾選未繳費名單，再執行繳費。")
+            return
+        try:
+            result = self.controller.mark_activity_signups_paid(
+                self._current_activity_id,
+                signup_ids,
+                handler=handler,
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "繳費失敗", str(e))
+            return
+        self._reload_signup_tab()
+        paid_count = int(result.get("paid_count", 0) or 0)
+        skipped_count = int(result.get("skipped_count", 0) or 0)
+        msg = [f"完成繳費：{paid_count} 筆"]
+        if skipped_count > 0:
+            msg.append(f"略過已繳費：{skipped_count} 筆")
+        receipts = result.get("receipt_numbers") or []
+        if receipts:
+            msg.append("收據號碼：" + "、".join(str(x) for x in receipts[:10]))
+        QMessageBox.information(self, "繳費完成", "\n".join(msg))
+
+    def _open_wenshu_dialog(self):
+        dlg = WenshuPrintDialog(self._signup_rows or [], self)
+        dlg.exec_()
+
+    def _open_item_stats_dialog(self):
+        rows = self._build_item_stats_rows(self._signup_rows or [])
+        dlg = ItemStatsDialog(rows, self)
+        dlg.exec_()
 
 
     # -----------------------------
@@ -704,71 +1093,19 @@ class ActivityDetailPanel(QWidget):
             return
 
         rows = self.controller.get_activity_signups(self._current_activity_id)
-        self._signup_rows = rows
-        self._signup_rows_filtered = rows
+        self._signup_rows = list(rows or [])
 
         # ===== 統計卡 =====
-        signup_cnt = len(rows)
-        plan_cnt = len(self._plans) if hasattr(self, "_plans") else 0
-        total = sum(int(r.get("total_amount", 0) or 0) for r in rows)
-        donation_total = sum(int(r.get("donation_amount", 0) or 0) for r in rows)
-
+        signup_cnt = len(self._signup_rows)
+        total = sum(int(r.get("total_amount", 0) or 0) for r in self._signup_rows)
+        donation_total = sum(int(r.get("donation_amount", 0) or 0) for r in self._signup_rows)
 
         self._set_stat_value(self.stat_signup_cnt, str(signup_cnt))
         self._set_stat_value(self.stat_total, str(total))
         self._set_stat_value(self.stat_donation, str(donation_total))
 
-
-        # ===== 左表格 =====
-        self.tbl_signups.setRowCount(0)
-        for r in rows:
-            row = self.tbl_signups.rowCount()
-            self.tbl_signups.insertRow(row)
-
-            self.tbl_signups.setItem(row, 0, QTableWidgetItem(r["person_name"]))
-            self.tbl_signups.setItem(row, 1, QTableWidgetItem(r["person_phone"]))
-            self.tbl_signups.setItem(row, 2, QTableWidgetItem(r["plan_summary"]))
-            self.tbl_signups.setItem(row, 3, QTableWidgetItem(str(r["total_amount"])))
-
-            sid = str(r.get("signup_id", ""))
-            for c in range(4):
-                it = self.tbl_signups.item(row, c)
-                if it:
-                    it.setData(Qt.UserRole, sid)
-
-
-        if rows:
-            self.tbl_signups.selectRow(0)
-        else:
-            self.tbl_signups.clearSelection()
-
-    def _on_signup_search_changed(self, text):
-        text = text.strip()
-        if not text:
-            self._signup_rows_filtered = self._signup_rows
-        else:
-            self._signup_rows_filtered = [
-                r for r in self._signup_rows
-                if text in r["person_name"] or text in r["person_phone"]
-            ]
-
-        self.tbl_signups.setRowCount(0)
-        for r in self._signup_rows_filtered:
-            row = self.tbl_signups.rowCount()
-            self.tbl_signups.insertRow(row)
-
-            self.tbl_signups.setItem(row, 0, QTableWidgetItem(r["person_name"]))
-            self.tbl_signups.setItem(row, 1, QTableWidgetItem(r["person_phone"]))
-            self.tbl_signups.setItem(row, 2, QTableWidgetItem(r["plan_summary"]))
-            self.tbl_signups.setItem(row, 3, QTableWidgetItem(str(r["total_amount"])))
-
-            sid = str(r.get("signup_id", ""))
-            for c in range(4):
-                it = self.tbl_signups.item(row, c)
-                if it:
-                    it.setData(Qt.UserRole, sid)
-
-
+        self._apply_signup_filter()
+        self._sync_mark_paid_enabled()
 
     def load_activity(self, activity_id: str):
 
@@ -806,9 +1143,11 @@ class ActivityDetailPanel(QWidget):
 
     def _collect_activity_form(self) -> Optional[dict]:
         name = self.f_name.text().strip()
-        start = self.f_start.text().strip()
-        end = self.f_end.text().strip()
+        start = normalize_ymd_text(self.f_start.text().strip())
+        end = normalize_ymd_text(self.f_end.text().strip())
         note = self.f_note.toPlainText().strip()
+        self.f_start.setText(start)
+        self.f_end.setText(end)
 
         # 必填檢查
         if not name:

@@ -1,13 +1,15 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSplitter, QGroupBox, QSizePolicy,
-    QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-    QScrollArea, QGridLayout, QFrame
+    QLineEdit, QMessageBox, QDialog,
+    QScrollArea, QGridLayout, QFrame, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 
+from app.dialogs.activity_household_signup_dialog import ActivityHouseholdSignupDialog
+from app.dialogs.activity_signup_edit_dialog import ActivitySignupEditDialog
+from app.widgets.activity_plan_panel import ActivityPlanPanel  # backward-compat for tests
 from app.widgets.activity_person_panel import ActivityPersonPanel
-from app.widgets.activity_plan_panel import ActivityPlanPanel
 from app.utils.id_utils import (
     compute_display_status,
     parse_date_str_to_qdate,
@@ -249,6 +251,7 @@ class ActivitySignupPage(QWidget):
         self.activity_data = None            # 目前選中的活動 dict
         self._activity_list = []             # 所有活動（list[dict]）
         self._activity_cards = []            # list[_ActivityCard]
+        self._signup_rows_all = []           # 右側已報名明細（未過濾）
 
         self._build_ui()
         self._load_activities()
@@ -257,7 +260,6 @@ class ActivitySignupPage(QWidget):
         self._lock_signup_area(True)
 
         self._wire_person_panel()
-        self._load_activities()
 
     # =========================
     # 左下：人員面板接線（搜尋 / 顯示結果）
@@ -271,6 +273,11 @@ class ActivitySignupPage(QWidget):
         if hasattr(self.person_panel, "search_requested"):
             try:
                 self.person_panel.search_requested.connect(self._on_person_search_requested)
+            except Exception:
+                pass
+        if hasattr(self.person_panel, "person_picked"):
+            try:
+                self.person_panel.person_picked.connect(self._on_person_picked)
             except Exception:
                 pass
 
@@ -304,63 +311,69 @@ class ActivitySignupPage(QWidget):
         else:
             QMessageBox.information(self, "尚未支援", "ActivityPersonPanel 尚未提供 show_search_results(people)")
 
-
-    # =========================
-    # 右下：存入
-    # =========================
-    def _on_save_clicked(self):
-        # 1) activity_id：你目前右上角有「目前活動」與活動卡片
+    def _on_person_picked(self, person: dict):
+        # 搜尋點到任一人：改為彈窗整戶報名（統一確認後一次存入）
         if not self.activity_data or not self.activity_data.get("id"):
-            QMessageBox.warning(self, "無法存入", "請先選擇活動")
+            QMessageBox.information(self, "請先選活動", "請先選擇活動，再進行整戶報名")
             return
-        activity_id = self.activity_data["id"]
 
-        # 2) person：upsert 拿到 person_id
+        person_id = (person or {}).get("id")
+        if not person_id:
+            QMessageBox.warning(self, "資料錯誤", "找不到人員 ID，無法載入整戶")
+            return
+
         try:
-            person_payload = self.person_panel.get_person_payload()
-            if not person_payload.get("name"):
-                QMessageBox.warning(self, "資料不完整", "請先填寫姓名")
-                return
-
-            person_id = self.controller.upsert_person(person_payload)  # ✅ 已在 controller 寫好
+            household_people = self.controller.get_household_people_by_person_id(person_id, status="ACTIVE")
         except Exception as e:
-            QMessageBox.critical(self, "人員存檔失敗", str(e))
+            QMessageBox.warning(self, "載入失敗", f"讀取整戶人員資料時發生錯誤：\n{e}")
             return
 
-        # 3) plans：由右邊面板提供（你需要在 plan panel 寫 get_selected_plans_payload）
-        try:
-            selected_plans = self.plan_panel.get_selected_plans_payload()
-            if not selected_plans:
-                QMessageBox.warning(self, "未選方案", "請至少選擇一個方案")
-                return
-        except Exception as e:
-            QMessageBox.critical(self, "方案資料錯誤", str(e))
+        if not household_people:
+            household_people = [person]
+
+        activity_id = self.activity_data.get("id")
+        activity_title = (self.activity_data.get("title") or self.activity_data.get("name") or "未命名活動").strip()
+        dlg = ActivityHouseholdSignupDialog(
+            controller=self.controller,
+            activity_id=activity_id,
+            activity_title=activity_title,
+            people=household_people,
+            parent=self,
+        )
+        if dlg.exec_() != QDialog.Accepted:
             return
 
-        # 4) note：如果你右邊有「收據號碼/備註」之類，拿來當 signup note
-        note = None
-        if hasattr(self, "edit_receipt_no"):
-            note = self.edit_receipt_no.text().strip() or None
-
-        # 5) 寫入 DB：signup + signup_plans（controller 已處理交易）
-        try:
-            signup_id = self.controller.create_activity_signup(
-                activity_id=activity_id,
-                person_id=person_id,
-                selected_plans=selected_plans,
-                note=note
-            )
-            QMessageBox.information(self, "存入成功", f"已完成報名\n報名編號：{signup_id}")
-
-            # 6) 依你 UX 決定：要不要清空右側、清空人員、或保留
-            # self.person_panel._clear_form()
-            # self.plan_panel.clear_all()
-
-        except Exception as e:
-            QMessageBox.critical(self, "存入失敗", str(e))
+        signup_requests = dlg.get_signup_requests()
+        if not signup_requests:
             return
 
+        success = []
+        failed = []
+        for req in signup_requests:
+            p = req.get("person") or {}
+            pid = (p.get("id") or "").strip()
+            pname = (p.get("name") or pid).strip()
+            plans = req.get("selected_plans") or []
+            note = req.get("note")
+            try:
+                old_signup_id = (self.controller.get_activity_signup_id_by_person(activity_id, pid) or "").strip()
+                if old_signup_id:
+                    self.controller.delete_activity_signup(old_signup_id)
+                self.controller.create_activity_signup(
+                    activity_id=activity_id,
+                    person_id=pid,
+                    selected_plans=plans,
+                    note=note,
+                )
+                success.append(pname)
+            except Exception as e:
+                failed.append(f"{pname}：{e}")
 
+        msg = f"整戶報名完成\n成功：{len(success)} 人"
+        if failed:
+            msg += f"\n失敗：{len(failed)} 人\n\n" + "\n".join(failed[:8])
+        QMessageBox.information(self, "報名結果", msg)
+        self._refresh_signup_stats()
 
     # =========================
     # UI
@@ -440,46 +453,72 @@ class ActivitySignupPage(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(10)
 
-        title_row = QHBoxLayout()
-        title_row.setSpacing(8)
-
-        lbl_title2 = QLabel("搜尋結果")
-        lbl_title2.setStyleSheet("font-size: 16px; font-weight: 800;")
-
-        lbl_hint2 = QLabel("點選即可帶入")
-        lbl_hint2.setStyleSheet("color:#666666;")
-
-        title_row.addWidget(lbl_title2)
-        title_row.addStretch(1)
-        title_row.addWidget(lbl_hint2)
-  
         self.person_panel = ActivityPersonPanel()
         left_layout.addWidget(self.person_panel, 1)
 
-        splitter.addWidget(self.person_panel)
+        splitter.addWidget(left_container)
 
-        # ---- 右：方案面版
+        # ---- 右：報名統計與明細 ----
         right_container = QWidget()
         right_layout = QVBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(10)
 
-        try:
-            self.plan_panel = ActivityPlanPanel(controller=self.controller)
-        except TypeError:
-            self.plan_panel = ActivityPlanPanel()
-            if hasattr(self.plan_panel, "set_controller"):
-                self.plan_panel.set_controller(self.controller)
+        self.signup_stat_card = QFrame()
+        self.signup_stat_card.setStyleSheet(
+            "QFrame { background:#FFF8EE; border:1px solid #F0D9C4; border-radius:10px; }"
+        )
+        stat_layout = QHBoxLayout(self.signup_stat_card)
+        stat_layout.setContentsMargins(12, 8, 12, 8)
+        stat_layout.setSpacing(14)
+        self.lbl_signup_count = QLabel("已報名：0 人")
+        self.lbl_signup_amount = QLabel("報名總額：0 元")
+        self.lbl_signup_donation = QLabel("隨喜金額：0 元")
+        for w in (self.lbl_signup_count, self.lbl_signup_amount, self.lbl_signup_donation):
+            w.setStyleSheet("font-weight:700; color:#5A4A3F;")
+            stat_layout.addWidget(w)
+        stat_layout.addStretch(1)
+        right_layout.addWidget(self.signup_stat_card, 0)
 
-        self.plan_panel.save_clicked.connect(self._on_save_clicked)
+        search_row = QHBoxLayout()
+        self.edt_signup_search = QLineEdit()
+        self.edt_signup_search.setPlaceholderText("搜尋姓名 / 電話")
+        self.btn_signup_search_clear = QPushButton("清空")
+        self.btn_signup_search_clear.setMinimumHeight(30)
+        self.edt_signup_search.textChanged.connect(self._apply_signup_detail_filter)
+        self.btn_signup_search_clear.clicked.connect(lambda: self.edt_signup_search.setText(""))
+        search_row.addWidget(self.edt_signup_search, 1)
+        search_row.addWidget(self.btn_signup_search_clear, 0)
+        right_layout.addLayout(search_row)
 
-        right_layout.addWidget(self.plan_panel, 1)
+        self.tbl_signup_detail = QTableWidget(0, 4)
+        self.tbl_signup_detail.setHorizontalHeaderLabels(["姓名", "電話", "方案摘要", "金額"])
+        self.tbl_signup_detail.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tbl_signup_detail.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tbl_signup_detail.verticalHeader().setVisible(False)
+        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        right_layout.addWidget(self.tbl_signup_detail, 1)
+
+        signup_btn_row = QHBoxLayout()
+        signup_btn_row.addStretch(1)
+        self.btn_signup_edit = QPushButton("修改報名")
+        self.btn_signup_delete = QPushButton("刪除報名")
+        self.btn_signup_edit.setMinimumHeight(32)
+        self.btn_signup_delete.setMinimumHeight(32)
+        self.btn_signup_edit.clicked.connect(self._on_edit_signup_clicked)
+        self.btn_signup_delete.clicked.connect(self._on_delete_signup_clicked)
+        signup_btn_row.addWidget(self.btn_signup_edit)
+        signup_btn_row.addWidget(self.btn_signup_delete)
+        right_layout.addLayout(signup_btn_row)
 
         splitter.addWidget(right_container)
 
-        splitter.setStretchFactor(0, 5)
-        splitter.setStretchFactor(1, 5)
-        splitter.setSizes([600, 600])
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 7)
+        splitter.setSizes([420, 980])
 
         main_layout.addWidget(splitter, 1)
         root.addWidget(self.signup_group, 1)
@@ -491,6 +530,91 @@ class ActivitySignupPage(QWidget):
         self.btn_close_back.clicked.connect(self.request_close.emit)
         bottom_row.addWidget(self.btn_close_back)
         root.addLayout(bottom_row)
+
+    def _refresh_signup_stats(self):
+        if not self.activity_data or not self.activity_data.get("id"):
+            self.lbl_signup_count.setText("已報名：0 人")
+            self.lbl_signup_amount.setText("報名總額：0 元")
+            self.lbl_signup_donation.setText("隨喜金額：0 元")
+            self._signup_rows_all = []
+            self.tbl_signup_detail.setRowCount(0)
+            return
+        try:
+            rows = self.controller.get_activity_signups(self.activity_data.get("id"))
+        except Exception:
+            rows = []
+        count = len(rows or [])
+        total = sum(int((r or {}).get("total_amount", 0) or 0) for r in (rows or []))
+        donation = sum(int((r or {}).get("donation_amount", 0) or 0) for r in (rows or []))
+        self.lbl_signup_count.setText(f"已報名：{count} 人")
+        self.lbl_signup_amount.setText(f"報名總額：{total} 元")
+        self.lbl_signup_donation.setText(f"隨喜金額：{donation} 元")
+        self._signup_rows_all = list(rows or [])
+        self._apply_signup_detail_filter()
+
+    def _apply_signup_detail_filter(self):
+        kw = (self.edt_signup_search.text() or "").strip().lower() if hasattr(self, "edt_signup_search") else ""
+        rows = self._signup_rows_all or []
+        if kw:
+            rows = [
+                r for r in rows
+                if kw in str((r or {}).get("person_name", "")).lower()
+                or kw in str((r or {}).get("person_phone", "")).lower()
+            ]
+        self.tbl_signup_detail.setRowCount(0)
+        for r in rows:
+            row = self.tbl_signup_detail.rowCount()
+            self.tbl_signup_detail.insertRow(row)
+            self.tbl_signup_detail.setItem(row, 0, QTableWidgetItem(str((r or {}).get("person_name", "") or "")))
+            self.tbl_signup_detail.setItem(row, 1, QTableWidgetItem(str((r or {}).get("person_phone", "") or "")))
+            self.tbl_signup_detail.setItem(row, 2, QTableWidgetItem(str((r or {}).get("plan_summary", "") or "")))
+            self.tbl_signup_detail.setItem(row, 3, QTableWidgetItem(str((r or {}).get("total_amount", 0) or 0)))
+            sid = str((r or {}).get("signup_id", "") or "")
+            for c in range(4):
+                it = self.tbl_signup_detail.item(row, c)
+                if it:
+                    it.setData(Qt.UserRole, sid)
+
+    def _get_selected_signup_id(self) -> str:
+        row = self.tbl_signup_detail.currentRow()
+        if row < 0:
+            return ""
+        it = self.tbl_signup_detail.item(row, 0)
+        if not it:
+            return ""
+        return str(it.data(Qt.UserRole) or "").strip()
+
+    def _on_edit_signup_clicked(self):
+        sid = self._get_selected_signup_id()
+        if not sid:
+            QMessageBox.information(self, "請先選擇", "請先在右側已報名明細選擇一筆資料")
+            return
+        dlg = ActivitySignupEditDialog(self.controller, sid, self)
+        if dlg.exec_() == QDialog.Accepted:
+            self._refresh_signup_stats()
+
+    def _on_delete_signup_clicked(self):
+        sid = self._get_selected_signup_id()
+        if not sid:
+            QMessageBox.information(self, "請先選擇", "請先在右側已報名明細選擇一筆資料")
+            return
+        row = self.tbl_signup_detail.currentRow()
+        name = self.tbl_signup_detail.item(row, 0).text() if row >= 0 and self.tbl_signup_detail.item(row, 0) else ""
+        phone = self.tbl_signup_detail.item(row, 1).text() if row >= 0 and self.tbl_signup_detail.item(row, 1) else ""
+        msg = f"確定要刪除這筆報名？\n\n姓名：{name}\n電話：{phone}"
+        ok = QMessageBox.question(self, "確認刪除報名", msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ok != QMessageBox.Yes:
+            return
+        try:
+            deleted = self.controller.delete_activity_signup(sid)
+        except Exception as e:
+            QMessageBox.critical(self, "刪除失敗", f"刪除報名失敗：\n{e}")
+            return
+        if not deleted:
+            QMessageBox.warning(self, "刪除失敗", "此筆報名不存在或已被刪除")
+            return
+        self._refresh_signup_stats()
+        QMessageBox.information(self, "已刪除", "報名資料已刪除")
 
     # =========================
     # 活動：載入 / 卡片渲染 / 選取
@@ -597,13 +721,7 @@ class ActivitySignupPage(QWidget):
         if not self.activity_data:
             self.lbl_activity_badge.setText("目前活動：未選擇")
             self._lock_signup_area(True)
-
-            # 方案區：若你 ActivityPlanPanel 支援清空，可在這裡呼叫
-            if hasattr(self.plan_panel, "clear"):
-                try:
-                    self.plan_panel.clear()
-                except Exception:
-                    pass
+            self._refresh_signup_stats()
             return
 
         title = (self.activity_data.get("title") or self.activity_data.get("name") or "未命名活動").strip()
@@ -618,13 +736,7 @@ class ActivitySignupPage(QWidget):
 
         # 解鎖報名區
         self._lock_signup_area(False)
-
-        # 載入方案
-        if hasattr(self.plan_panel, "load_activity"):
-            try:
-                self.plan_panel.load_activity(selected_id)
-            except Exception as e:
-                QMessageBox.warning(self, "載入方案失敗", f"載入方案時發生錯誤：\n{e}")
+        self._refresh_signup_stats()
     
     def showEvent(self, event):
         super().showEvent(event)
@@ -644,79 +756,6 @@ class ActivitySignupPage(QWidget):
                     break
 
     def _on_save_clicked(self):
-        # A) activity
-        if not self.activity_data or not self.activity_data.get("id"):
-            QMessageBox.warning(self, "無法存入", "請先選擇活動")
-            return
-        activity_id = self.activity_data["id"]
-
-        # B) person (先 upsert，拿到 person_id)
-        person_payload = self.person_panel.get_person_payload()
-        if not person_payload.get("name"):
-            QMessageBox.warning(self, "資料不完整", "請先填寫姓名")
-            return
-
-        try:
-            person_id = self.controller.upsert_person(person_payload)
-        except Exception as e:
-            QMessageBox.critical(self, "人員存檔失敗", str(e))
-            return
-
-        # C) plans (由 plan_panel 組好 payload)
-        try:
-            selected_plans = self.plan_panel.get_selected_plans_payload()
-        except Exception as e:
-            QMessageBox.warning(self, "方案有誤", str(e))
-            return
-
-        if not selected_plans:
-            QMessageBox.warning(self, "未選方案", "請至少選擇一個方案")
-            return
-
-        # D) note / receipt
-        receipt_no = self.plan_panel.get_receipt_no()  # 你可以存在 note 或另外欄位
-        note = receipt_no or None
-
-        # E) write to DB
-        try:
-            signup_id = self.controller.create_activity_signup(
-                activity_id=activity_id,
-                person_id=person_id,
-                selected_plans=selected_plans,
-                note=note,
-            )
-
-            # 組成功訊息（不要顯示 signup_id）
-            name = (person_payload.get("name") or "").strip()
-            phone = (person_payload.get("phone_mobile") or "").strip()
-
-            selected_items = self.plan_panel.get_selected_items()  # 含 name/qty/amount
-            plan_lines = []
-            for it in selected_items:
-                pname = it.get("name", "")
-                qty = int(it.get("qty", 0) or 0)
-                amt = int(it.get("amount", 0) or 0)
-                plan_lines.append(f"・{pname} × {qty}（{amt} 元）")
-
-            total_amount = self.plan_panel.get_activity_amount()
-
-            msg = (
-                "已完成報名\n\n"
-                f"報名人：{name}\n"
-                f"電話：{phone}\n\n"
-                "報名方案：\n"
-                + ("\n".join(plan_lines) if plan_lines else "（未選擇方案）")
-                + "\n\n"
-                f"總金額：{total_amount} 元"
-            )
-
-            QMessageBox.information(self, "存入成功", msg)
-            self.plan_panel.clear_all()
-
-
-
-        except Exception as e:
-            QMessageBox.critical(self, "存入失敗", str(e))
-            return
+        QMessageBox.information(self, "提示", "主頁已取消方案編輯，請由整戶彈窗統一存入。")
                 
   

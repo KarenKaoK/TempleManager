@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QSpinBox, QMessageBox, QFrame
 )
 from app.utils.date_utils import normalize_ymd_text
+from app.widgets.spin_with_arrows import SpinWithArrows
 
 
 class ActivitySignupEditDialog(QDialog):
@@ -61,8 +62,8 @@ class ActivitySignupEditDialog(QDialog):
         top_lay.addLayout(row("地址", self.le_addr))
         top_lay.addLayout(row("性別", self.le_gender))
         top_lay.addLayout(row("生肖", self.le_zodiac))
-        top_lay.addLayout(row("生日(國曆)", self.le_bday_ad))
-        top_lay.addLayout(row("生日(農曆)", self.le_bday_lunar))
+        top_lay.addLayout(row("國曆", self.le_bday_ad))
+        top_lay.addLayout(row("農曆", self.le_bday_lunar))
         top_lay.addLayout(row("時辰", self.le_birth_time))
 
         root.addWidget(top)
@@ -141,23 +142,26 @@ class ActivitySignupEditDialog(QDialog):
                 self.tbl.setItem(r, 1, QTableWidgetItem("隨喜"))
 
                 # ✅ qty：0/1（未報名=0）
-                sp_qty = QSpinBox()
+                sp_qty_wrap = SpinWithArrows(self.tbl, spin_min_height=30, button_width=20, button_height=14)
+                sp_qty = sp_qty_wrap.spinbox
                 sp_qty.setRange(0, 1)
                 sp_qty.setValue(1 if qty > 0 else 0)
-                self.tbl.setCellWidget(r, 2, sp_qty)
+                self.tbl.setCellWidget(r, 2, sp_qty_wrap)
 
                 # ✅ 金額：只有 qty=1 才可改；qty=0 時金額=0 並 disabled
-                sp_amt = QSpinBox()
+                sp_amt_wrap = SpinWithArrows(self.tbl, spin_min_height=30, button_width=20, button_height=14)
+                sp_amt = sp_amt_wrap.spinbox
                 sp_amt.setRange(0, 999999999)
+                sp_amt.setSingleStep(100)
 
                 # 已報名：用 line_total；未報名：先帶 0（或你要帶 suggested_price 也可以）
                 sp_amt.setValue(int(line_total or 0) if qty > 0 else 0)
-                sp_amt.setEnabled(qty > 0)
-                self.tbl.setCellWidget(r, 3, sp_amt)
+                sp_amt_wrap.setEnabled(qty > 0)
+                self.tbl.setCellWidget(r, 3, sp_amt_wrap)
 
                 def _toggle_amt_enabled(_):
                     enabled = sp_qty.value() == 1
-                    sp_amt.setEnabled(enabled)
+                    sp_amt_wrap.setEnabled(enabled)
                     if not enabled:
                         sp_amt.setValue(0)
                     self._recalc_total()
@@ -168,11 +172,12 @@ class ActivitySignupEditDialog(QDialog):
             else:
                 self.tbl.setItem(r, 1, QTableWidgetItem(str(unit_price)))
 
-                sp = QSpinBox()
+                sp_wrap = SpinWithArrows(self.tbl, spin_min_height=30, button_width=20, button_height=14)
+                sp = sp_wrap.spinbox
                 sp.setRange(0, 999)
                 sp.setValue(qty)
                 sp.valueChanged.connect(self._recalc_total)
-                self.tbl.setCellWidget(r, 2, sp)
+                self.tbl.setCellWidget(r, 2, sp_wrap)
 
                 self.tbl.setItem(r, 3, QTableWidgetItem(str(line_total)))
 
@@ -188,14 +193,14 @@ class ActivitySignupEditDialog(QDialog):
 
             # donation
             if unit_item and unit_item.text() == "隨喜":
-                w = self.tbl.cellWidget(r, 3)  # 這格現在是 QSpinBox
-                subtotal = int(w.value()) if w else 0
+                w = self.tbl.cellWidget(r, 3)
+                subtotal = int(w.spinbox.value()) if hasattr(w, "spinbox") else (int(w.value()) if w else 0)
                 total += subtotal
                 continue
 
 
             unit = int(unit_item.text() or 0) if unit_item else 0
-            qty = int(sp.value()) if sp else 0
+            qty = int(sp.spinbox.value()) if hasattr(sp, "spinbox") else (int(sp.value()) if sp else 0)
             subtotal = unit * qty
 
             if subtotal_item:
@@ -220,18 +225,19 @@ class ActivitySignupEditDialog(QDialog):
                 sp_qty = self.tbl.cellWidget(r, 2)   # 0/1
                 sp_amt = self.tbl.cellWidget(r, 3)   # amount spin
 
-                q = int(sp_qty.value()) if sp_qty else 0
+                q = int(sp_qty.spinbox.value()) if hasattr(sp_qty, "spinbox") else (int(sp_qty.value()) if sp_qty else 0)
                 qty_map[plan_id] = q             
 
                 if q == 1:
-                    free_amount_map[plan_id] = int(sp_amt.value()) if sp_amt else 0
+                    free_amount_map[plan_id] = int(sp_amt.spinbox.value()) if hasattr(sp_amt, "spinbox") else (int(sp_amt.value()) if sp_amt else 0)
                 continue
 
 
             # 固定金額方案：改數量
             sp_qty = self.tbl.cellWidget(r, 2)
-            if sp_qty and sp_qty.isEnabled():
-                qty_map[plan_id] = int(sp_qty.value())
+            enabled = sp_qty.isEnabled() if sp_qty else False
+            if enabled:
+                qty_map[plan_id] = int(sp_qty.spinbox.value()) if hasattr(sp_qty, "spinbox") else int(sp_qty.value())
 
         try:
             ok = self.controller.update_activity_signup_items(

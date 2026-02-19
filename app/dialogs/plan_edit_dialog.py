@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 from typing import Optional, Dict
+import json
+import re
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit,
-    QPushButton, QMessageBox, QFormLayout, QComboBox, QSpinBox, QFrame
+    QPushButton, QMessageBox, QFormLayout, QComboBox, QSpinBox, QFrame,
+    QTableWidget, QTableWidgetItem, QHeaderView, QWidget
 )
+from app.widgets.spin_with_arrows import SpinWithArrows
 
 
 class PlanEditDialog(QDialog):
@@ -86,8 +90,29 @@ class PlanEditDialog(QDialog):
         form.setVerticalSpacing(10)
 
         self.f_name = QLineEdit()
-        self.f_items = QLineEdit()
-        self.f_items.setPlaceholderText("例如：蓮花*9 / 金紙組 / 香油錢…（顯示用）")
+        self.tbl_items = QTableWidget(0, 2)
+        self.tbl_items.setHorizontalHeaderLabels(["項目", "數量"])
+        self.tbl_items.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tbl_items.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.tbl_items.verticalHeader().setVisible(False)
+        self.tbl_items.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tbl_items.setMinimumHeight(130)
+
+        item_btn_row = QHBoxLayout()
+        self.btn_add_item = QPushButton("+ 新增項目")
+        self.btn_del_item = QPushButton("刪除項目")
+        self.btn_add_item.clicked.connect(self._add_item_row)
+        self.btn_del_item.clicked.connect(self._delete_selected_item_row)
+        item_btn_row.addWidget(self.btn_add_item)
+        item_btn_row.addWidget(self.btn_del_item)
+        item_btn_row.addStretch(1)
+
+        items_wrap = QWidget()
+        items_wrap_l = QVBoxLayout(items_wrap)
+        items_wrap_l.setContentsMargins(0, 0, 0, 0)
+        items_wrap_l.setSpacing(6)
+        items_wrap_l.addWidget(self.tbl_items)
+        items_wrap_l.addLayout(item_btn_row)
 
         self.f_fee_type = QComboBox()
         for label, val in self.FEE_TYPE_OPTIONS:
@@ -98,14 +123,19 @@ class PlanEditDialog(QDialog):
         self.f_amount.setRange(0, 10_000_000)
         self.f_amount.setSingleStep(50)
         self.f_amount.setSuffix(" 元")
+        self.f_amount_wrap = SpinWithArrows(self, spin_min_height=32, button_width=22, button_height=15)
+        self.f_amount_wrap.spinbox.setRange(0, 10_000_000)
+        self.f_amount_wrap.spinbox.setSingleStep(50)
+        self.f_amount_wrap.spinbox.setSuffix(" 元")
+        self.f_amount = self.f_amount_wrap.spinbox
 
         self.f_note = QTextEdit()
         self.f_note.setFixedHeight(80)
 
         form.addRow("方案名稱", self.f_name)
-        form.addRow("方案項目", self.f_items)
+        form.addRow("方案項目", items_wrap)
         form.addRow("費用方式", self.f_fee_type)
-        form.addRow("固定金額", self.f_amount)
+        form.addRow("固定金額", self.f_amount_wrap)
         form.addRow("備註", self.f_note)
 
         root.addLayout(form)
@@ -128,6 +158,7 @@ class PlanEditDialog(QDialog):
         root.addLayout(btn_row)
 
         # initial state
+        self._add_item_row()
         self._on_fee_type_changed()
 
     def _prefill(self, plan_data: Optional[Dict]):
@@ -143,7 +174,15 @@ class PlanEditDialog(QDialog):
             return
 
         self.f_name.setText(str(plan_data.get("name", "") or ""))
-        self.f_items.setText(str(plan_data.get("items", "") or ""))
+        self.tbl_items.setRowCount(0)
+        raw_items = plan_data.get("plan_items")
+        if isinstance(raw_items, list) and raw_items:
+            for x in raw_items:
+                self._add_item_row(str((x or {}).get("name", "")), int((x or {}).get("qty", 1) or 1))
+        else:
+            self._prefill_items_from_text(str(plan_data.get("items_raw") or plan_data.get("items") or ""))
+        if self.tbl_items.rowCount() == 0:
+            self._add_item_row()
 
         fee_type = plan_data.get("fee_type", "fixed")
         # fee_type might be display text
@@ -176,13 +215,69 @@ class PlanEditDialog(QDialog):
     def _on_fee_type_changed(self):
         fee_type = str(self.f_fee_type.currentData())
         is_fixed = fee_type == "fixed"
+        self.f_amount_wrap.setEnabled(is_fixed)
         self.f_amount.setEnabled(is_fixed)
         if not is_fixed:
             self.f_amount.setValue(0)
 
+    def _add_item_row(self, name: str = "", qty: int = 1):
+        row = self.tbl_items.rowCount()
+        self.tbl_items.insertRow(row)
+        self.tbl_items.setItem(row, 0, QTableWidgetItem(name))
+        self.tbl_items.setItem(row, 1, QTableWidgetItem(str(max(1, int(qty or 1)))))
+
+    def _delete_selected_item_row(self):
+        row = self.tbl_items.currentRow()
+        if row < 0:
+            return
+        self.tbl_items.removeRow(row)
+        if self.tbl_items.rowCount() == 0:
+            self._add_item_row()
+
+    def _prefill_items_from_text(self, text: str):
+        s = (text or "").strip()
+        if not s:
+            return
+        parts = re.split(r"[\/、,\n]+", s)
+        for p in parts:
+            token = p.strip()
+            if not token:
+                continue
+            m = re.match(r"^(.*?)(?:[xX＊*×]\s*(\d+))?$", token)
+            if not m:
+                continue
+            name = (m.group(1) or "").strip()
+            if not name:
+                continue
+            qty = int(m.group(2) or 1)
+            self._add_item_row(name, qty)
+
+    def _collect_plan_items(self):
+        items = []
+        for r in range(self.tbl_items.rowCount()):
+            name_item = self.tbl_items.item(r, 0)
+            qty_item = self.tbl_items.item(r, 1)
+            name = (name_item.text() if name_item else "").strip()
+            qty_text = (qty_item.text() if qty_item else "").strip()
+            if not name:
+                continue
+            try:
+                qty = int(qty_text or "1")
+            except Exception:
+                raise ValueError(f"第 {r + 1} 列數量格式錯誤，請輸入正整數")
+            if qty <= 0:
+                raise ValueError(f"第 {r + 1} 列數量需大於 0")
+            items.append({"name": name, "qty": qty})
+        return items
+
     def _collect_payload(self) -> Optional[Dict]:
         name = self.f_name.text().strip()
-        items = self.f_items.text().strip()
+        try:
+            plan_items = self._collect_plan_items()
+        except ValueError as e:
+            QMessageBox.warning(self, "格式錯誤", str(e))
+            return None
+        items = "、".join([f"{x['name']}×{x['qty']}" for x in plan_items])
         fee_type = str(self.f_fee_type.currentData())
         amount = int(self.f_amount.value()) if fee_type == "fixed" else None
         note = self.f_note.toPlainText().strip()
@@ -190,8 +285,8 @@ class PlanEditDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "欄位不足", "請輸入方案名稱")
             return None
-        if not items:
-            QMessageBox.warning(self, "欄位不足", "請輸入方案項目（顯示用）")
+        if fee_type == "fixed" and not plan_items:
+            QMessageBox.warning(self, "欄位不足", "固定金額方案請至少新增一個方案項目")
             return None
         if fee_type == "fixed" and (amount is None or amount < 0):
             QMessageBox.warning(self, "欄位不足", "固定金額必須是 0 以上")
@@ -200,6 +295,7 @@ class PlanEditDialog(QDialog):
         return {
             "name": name,
             "items": items,
+            "plan_items": plan_items,
             "fee_type": fee_type,
             "amount": amount,   # donation/other -> None
             "note": note,
@@ -223,7 +319,7 @@ class PlanEditDialog(QDialog):
                 plan_id = self.controller.create_activity_plan(
                     self.activity_id,
                     payload["name"],
-                    payload["items"],
+                    json.dumps(payload.get("plan_items") or [], ensure_ascii=False),
                     payload["fee_type"],
                     payload["amount"],
                     payload.get("note", "")
