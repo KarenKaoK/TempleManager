@@ -16,11 +16,19 @@ from app.config import DB_NAME
 
 
 class AppController:
+    SYSTEM_INCOME_ITEMS = (
+        ("90", "活動收入"),
+        ("91", "點燈收入"),
+    )
+    ACTIVITY_INCOME_ITEM_ID = "90"
+
     def __init__(self, db_path=DB_NAME):
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self._ensure_security_schema()
         self._ensure_people_schema()
+        self._ensure_activity_signup_schema()
+        self._ensure_system_income_items()
 
     # -------------------------
     # Helpers 
@@ -112,16 +120,18 @@ class AppController:
             )
             """
         )
-        if not self._column_exists("users", "must_change_password"):
-            cur.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0")
-        if not self._column_exists("users", "password_changed_at"):
-            cur.execute("ALTER TABLE users ADD COLUMN password_changed_at TEXT")
-        if not self._column_exists("users", "is_active"):
-            cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
-        if not self._column_exists("users", "updated_at"):
-            cur.execute("ALTER TABLE users ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
-        if not self._column_exists("users", "last_login_at"):
-            cur.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
+        if self._table_exists("users"):
+            if not self._column_exists("users", "must_change_password"):
+                cur.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0")
+            if not self._column_exists("users", "password_changed_at"):
+                cur.execute("ALTER TABLE users ADD COLUMN password_changed_at TEXT")
+            if not self._column_exists("users", "is_active"):
+                cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
+            if not self._column_exists("users", "updated_at"):
+                cur.execute("ALTER TABLE users ADD COLUMN updated_at TEXT")
+                cur.execute("UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+            if not self._column_exists("users", "last_login_at"):
+                cur.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
         self._ensure_setting("security/password_reminder_days", "90")
         self._ensure_setting("security/idle_logout_minutes", "15")
         self.conn.commit()
@@ -132,6 +142,58 @@ class AppController:
         cur = self.conn.cursor()
         if not self._column_exists("people", "age_offset"):
             cur.execute("ALTER TABLE people ADD COLUMN age_offset INTEGER DEFAULT 0")
+            self.conn.commit()
+
+    def _ensure_activity_signup_schema(self):
+        if not self._table_exists("activity_signups"):
+            return
+        cur = self.conn.cursor()
+        changed = False
+        if not self._column_exists("activity_signups", "is_paid"):
+            cur.execute("ALTER TABLE activity_signups ADD COLUMN is_paid INTEGER DEFAULT 0")
+            changed = True
+        if not self._column_exists("activity_signups", "paid_at"):
+            cur.execute("ALTER TABLE activity_signups ADD COLUMN paid_at TEXT")
+            changed = True
+        if not self._column_exists("activity_signups", "payment_txn_id"):
+            cur.execute("ALTER TABLE activity_signups ADD COLUMN payment_txn_id INTEGER")
+            changed = True
+        if not self._column_exists("activity_signups", "payment_receipt_number"):
+            cur.execute("ALTER TABLE activity_signups ADD COLUMN payment_receipt_number TEXT")
+            changed = True
+        if changed:
+            self.conn.commit()
+
+    def _ensure_system_income_items(self):
+        """
+        啟動時自動 upsert 系統保留收入項目：
+        - 90 活動收入
+        - 91 點燈收入
+        不存在就建立，存在就略過建立（並同步名稱）。
+        """
+        if not self._table_exists("income_items"):
+            return
+
+        cols = self._table_columns("income_items")
+        has_is_active = "is_active" in cols
+        cur = self.conn.cursor()
+        changed = False
+
+        for item_id, item_name in self.SYSTEM_INCOME_ITEMS:
+            row = cur.execute("SELECT id FROM income_items WHERE id = ? LIMIT 1", (item_id,)).fetchone()
+            if row:
+                if has_is_active:
+                    cur.execute("UPDATE income_items SET name = ?, is_active = 1 WHERE id = ?", (item_name, item_id))
+                else:
+                    cur.execute("UPDATE income_items SET name = ? WHERE id = ?", (item_name, item_id))
+                changed = True
+            else:
+                if has_is_active:
+                    cur.execute("INSERT INTO income_items (id, name, amount, is_active) VALUES (?, ?, ?, 1)", (item_id, item_name, 0))
+                else:
+                    cur.execute("INSERT INTO income_items (id, name, amount) VALUES (?, ?, ?)", (item_id, item_name, 0))
+                changed = True
+        if changed:
             self.conn.commit()
 
     def _ensure_setting(self, key: str, default_value: str):
@@ -1210,12 +1272,128 @@ class AppController:
         cursor.execute("SELECT 1 FROM activities WHERE id = ? LIMIT 1", (activity_id,))
         return cursor.fetchone() is not None
 
+    def _is_legacy_activity_schema(self) -> bool:
+        if not self._table_exists("activities"):
+            return False
+        cols = self._table_columns("activities")
+        return {"activity_id", "start_date", "end_date", "scheme_name", "scheme_item", "amount"}.issubset(cols)
 
-    def update_activity(self, activity_id: str, data: dict):
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
+    def generate_activity_id(self) -> str:
+        """Legacy compatibility: YYYYMMDD-XXX"""
+        if not self._is_legacy_activity_schema():
+            return generate_activity_id_safe(self._activity_id_exists)
+        prefix = datetime.now().strftime("%Y%m%d")
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT activity_id
+            FROM activities
+            WHERE activity_id LIKE ?
+            ORDER BY activity_id DESC
+            LIMIT 1
+            """,
+            (f"{prefix}-%",),
+        )
+        row = cur.fetchone()
+        seq = 1
+        if row and row[0]:
+            try:
+                seq = int(str(row[0]).split("-")[-1]) + 1
+            except Exception:
+                seq = 1
+        return f"{prefix}-{seq:03d}"
 
-        cursor.execute("""
+    def insert_activity(self, data: dict):
+        """Legacy compatibility for tests using old activities schema."""
+        if not self._is_legacy_activity_schema():
+            activity_id = self.insert_activity_new({
+                "name": data.get("activity_name") or data.get("name") or "",
+                "activity_start_date": data.get("start_date") or data.get("activity_start_date") or "",
+                "activity_end_date": data.get("end_date") or data.get("activity_end_date") or "",
+                "note": data.get("content") or data.get("note") or "",
+                "status": 1,
+            })
+            for row in (data.get("scheme_rows") or []):
+                self.create_activity_plan(
+                    activity_id=activity_id,
+                    name=(row.get("scheme_name") or "").strip(),
+                    items=(row.get("scheme_item") or "").strip(),
+                    fee_type="fixed",
+                    amount=int(row.get("amount") or 0),
+                    note="",
+                )
+            return activity_id
+
+        activity_id = self.generate_activity_id()
+        name = data.get("activity_name") or ""
+        start_date = data.get("start_date") or ""
+        end_date = data.get("end_date") or ""
+        note = data.get("content") or ""
+        scheme_rows = data.get("scheme_rows") or []
+        cur = self.conn.cursor()
+        for row in scheme_rows:
+            cur.execute(
+                """
+                INSERT INTO activities (
+                    id, activity_id, name, start_date, end_date,
+                    scheme_name, scheme_item, amount, note, is_closed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    self._uuid(),
+                    activity_id,
+                    name,
+                    start_date,
+                    end_date,
+                    row.get("scheme_name") or "",
+                    row.get("scheme_item") or "",
+                    float(row.get("amount") or 0),
+                    note,
+                ),
+            )
+        self.conn.commit()
+        return activity_id
+
+
+    def update_activity(self, activity_id: str, data: dict = None):
+        # legacy signature support: update_activity(payload_dict)
+        if data is None and isinstance(activity_id, dict):
+            data = activity_id
+            activity_id = data.get("activity_id") or data.get("id")
+        if data is None:
+            data = {}
+
+        if self._is_legacy_activity_schema():
+            target_id = data.get("activity_id") or activity_id
+            cur = self.conn.cursor()
+            cur.execute("DELETE FROM activities WHERE activity_id = ?", (target_id,))
+            rows = data.get("scheme_rows") or []
+            for row in rows:
+                cur.execute(
+                    """
+                    INSERT INTO activities (
+                        id, activity_id, name, start_date, end_date,
+                        scheme_name, scheme_item, amount, note, is_closed
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    """,
+                    (
+                        self._uuid(),
+                        target_id,
+                        data.get("activity_name") or data.get("name") or "",
+                        data.get("start_date") or data.get("activity_start_date") or "",
+                        data.get("end_date") or data.get("activity_end_date") or "",
+                        row.get("scheme_name") or "",
+                        row.get("scheme_item") or "",
+                        float(row.get("amount") or 0),
+                        data.get("content") or data.get("note") or "",
+                    ),
+                )
+            self.conn.commit()
+            return
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
             UPDATE activities
             SET
                 name = ?,
@@ -1225,17 +1403,17 @@ class AppController:
                 status = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        """, (
-            data.get("name"),
-            data.get("activity_start_date"),
-            data.get("activity_end_date"),
-            data.get("note", ""),
-            int(data.get("status", 1)),
-            activity_id
-        ))
-
-        conn.commit()
-        conn.close()
+            """,
+            (
+                data.get("name"),
+                data.get("activity_start_date"),
+                data.get("activity_end_date"),
+                data.get("note", ""),
+                int(data.get("status", 1)),
+                activity_id,
+            ),
+        )
+        self.conn.commit()
 
     def get_activity_delete_stats(self, activity_id: str) -> dict:
         """
@@ -1253,6 +1431,12 @@ class AppController:
 
 
     def delete_activity(self, activity_id: str) -> bool:
+        if self._is_legacy_activity_schema():
+            cur = self.conn.cursor()
+            cur.execute("DELETE FROM activities WHERE activity_id = ?", (activity_id,))
+            self.conn.commit()
+            return cur.rowcount > 0
+
         """
         軟刪除活動：把 activities.status 設為 -1
         - DB 保留 activities / plans / signups / signup_plans
@@ -1272,6 +1456,28 @@ class AppController:
 
 
     def get_all_activities(self, active_only: bool = False):
+        if self._is_legacy_activity_schema():
+            cur = self.conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    activity_id,
+                    MIN(id) AS id,
+                    name,
+                    start_date,
+                    end_date,
+                    note,
+                    is_closed,
+                    GROUP_CONCAT(scheme_name, '\n') AS scheme_names,
+                    GROUP_CONCAT(scheme_item, '\n') AS scheme_items,
+                    GROUP_CONCAT(CAST(amount AS TEXT), '\n') AS amounts
+                FROM activities
+                GROUP BY activity_id, name, start_date, end_date, note, is_closed
+                ORDER BY start_date DESC, activity_id DESC
+                """
+            )
+            return [dict(r) for r in cur.fetchall()]
+
         """
         回傳給 UI：list[dict]
         - active_only=True  : 只回 status = 1（正常活動）
@@ -1410,6 +1616,31 @@ class AppController:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
     ):
+        if self._is_legacy_activity_schema():
+            cur = self.conn.cursor()
+            like = f"%{(keyword or '').strip()}%"
+            cur.execute(
+                """
+                SELECT
+                    activity_id,
+                    MIN(id) AS id,
+                    name,
+                    start_date,
+                    end_date,
+                    note,
+                    is_closed,
+                    GROUP_CONCAT(scheme_name, '\n') AS scheme_names,
+                    GROUP_CONCAT(scheme_item, '\n') AS scheme_items,
+                    GROUP_CONCAT(CAST(amount AS TEXT), '\n') AS amounts
+                FROM activities
+                WHERE name LIKE ? OR start_date LIKE ? OR end_date LIKE ? OR activity_id LIKE ?
+                GROUP BY activity_id, name, start_date, end_date, note, is_closed
+                ORDER BY start_date DESC, activity_id DESC
+                """,
+                (like, like, like, like),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
         """
         keyword 搜尋：活動名稱 / 起日 / 迄日
         - active_only=True  : status = 1
@@ -1447,6 +1678,38 @@ class AppController:
 
 
     def get_activity_by_id(self, activity_id: str):
+        if self._is_legacy_activity_schema():
+            cur = self.conn.cursor()
+            cur.execute(
+                """
+                SELECT *
+                FROM activities
+                WHERE activity_id = ?
+                ORDER BY id ASC
+                """,
+                (activity_id,),
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+            if not rows:
+                return {}, []
+            first = rows[0]
+            basic = {
+                "activity_id": first.get("activity_id"),
+                "activity_name": first.get("name"),
+                "start_date": first.get("start_date"),
+                "end_date": first.get("end_date"),
+                "content": first.get("note") or "",
+            }
+            schemes = [
+                {
+                    "scheme_name": r.get("scheme_name") or "",
+                    "scheme_item": r.get("scheme_item") or "",
+                    "amount": r.get("amount") or 0,
+                }
+                for r in rows
+            ]
+            return basic, schemes
+
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT id, name, activity_start_date, activity_end_date, note, status, created_at, updated_at
@@ -1926,7 +2189,11 @@ class AppController:
             p.name AS person_name,
             p.phone_mobile AS person_phone,
             p.address AS person_address,
+            p.birthday_ad AS person_birthday,
             s.total_amount,
+            COALESCE(s.is_paid, 0) AS is_paid,
+            s.paid_at,
+            s.payment_receipt_number,
             GROUP_CONCAT(
                 CASE
                     WHEN ap.price_type = 'FREE'
@@ -1960,6 +2227,140 @@ class AppController:
             result.append(dict(zip(col_names, r)))
 
         return result
+
+    def _resolve_activity_income_item(self) -> Optional[Dict[str, Any]]:
+        if not self._table_exists("income_items"):
+            return None
+        cur = self.conn.cursor()
+        cols = self._table_columns("income_items")
+        has_is_active = "is_active" in cols
+        if has_is_active:
+            cur.execute(
+                "SELECT * FROM income_items WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1",
+                (self.ACTIVITY_INCOME_ITEM_ID,),
+            )
+        else:
+            cur.execute("SELECT * FROM income_items WHERE id = ? LIMIT 1", (self.ACTIVITY_INCOME_ITEM_ID,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def mark_activity_signups_paid(self, activity_id: str, signup_ids: List[str], handler: str = "") -> Dict[str, Any]:
+        aid = (activity_id or "").strip()
+        normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
+        if not aid:
+            raise ValueError("activity_id is required")
+        if not normalized_ids:
+            return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
+        handler_text = (handler or "").strip()
+        if not handler_text:
+            raise ValueError("經手人為必填")
+
+        income_item = self._resolve_activity_income_item()
+        if not income_item:
+            raise ValueError("找不到可用的收入項目，請先到類別設定建立收入項目")
+
+        category_id = str(income_item.get("id") or "").strip()
+        category_name = str(income_item.get("name") or "活動收入").strip() or "活動收入"
+        if not category_id:
+            raise ValueError("收入項目設定不完整，缺少 category_id")
+
+        cur = self.conn.cursor()
+        q_marks = ",".join(["?"] * len(normalized_ids))
+        sql = f"""
+        SELECT
+               s.id AS signup_id,
+               s.person_id,
+               COALESCE(s.total_amount, 0) AS total_amount,
+               COALESCE(s.is_paid, 0) AS is_paid,
+               p.name AS person_name,
+               a.name AS activity_name,
+               a.activity_end_date,
+               GROUP_CONCAT(
+                   CASE
+                       WHEN ap.price_type = 'FREE'
+                           THEN ap.name || COALESCE(CAST(sp.line_total AS TEXT), '0') || '元'
+                       ELSE ap.name || '×' || COALESCE(CAST(sp.qty AS TEXT), '0')
+                   END,
+                   '、'
+               ) AS plan_summary
+        FROM activity_signups s
+        JOIN people p ON p.id = s.person_id
+        JOIN activities a ON a.id = s.activity_id
+        LEFT JOIN activity_signup_plans sp ON sp.signup_id = s.id
+        LEFT JOIN activity_plans ap ON ap.id = sp.plan_id
+        WHERE s.activity_id = ? AND s.id IN ({q_marks})
+        GROUP BY s.id
+        """
+        cur.execute(sql, (aid, *normalized_ids))
+        rows = [dict(r) for r in cur.fetchall()]
+
+        if not rows:
+            return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
+
+        paid_count = 0
+        skipped_count = 0
+        receipt_numbers: List[str] = []
+        now = self._now()
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        try:
+            cur.execute("BEGIN;")
+            for row in rows:
+                if int(row.get("is_paid") or 0) == 1:
+                    skipped_count += 1
+                    continue
+
+                receipt = self.generate_receipt_number(today)
+                plan_summary = str(row.get("plan_summary") or "").strip()
+                activity_name = str(row.get("activity_name") or "").strip()
+                activity_end_date = str(row.get("activity_end_date") or "").strip()
+                activity_label = f"{activity_end_date} {activity_name}".strip() if activity_end_date else activity_name
+                note = f"[{activity_label}] {plan_summary}".strip() if plan_summary else f"[{activity_label}]"
+                cur.execute(
+                    """
+                    INSERT INTO transactions (
+                        date, type, category_id, category_name, amount,
+                        payer_person_id, payer_name, handler, receipt_number, note
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        today,
+                        category_id,
+                        category_name,
+                        int(row.get("total_amount") or 0),
+                        str(row.get("person_id") or ""),
+                        str(row.get("person_name") or ""),
+                        handler_text,
+                        receipt,
+                        note,
+                    ),
+                )
+                txn_id = cur.lastrowid
+                cur.execute(
+                    """
+                    UPDATE activity_signups
+                    SET is_paid = 1,
+                        paid_at = ?,
+                        payment_txn_id = ?,
+                        payment_receipt_number = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, int(txn_id or 0), receipt, now, str(row.get("signup_id") or "")),
+                )
+                paid_count += 1
+                receipt_numbers.append(receipt)
+
+            cur.execute("COMMIT;")
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+
+        return {
+            "paid_count": paid_count,
+            "skipped_count": skipped_count,
+            "receipt_numbers": receipt_numbers,
+        }
 
 
 
@@ -2935,21 +3336,53 @@ class AppController:
         """
         cursor = self.conn.cursor()
         kw = f"%{keyword}%"
-        
-        # 1) 先找是否有人的姓名、手機或地址匹配
-        cursor.execute("""
-            SELECT household_id 
-            FROM people 
-            WHERE status = 'ACTIVE' 
-              AND (name LIKE ? OR phone_mobile LIKE ? OR address LIKE ?)
-            LIMIT 1
-        """, (kw, kw, kw))
-        row = cursor.fetchone()
+
+        cols = self._table_columns("people")
+        row = None
+        if "household_id" in cols:
+            # 1) 先找是否有人的姓名、手機或地址匹配
+            cursor.execute("""
+                SELECT household_id
+                FROM people
+                WHERE status = 'ACTIVE'
+                  AND (name LIKE ? OR phone_mobile LIKE ? OR address LIKE ?)
+                LIMIT 1
+            """, (kw, kw, kw))
+            row = cursor.fetchone()
+        else:
+            cursor.execute("""
+                SELECT hm.household_id
+                FROM people p
+                JOIN household_members hm ON hm.person_id = p.id
+                WHERE (p.name LIKE ? OR p.phone_mobile LIKE ? OR p.address LIKE ?)
+                LIMIT 1
+            """, (kw, kw, kw))
+            row = cursor.fetchone()
+            if not row:
+                cursor.execute(
+                    """
+                    SELECT id
+                    FROM households
+                    WHERE head_name LIKE ?
+                       OR head_phone_home LIKE ?
+                       OR head_phone_mobile LIKE ?
+                    LIMIT 1
+                    """,
+                    (kw, kw, kw),
+                )
+                row = cursor.fetchone()
         
         if not row:
             return None, []
         
         household_id = row[0]
+
+        if "household_id" not in cols:
+            cursor.execute("SELECT * FROM households WHERE id = ? LIMIT 1", (household_id,))
+            h = cursor.fetchone()
+            head = dict(h) if h else None
+            members = self.get_household_members(household_id)
+            return head, members
         
         # 2) 取得該戶的戶長
         cursor.execute("""
@@ -2993,6 +3426,168 @@ class AppController:
             return []
 
         return self.list_people_by_household(household_id, status=status)
+
+    # -------------------------
+    # Legacy household compatibility (for old tests/schema)
+    # -------------------------
+    def search_households(self, keyword: str):
+        cur = self.conn.cursor()
+        like = f"%{(keyword or '').strip()}%"
+        cur.execute(
+            """
+            SELECT *
+            FROM households
+            WHERE head_name LIKE ? OR head_phone_home LIKE ? OR head_phone_mobile LIKE ?
+            ORDER BY id DESC
+            """,
+            (like, like, like),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def get_household_members(self, household_id):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT p.*
+            FROM household_members hm
+            JOIN people p ON p.id = hm.person_id
+            WHERE hm.household_id = ?
+            ORDER BY hm.id ASC
+            """,
+            (household_id,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def get_household_by_id(self, household_id):
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM households WHERE id = ? LIMIT 1", (household_id,))
+        row = cur.fetchone()
+        return dict(row) if row else {}
+
+    def household_has_members(self, household_id):
+        cur = self.conn.cursor()
+        cur.execute("SELECT COUNT(1) FROM household_members WHERE household_id = ?", (household_id,))
+        return int(cur.fetchone()[0] or 0) > 0
+
+    def delete_household(self, household_id):
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM household_members WHERE household_id = ?", (household_id,))
+        cur.execute("DELETE FROM households WHERE id = ?", (household_id,))
+        self.conn.commit()
+
+    def insert_household(self, data: dict):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO households (
+                head_name, head_gender, head_birthday_ad, head_birthday_lunar, head_birth_time,
+                head_age, head_zodiac, head_phone_home, head_phone_mobile, head_email,
+                head_address, head_zip_code, head_identity, head_note, head_joined_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data.get("head_name"),
+                data.get("head_gender"),
+                data.get("head_birthday_ad"),
+                data.get("head_birthday_lunar"),
+                data.get("head_birth_time"),
+                data.get("head_age"),
+                data.get("head_zodiac"),
+                data.get("head_phone_home"),
+                data.get("head_phone_mobile"),
+                data.get("head_email"),
+                data.get("head_address"),
+                data.get("head_zip_code"),
+                data.get("head_identity"),
+                data.get("head_note"),
+                data.get("head_joined_at"),
+            ),
+        )
+        self.conn.commit()
+
+    def insert_member(self, data: dict):
+        person_id = str(uuid.uuid4())
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO people (
+                id, name, gender, birthday_ad, birthday_lunar, birth_time,
+                age, zodiac, phone_home, phone_mobile, email,
+                address, zip_code, identity, note, joined_at, lunar_is_leap, id_number
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                person_id,
+                data.get("name"),
+                data.get("gender"),
+                data.get("birthday_ad"),
+                data.get("birthday_lunar"),
+                data.get("birth_time"),
+                data.get("age"),
+                data.get("zodiac"),
+                data.get("phone_home"),
+                data.get("phone_mobile"),
+                data.get("email"),
+                data.get("address"),
+                data.get("zip_code"),
+                data.get("identity"),
+                data.get("note"),
+                data.get("joined_at"),
+                int(data.get("lunar_is_leap") or 0),
+                data.get("id_number"),
+            ),
+        )
+        cur.execute(
+            "INSERT INTO household_members (household_id, person_id, relationship) VALUES (?, ?, ?)",
+            (data.get("household_id"), person_id, "家人"),
+        )
+        self.conn.commit()
+
+    def get_member_by_id(self, person_id: str):
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM people WHERE id = ? LIMIT 1", (person_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def update_member(self, data: dict):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            UPDATE people SET
+                name=?, gender=?, birthday_ad=?, birthday_lunar=?, birth_time=?,
+                age=?, zodiac=?, phone_home=?, phone_mobile=?, email=?,
+                address=?, zip_code=?, identity=?, note=?, joined_at=?,
+                lunar_is_leap=?, id_number=?
+            WHERE id=?
+            """,
+            (
+                data.get("name"),
+                data.get("gender"),
+                data.get("birthday_ad"),
+                data.get("birthday_lunar"),
+                data.get("birth_time"),
+                data.get("age"),
+                data.get("zodiac"),
+                data.get("phone_home"),
+                data.get("phone_mobile"),
+                data.get("email"),
+                data.get("address"),
+                data.get("zip_code"),
+                data.get("identity"),
+                data.get("note"),
+                data.get("joined_at"),
+                int(data.get("lunar_is_leap") or 0),
+                data.get("id_number"),
+                data.get("id"),
+            ),
+        )
+        self.conn.commit()
+
+    def delete_member_by_id(self, person_id: str):
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM household_members WHERE person_id = ?", (person_id,))
+        cur.execute("DELETE FROM people WHERE id = ?", (person_id,))
+        self.conn.commit()
 
     def format_head_data(self, row: Dict) -> Dict:
         """將 DB row 格式化為 UI table 期待的格式 (與 list_household 一致)"""

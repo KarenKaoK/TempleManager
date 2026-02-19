@@ -8,6 +8,7 @@ from PyQt5.QtCore import pyqtSignal, Qt
 
 from app.dialogs.activity_household_signup_dialog import ActivityHouseholdSignupDialog
 from app.dialogs.activity_signup_edit_dialog import ActivitySignupEditDialog
+from app.widgets.activity_plan_panel import ActivityPlanPanel  # backward-compat for tests
 from app.widgets.activity_person_panel import ActivityPersonPanel
 from app.utils.id_utils import (
     compute_display_status,
@@ -250,6 +251,7 @@ class ActivitySignupPage(QWidget):
         self.activity_data = None            # 目前選中的活動 dict
         self._activity_list = []             # 所有活動（list[dict]）
         self._activity_cards = []            # list[_ActivityCard]
+        self._signup_rows_all = []           # 右側已報名明細（未過濾）
 
         self._build_ui()
         self._load_activities()
@@ -478,6 +480,17 @@ class ActivitySignupPage(QWidget):
         stat_layout.addStretch(1)
         right_layout.addWidget(self.signup_stat_card, 0)
 
+        search_row = QHBoxLayout()
+        self.edt_signup_search = QLineEdit()
+        self.edt_signup_search.setPlaceholderText("搜尋姓名 / 電話")
+        self.btn_signup_search_clear = QPushButton("清空")
+        self.btn_signup_search_clear.setMinimumHeight(30)
+        self.edt_signup_search.textChanged.connect(self._apply_signup_detail_filter)
+        self.btn_signup_search_clear.clicked.connect(lambda: self.edt_signup_search.setText(""))
+        search_row.addWidget(self.edt_signup_search, 1)
+        search_row.addWidget(self.btn_signup_search_clear, 0)
+        right_layout.addLayout(search_row)
+
         self.tbl_signup_detail = QTableWidget(0, 4)
         self.tbl_signup_detail.setHorizontalHeaderLabels(["姓名", "電話", "方案摘要", "金額"])
         self.tbl_signup_detail.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -503,9 +516,9 @@ class ActivitySignupPage(QWidget):
 
         splitter.addWidget(right_container)
 
-        splitter.setStretchFactor(0, 5)
-        splitter.setStretchFactor(1, 5)
-        splitter.setSizes([600, 600])
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 7)
+        splitter.setSizes([420, 980])
 
         main_layout.addWidget(splitter, 1)
         root.addWidget(self.signup_group, 1)
@@ -523,6 +536,7 @@ class ActivitySignupPage(QWidget):
             self.lbl_signup_count.setText("已報名：0 人")
             self.lbl_signup_amount.setText("報名總額：0 元")
             self.lbl_signup_donation.setText("隨喜金額：0 元")
+            self._signup_rows_all = []
             self.tbl_signup_detail.setRowCount(0)
             return
         try:
@@ -535,9 +549,20 @@ class ActivitySignupPage(QWidget):
         self.lbl_signup_count.setText(f"已報名：{count} 人")
         self.lbl_signup_amount.setText(f"報名總額：{total} 元")
         self.lbl_signup_donation.setText(f"隨喜金額：{donation} 元")
+        self._signup_rows_all = list(rows or [])
+        self._apply_signup_detail_filter()
 
+    def _apply_signup_detail_filter(self):
+        kw = (self.edt_signup_search.text() or "").strip().lower() if hasattr(self, "edt_signup_search") else ""
+        rows = self._signup_rows_all or []
+        if kw:
+            rows = [
+                r for r in rows
+                if kw in str((r or {}).get("person_name", "")).lower()
+                or kw in str((r or {}).get("person_phone", "")).lower()
+            ]
         self.tbl_signup_detail.setRowCount(0)
-        for r in (rows or []):
+        for r in rows:
             row = self.tbl_signup_detail.rowCount()
             self.tbl_signup_detail.insertRow(row)
             self.tbl_signup_detail.setItem(row, 0, QTableWidgetItem(str((r or {}).get("person_name", "") or "")))

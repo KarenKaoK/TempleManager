@@ -1,10 +1,223 @@
 from PyQt5.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPrintDialog, QPrintPreviewWidget
 from PyQt5.QtGui import QPainter, QFont, QPen, QColor, QPageLayout, QPageSize, QFontDatabase, QPixmap
 from PyQt5.QtCore import Qt, QRectF, QPointF
-from PyQt5.QtWidgets import QAction, QToolBar, QPushButton, QComboBox, QLineEdit, QLabel, QCheckBox
+from PyQt5.QtWidgets import QAction, QToolBar, QPushButton, QComboBox, QLineEdit, QLabel, QCheckBox, QApplication
+from PyQt5.QtGui import QTextDocument
 from datetime import datetime
 
 class PrintHelper:
+    @staticmethod
+    def _apply_preview_toolbar(preview, do_print, show_address_toggle=False, toggle_address=None):
+        """套用統一列印工具列：自訂列印、縮放、關閉返回。"""
+        try:
+            toolbars = preview.findChildren(QToolBar)
+            if not toolbars:
+                return
+            toolbar = toolbars[0]
+            actions = toolbar.actions()
+
+            for action in actions:
+                check_text = (action.text() + " " + action.toolTip())
+                is_wanted = True
+
+                widget = toolbar.widgetForAction(action)
+                if widget:
+                    if isinstance(widget, QComboBox):
+                        is_wanted = True
+                    elif isinstance(widget, (QLineEdit, QLabel)):
+                        is_wanted = False
+
+                unwanted_keywords = [
+                    "Page", "Setup", "設定", "版面",
+                    "Portrait", "Landscape", "直向", "橫向",
+                    "1:1", "Actual", "Fit", "Original",
+                    "First", "Last", "Previous", "Next",
+                    "Single", "Facing", "Overview", "View", "Three",
+                    "Show"
+                ]
+                for kw in unwanted_keywords:
+                    if kw in check_text and not isinstance(widget, QComboBox):
+                        is_wanted = False
+                        break
+
+                if "Print" in check_text or "列印" in check_text:
+                    is_wanted = False
+                elif "Zoom In" in check_text or "放大" in check_text or "+" in check_text:
+                    action.setText("放大")
+                    is_wanted = True
+                elif "Zoom Out" in check_text or "縮小" in check_text or "-" in check_text:
+                    action.setText("縮小")
+                    is_wanted = True
+
+                action.setVisible(is_wanted)
+
+            print_btn = QPushButton("🖨️ 列印")
+            print_btn.setMinimumHeight(35)
+            print_btn.setFont(QFont("Arial", 12))
+            print_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #0275d8;
+                    color: white;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #025aa5;
+                }
+            """)
+            print_btn.clicked.connect(do_print)
+
+            if actions:
+                toolbar.insertWidget(actions[0], print_btn)
+            else:
+                toolbar.addWidget(print_btn)
+
+            if show_address_toggle and callable(toggle_address):
+                addr_cb = QCheckBox("列印住址")
+                addr_cb.setChecked(True)
+                addr_cb.setFont(QFont("Arial", 12))
+                addr_cb.setStyleSheet("""
+                    QCheckBox {
+                        font-weight: bold;
+                        margin-left: 15px;
+                        color: black;
+                        background-color: #f0f0f0;
+                        padding: 5px;
+                        border-radius: 4px;
+                    }
+                """)
+                addr_cb.stateChanged.connect(toggle_address)
+                if actions:
+                    toolbar.insertWidget(actions[0], addr_cb)
+                else:
+                    toolbar.addWidget(addr_cb)
+
+            toolbar.addSeparator()
+            close_btn = QPushButton("關閉返回")
+            close_btn.setMinimumHeight(35)
+            close_btn.setFont(QFont("Arial", 12))
+            close_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #d9534f;
+                    color: white;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #c9302c;
+                }
+            """)
+            close_btn.clicked.connect(preview.close)
+            toolbar.addWidget(close_btn)
+        except Exception as e:
+            print(f"Error customizing toolbar: {e}")
+
+    @staticmethod
+    def _report_font_sizes():
+        """
+        讓表格式報表跟隨目前全域字體大小（小/中/大）。
+        回傳：(body_pt, title_pt)
+        """
+        app = QApplication.instance()
+        app_pt = 16
+        if app is not None and app.font() is not None:
+            try:
+                app_pt = int(app.font().pointSize() or 16)
+            except Exception:
+                app_pt = 16
+        return max(10, app_pt), max(14, app_pt + 4)
+
+    @staticmethod
+    def print_table_report(title, headers, rows):
+        """
+        列印表格式報表（Excel 風格格線）
+        - title: str
+        - headers: List[str]
+        - rows: List[List[Any]]
+        """
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPageSize(QPageSize.A4))
+        printer.setOrientation(QPrinter.Portrait)
+
+        font_family = PrintHelper._get_compatible_font_family()
+        body_pt, title_pt = PrintHelper._report_font_sizes()
+
+        def esc(v):
+            s = "" if v is None else str(v)
+            return (
+                s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+            )
+
+        thead = "".join(f"<th>{esc(h)}</th>" for h in (headers or []))
+        tbody = []
+        for r in (rows or []):
+            cells = "".join(f"<td>{esc(c)}</td>" for c in (r or []))
+            tbody.append(f"<tr>{cells}</tr>")
+
+        html = f"""
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body {{
+              font-family: '{font_family}', 'sans-serif';
+              font-size: {body_pt}pt;
+              color: #222;
+              margin: 14px;
+            }}
+            h2 {{
+              margin: 0 0 10px 0;
+              font-size: {title_pt}pt;
+              font-weight: 700;
+            }}
+            table {{
+              border-collapse: collapse;
+              width: 100%;
+              table-layout: auto;
+            }}
+            th, td {{
+              border: 1px solid #666;
+              padding: 6px 8px;
+              vertical-align: middle;
+              word-wrap: break-word;
+            }}
+            th {{
+              background: #f3f3f3;
+              font-weight: 700;
+            }}
+          </style>
+        </head>
+        <body>
+          <h2>{esc(title)}</h2>
+          <table>
+            <thead><tr>{thead}</tr></thead>
+            <tbody>{''.join(tbody)}</tbody>
+          </table>
+        </body>
+        </html>
+        """
+
+        doc = QTextDocument()
+        doc.setHtml(html)
+
+        preview = QPrintPreviewDialog(printer)
+        preview.setWindowTitle("列印預覽")
+        preview.resize(1000, 800)
+
+        def do_print():
+            dialog = QPrintDialog(printer, preview)
+            if dialog.exec_() == QPrintDialog.Accepted:
+                doc.print_(printer)
+
+        PrintHelper._apply_preview_toolbar(preview, do_print, show_address_toggle=False)
+        preview.paintRequested.connect(lambda p: doc.print_(p))
+        preview.exec_()
+
     @staticmethod
     def _get_compatible_font_family():
         """
@@ -16,7 +229,6 @@ class PrintHelper:
         preferred_fonts = [
             "PingFang TC", "Heiti TC", 
             "DFKai-SB", "BiauKai", "標楷體", "KaiTi", 
-            "Microsoft JhengHei", "Microsoft JhengHei UI", "微軟正黑體", 
             "PMingLiU", "MingLiU", "新細明體"
         ]
         
@@ -54,126 +266,12 @@ class PrintHelper:
             except:
                 pass
 
-        # 自訂工具列：保留列印、放大縮小、比例，移除其他
-        try:
-            toolbar = preview.findChildren(QToolBar)[0]
-            actions = toolbar.actions()
-            
-            for action in actions:
-                # 結合 Text 與 ToolTip 進行判斷
-                check_text = (action.text() + " " + action.toolTip())
-                is_wanted = True
-                
-                # 1. Widget 檢查
-                widget = toolbar.widgetForAction(action)
-                if widget:
-                    if isinstance(widget, QComboBox):
-                        is_wanted = True
-                    elif isinstance(widget, (QLineEdit, QLabel)):
-                        is_wanted = False
-                
-                # 2. 關鍵字過濾
-                unwanted_keywords = [
-                    "Page", "Setup", "設定", "版面", 
-                    "Portrait", "Landscape", "直向", "橫向",
-                    "1:1", "Actual", "Fit", "Original",
-                    "First", "Last", "Previous", "Next",
-                    "Single", "Facing", "Overview", "View", "Three",
-                    "Show"
-                ]
-                for kw in unwanted_keywords:
-                    # Zoom Combo 例外
-                    if kw in check_text and not isinstance(widget, QComboBox):
-                        is_wanted = False
-                        break
-
-                # 3. 重新命名 (Print 隱藏改用自訂，Zoom 保留)
-                if "Print" in check_text or "列印" in check_text:
-                    # 隱藏原生 Print，改用自製按鈕確保功能
-                    is_wanted = False 
-                elif "Zoom In" in check_text or "放大" in check_text or "+" in check_text:
-                    action.setText("放大")
-                    is_wanted = True
-                elif "Zoom Out" in check_text or "縮小" in check_text or "-" in check_text:
-                    action.setText("縮小")
-                    is_wanted = True
-
-                action.setVisible(is_wanted)
-            
-            # 插入自訂列印按鈕 (最左邊)
-            print_btn = QPushButton("🖨️ 列印")
-            print_btn.setMinimumHeight(35)
-            print_btn.setFont(QFont("Arial", 12))
-            print_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #0275d8;
-                    color: white;
-                    border-radius: 5px;
-                    padding: 5px 15px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #025aa5;
-                }
-            """)
-            print_btn.clicked.connect(do_print)
-            
-            if actions:
-                toolbar.insertWidget(actions[0], print_btn)
-            else:
-                toolbar.addWidget(print_btn)
-                
-            # 加入「列印住址」核取方塊
-            addr_cb = QCheckBox("列印住址")
-            addr_cb.setChecked(True)
-            addr_cb.setFont(QFont("Arial", 12))
-            # 修改樣式：增加背景色以避免與工具列混淆
-            addr_cb.setStyleSheet("""
-                QCheckBox { 
-                    font-weight: bold; 
-                    margin-left: 15px; 
-                    color: black; 
-                    background-color: #f0f0f0; 
-                    padding: 5px; 
-                    border-radius: 4px; 
-                }
-            """)
-            addr_cb.stateChanged.connect(toggle_address)
-            toolbar.insertWidget(actions[0], addr_cb) 
-            # 為了美觀，放在 Print 按鈕之後？
-            # 既然 Print 插在 actions[0] 前面，那 addr_cb 插在 actions[0] 前面會變 [Addr] [Print] [Zoom]
-            # 想要 [Print] [Addr] [Zoom]
-            # 那就 insertWidget(actions[0], addr_cb) 之後再 insert Print?
-            # 不，Print 已經插了。
-            # Toolbar 順序: Print(new) -> Actions[0] -> ...
-            # 如果我再 insert actions[0]，它會插在 Print(new) 和 Actions[0] 之間。 -> [Print] [Addr] [Actions[0]...]
-            # 是的。
-            
-            toolbar.addSeparator()
-            
-            # 新增「關閉返回」按鈕
-            close_btn = QPushButton("關閉返回")
-            close_btn.setMinimumHeight(35) # 加高一點
-            close_btn.setFont(QFont("Arial", 12))
-            close_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #d9534f;
-                    color: white;
-                    border-radius: 5px;
-                    padding: 5px 15px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #c9302c;
-                }
-            """)
-            close_btn.clicked.connect(preview.close)
-            toolbar.addWidget(close_btn)
-            
-            # toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon) # 用 widget 就不需要這個了
-            
-        except Exception as e:
-            print(f"Error customizing toolbar: {e}")
+        PrintHelper._apply_preview_toolbar(
+            preview,
+            do_print,
+            show_address_toggle=True,
+            toggle_address=toggle_address,
+        )
 
         preview.paintRequested.connect(lambda p: PrintHelper._handle_print_painter(p, data, print_settings['show_address']))
         preview.exec_()

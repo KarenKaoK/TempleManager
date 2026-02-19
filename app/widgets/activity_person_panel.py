@@ -1,9 +1,9 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QComboBox, QTextEdit, QFormLayout, QFrame, QSizePolicy,
-    QGridLayout, QListWidget, QListWidgetItem
+    QGridLayout, QListWidget, QListWidgetItem, QApplication
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QEvent, QSize
+from PyQt5.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint
 from PyQt5.QtGui import QFontMetrics
 from app.utils.date_utils import make_ymd_validator
 
@@ -44,9 +44,9 @@ class ActivityPersonPanel(QWidget):
 
         # ===== Quick search row =====
         quick_row = QHBoxLayout()
-        lbl_quick = QLabel("快速搜尋")
-        lbl_quick.setStyleSheet("color: #666; font-weight: 600;")
-        lbl_quick.setFixedWidth(70)
+        self.lbl_quick = QLabel("快速搜尋")
+        self.lbl_quick.setStyleSheet("color: #666; font-weight: 600;")
+        self.lbl_quick.setFixedWidth(70)
 
         self.edit_quick = QLineEdit()
         self.edit_quick.setPlaceholderText("輸入姓名或電話，例如：李阿姨 / 0912")
@@ -58,7 +58,7 @@ class ActivityPersonPanel(QWidget):
             b.setMinimumHeight(34)
             b.setCursor(Qt.PointingHandCursor)
 
-        quick_row.addWidget(lbl_quick)
+        quick_row.addWidget(self.lbl_quick)
         quick_row.addWidget(self.edit_quick, 1)
         quick_row.addWidget(self.btn_search)
         quick_row.addWidget(self.btn_clear)
@@ -69,21 +69,25 @@ class ActivityPersonPanel(QWidget):
 
         # ===== 搜尋結果清單（點選後帶入資料）=====
 
-        self.list_results = QListWidget()
-
-        # 🔑 關鍵：限制搜尋結果高度（約 5 列）
-        self.list_results.setMaximumHeight(160)
+        self.list_results = QListWidget(None)
+        self.list_results.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        self.list_results.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.list_results.setMinimumHeight(0)
-
-        # 出現 scrollbar，而不是撐開畫面
         self.list_results.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        # 預設不顯示
         self.list_results.hide()
-
         self.list_results.itemClicked.connect(self._on_pick_person)
-
-        root.addWidget(self.list_results)
+        self.list_results.setStyleSheet("""
+            QListWidget {
+                background: #FFFFFF;
+                border: 1px solid #D9CCBE;
+                border-radius: 8px;
+                padding: 2px;
+            }
+            QListWidget::item:selected {
+                background: #FBECDD;
+                color: #1F2937;
+            }
+        """)
 
 
 
@@ -171,9 +175,9 @@ class ActivityPersonPanel(QWidget):
         ):
             _fix_field(w)
 
-        self.edit_birth_lunar.setMinimumWidth(260)
+        self.edit_birth_lunar.setMinimumWidth(180)
         
-        MIN_W = 240
+        MIN_W = 160
         self.edit_name.setMinimumWidth(MIN_W)
         self.edit_phone.setMinimumWidth(MIN_W)
         self.edit_address.setMinimumWidth(MIN_W)
@@ -185,7 +189,7 @@ class ActivityPersonPanel(QWidget):
         grid.setHorizontalSpacing(18)   # ✅ 兩欄中間距離拉開
         grid.setVerticalSpacing(18)     # ✅ 每列不要擠
 
-        LABEL_W = 92
+        LABEL_W = 74
 
         def _label(text: str) -> QLabel:
             lbl = QLabel(text)
@@ -217,9 +221,9 @@ class ActivityPersonPanel(QWidget):
         grid.addWidget(self.combo_zodiac, 1, 3)
 
         # Row 2
-        grid.addWidget(_label("國曆生日"), 2, 0)
+        grid.addWidget(_label("國曆"), 2, 0)
         grid.addWidget(self.edit_birth_ad, 2, 1)
-        grid.addWidget(_label("農曆生日"), 2, 2)
+        grid.addWidget(_label("農曆"), 2, 2)
         grid.addWidget(self.edit_birth_lunar, 2, 3)
 
         # Row 3
@@ -260,6 +264,7 @@ class ActivityPersonPanel(QWidget):
 
     def _clear_form(self):
         self._person_id = None
+        self.list_results.hide()
         self.edit_quick.clear()
         self.edit_name.clear()
         self.edit_phone.clear()
@@ -288,7 +293,7 @@ class ActivityPersonPanel(QWidget):
             item.setSizeHint(QSize(0, row_h))
             item.setData(Qt.UserRole, p)
             self.list_results.addItem(item)
-        self.list_results.setVisible(bool(people))
+        self._show_results_popup(bool(people))
 
     def _sync_result_list_font(self):
         f = self.font()
@@ -305,6 +310,48 @@ class ActivityPersonPanel(QWidget):
         super().changeEvent(event)
         if event.type() == QEvent.FontChange:
             self._sync_result_list_font()
+            if self.list_results.isVisible():
+                self._show_results_popup(True)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.list_results.isVisible():
+            self._show_results_popup(True)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if self.list_results.isVisible():
+            self._show_results_popup(True)
+
+    def _show_results_popup(self, visible: bool):
+        if not visible or self.list_results.count() == 0:
+            self.list_results.hide()
+            return
+
+        row_h = max(30, QFontMetrics(self.list_results.font()).height() + 12)
+        content_h = min(8, self.list_results.count()) * row_h + 8
+
+        left_x = self.lbl_quick.mapToGlobal(QPoint(0, 0)).x()
+        right_x = self.btn_clear.mapToGlobal(QPoint(self.btn_clear.width(), 0)).x()
+        quick_top = self.edit_quick.mapToGlobal(QPoint(0, 0)).y()
+        quick_bottom = self.edit_quick.mapToGlobal(QPoint(0, self.edit_quick.height())).y()
+
+        popup_w = max(260, right_x - left_x)
+        popup_h = max(90, content_h)
+
+        screen_geo = QApplication.desktop().availableGeometry(self)
+        gap = 4
+        y_up = quick_top - popup_h - gap
+        y_down = quick_bottom + gap
+
+        if y_up >= screen_geo.top():
+            popup_y = y_up  # 優先往上展開
+        else:
+            popup_y = y_down  # 上方不夠才往下
+
+        self.list_results.setGeometry(left_x, popup_y, popup_w, popup_h)
+        self.list_results.raise_()
+        self.list_results.show()
 
     def _on_pick_person(self, item):
         data = item.data(Qt.UserRole)

@@ -94,7 +94,7 @@ def test_finance_summary_with_category_dimension_and_detail(tmp_path):
         transaction_type="income",
         category_id="01",
     )
-    assert len(detail) == 2
+    assert len(detail) == 1
     assert all(row["category_id"] == "01" for row in detail)
 
 

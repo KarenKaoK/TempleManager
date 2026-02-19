@@ -252,37 +252,15 @@ class MainPageWidget(QWidget):
 
         tab_widget.addTab(base_widget, "基本資料")
 
-        # 👉 可擴充其他分頁（例如：安燈紀錄、拜斗紀錄...）
-        for tab_name in ["安燈紀錄", "活動紀錄"]:
-            placeholder = QWidget()
-            tab_widget.addTab(placeholder, tab_name)
-
-        donation_tab = QWidget()
-        donation_layout = QVBoxLayout(donation_tab)
-        donation_layout.setContentsMargins(10, 10, 10, 10)
-        donation_layout.setSpacing(8)
-
-        self.donation_summary_label = QLabel("添油香記錄：尚未選取信眾")
-        donation_layout.addWidget(self.donation_summary_label)
-
-        self.donation_table = QTableWidget()
-        self.donation_table.setColumnCount(6)
-        self.donation_table.setHorizontalHeaderLabels(["日期", "收據號碼", "項目", "金額", "經手人", "備註"])
-        self.donation_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.donation_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.donation_table.setTextElideMode(Qt.ElideNone)
-        self.donation_table.setWordWrap(False)
-        self.donation_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.donation_table.horizontalHeader().setStretchLastSection(True)
-        self.donation_table.setColumnWidth(0, 120)  # 日期
-        self.donation_table.setColumnWidth(1, 140)  # 收據號碼
-        self.donation_table.setColumnWidth(2, 180)  # 項目
-        self.donation_table.setColumnWidth(3, 110)  # 金額
-        self.donation_table.setColumnWidth(4, 120)  # 經手人
-        self.donation_table.setColumnWidth(5, 280)  # 備註
-        donation_layout.addWidget(self.donation_table)
-
+        # 三個紀錄分頁：添油香 / 活動 / 安燈
+        donation_tab, self.donation_summary_label, self.donation_table = self._build_income_record_tab("添油香記錄")
         tab_widget.addTab(donation_tab, "添油香記錄")
+
+        activity_tab, self.activity_summary_label, self.activity_table = self._build_income_record_tab("活動紀錄")
+        tab_widget.addTab(activity_tab, "活動紀錄")
+
+        light_tab, self.light_summary_label, self.light_table = self._build_income_record_tab("安燈紀錄")
+        tab_widget.addTab(light_tab, "安燈紀錄")
 
         splitter.addWidget(tab_widget)
         layout.addWidget(splitter)
@@ -349,6 +327,62 @@ class MainPageWidget(QWidget):
     @staticmethod
     def _fmt_date_text(v):
         return normalize_ymd_text(v)
+
+    @staticmethod
+    def _to_amount_number(value):
+        try:
+            return float(value or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _to_amount_text(value):
+        try:
+            return f"{float(value):,.0f}"
+        except (TypeError, ValueError):
+            return str(value or "")
+
+    def _build_income_record_tab(self, title: str):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        summary_label = QLabel(f"{title}：尚未選取信眾")
+        layout.addWidget(summary_label)
+
+        table = QTableWidget()
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(["日期", "收據號碼", "項目", "金額", "經手人", "備註"])
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setTextElideMode(Qt.ElideNone)
+        table.setWordWrap(False)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        table.horizontalHeader().setStretchLastSection(False)
+        table.setColumnWidth(0, 120)
+        table.setColumnWidth(1, 140)
+        table.setColumnWidth(2, 180)
+        table.setColumnWidth(3, 110)
+        table.setColumnWidth(4, 120)
+        table.setColumnWidth(5, 520)
+        layout.addWidget(table)
+
+        return tab, summary_label, table
+
+    def _fill_income_record_table(self, table: QTableWidget, rows: list):
+        table.setRowCount(len(rows))
+        for r, tx in enumerate(rows):
+            table.setItem(r, 0, QTableWidgetItem(self._fmt_date_text(tx.get("date", "") or "")))
+            table.setItem(r, 1, QTableWidgetItem(tx.get("receipt_number", "") or ""))
+            table.setItem(r, 2, QTableWidgetItem(tx.get("category_name", "") or ""))
+            table.setItem(r, 3, QTableWidgetItem(self._to_amount_text(tx.get("amount"))))
+            table.setItem(r, 4, QTableWidgetItem(tx.get("handler", "") or ""))
+            note = tx.get("note", "") or ""
+            note_item = QTableWidgetItem(note)
+            note_item.setToolTip(note)
+            table.setItem(r, 5, note_item)
 
     def refresh_all_panels(self, select_household_id: str = None, select_head_person_id: str = None):
         """
@@ -776,38 +810,51 @@ class MainPageWidget(QWidget):
         if not person_id:
             self.donation_summary_label.setText("添油香記錄：尚未選取信眾")
             self.donation_table.setRowCount(0)
+            if hasattr(self, "activity_summary_label"):
+                self.activity_summary_label.setText("活動紀錄：尚未選取信眾")
+            if hasattr(self, "activity_table"):
+                self.activity_table.setRowCount(0)
+            if hasattr(self, "light_summary_label"):
+                self.light_summary_label.setText("安燈紀錄：尚未選取信眾")
+            if hasattr(self, "light_table"):
+                self.light_table.setRowCount(0)
             return
 
-        rows = self.controller.get_income_transactions_by_person(person_id)
-        self.donation_table.setRowCount(len(rows))
-        total_amount = 0.0
-        for tx in rows:
-            try:
-                total_amount += float(tx.get("amount") or 0)
-            except (TypeError, ValueError):
-                continue
-        self.donation_summary_label.setText(
-            f"添油香記錄：{name}（共 {len(rows)} 筆，總額 {total_amount:,.0f} 元）"
-        )
+        all_rows = self.controller.get_income_transactions_by_person(person_id)
+        activity_rows = []
+        light_rows = []
+        donation_rows = []
 
-        for r, tx in enumerate(rows):
-            self.donation_table.setItem(r, 0, QTableWidgetItem(self._fmt_date_text(tx.get("date", "") or "")))
-            self.donation_table.setItem(r, 1, QTableWidgetItem(tx.get("receipt_number", "") or ""))
-            self.donation_table.setItem(r, 2, QTableWidgetItem(tx.get("category_name", "") or ""))
-            amount = tx.get("amount")
-            if amount is None:
-                amount_text = ""
+        for tx in all_rows:
+            cid = str(tx.get("category_id", "") or "").strip()
+            if cid == "90":
+                activity_rows.append(tx)
+            elif cid == "91":
+                light_rows.append(tx)
             else:
-                try:
-                    amount_text = f"{float(amount):,.0f}"
-                except (TypeError, ValueError):
-                    amount_text = str(amount)
-            self.donation_table.setItem(r, 3, QTableWidgetItem(amount_text))
-            self.donation_table.setItem(r, 4, QTableWidgetItem(tx.get("handler", "") or ""))
-            note = tx.get("note", "") or ""
-            note_item = QTableWidgetItem(note)
-            note_item.setToolTip(note)
-            self.donation_table.setItem(r, 5, note_item)
+                donation_rows.append(tx)
+
+        donation_total = sum(self._to_amount_number(tx.get("amount")) for tx in donation_rows)
+        activity_total = sum(self._to_amount_number(tx.get("amount")) for tx in activity_rows)
+        light_total = sum(self._to_amount_number(tx.get("amount")) for tx in light_rows)
+
+        self.donation_summary_label.setText(
+            f"添油香記錄：{name}（共 {len(donation_rows)} 筆，總額 {donation_total:,.0f} 元）"
+        )
+        if hasattr(self, "activity_summary_label"):
+            self.activity_summary_label.setText(
+                f"活動紀錄：{name}（共 {len(activity_rows)} 筆，總額 {activity_total:,.0f} 元）"
+            )
+        if hasattr(self, "light_summary_label"):
+            self.light_summary_label.setText(
+                f"安燈紀錄：{name}（共 {len(light_rows)} 筆，總額 {light_total:,.0f} 元）"
+            )
+
+        self._fill_income_record_table(self.donation_table, donation_rows)
+        if hasattr(self, "activity_table"):
+            self._fill_income_record_table(self.activity_table, activity_rows)
+        if hasattr(self, "light_table"):
+            self._fill_income_record_table(self.light_table, light_rows)
     
     
 

@@ -1,6 +1,10 @@
 # tests/conftest.py
 import os
 import sqlite3
+
+# Headless CI / terminal test safety for PyQt
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import pytest
 from PyQt5.QtWidgets import QApplication
 import app.config as app_config

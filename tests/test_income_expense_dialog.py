@@ -147,7 +147,7 @@ def test_edit_income_then_save_and_print_calls_print(qtbot, dialog):
             payer_person_id, payer_name, handler, receipt_number, note
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        "T-EDIT-001", "2026-02-16", "income", "I01", "香油錢", 500,
+        "T-EDIT-001", date.today().isoformat(), "income", "I01", "香油錢", 500,
         "P001", "王小明", "測試員", "1150001", "舊備註"
     ))
     tab.controller.conn.commit()

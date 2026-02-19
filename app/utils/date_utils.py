@@ -26,11 +26,11 @@ def normalize_ymd_text(value: str) -> str:
 
 
 def is_valid_ymd_text(value: str) -> bool:
-    normalized = normalize_ymd_text(value)
-    if not re.match(r"^\d{4}/\d{2}/\d{2}$", normalized):
+    text = str(value or "").strip().replace("-", "/")
+    if not re.match(r"^\d{4}/\d{2}/\d{2}$", text):
         return False
     try:
-        datetime.strptime(normalized, YMD_SLASH)
+        datetime.strptime(text, YMD_SLASH)
         return True
     except Exception:
         return False
