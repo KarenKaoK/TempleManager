@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QFrame, QFormLayout, QLineEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QGridLayout,
-    QSizePolicy, QGroupBox, QDialog
+    QSizePolicy, QGroupBox, QDialog, QCheckBox
 )
 from PyQt5.QtWidgets import QMessageBox, QTextEdit
 from app.utils.id_utils import compute_display_status
@@ -67,18 +67,26 @@ class WenshuPrintDialog(QDialog):
         root.setSpacing(10)
 
         top = QHBoxLayout()
+        self.chk_activity_birthday_format = QPushButton("☐ 活動祝壽格式")
+        self.chk_activity_birthday_format.setCheckable(True)
+        self.chk_activity_birthday_format.toggled.connect(
+            lambda on: self.chk_activity_birthday_format.setText("☑ 活動祝壽格式" if on else "☐ 活動祝壽格式")
+        )
         self.edt_prayer_default = QLineEdit()
         self.edt_prayer_default.setPlaceholderText("預設祈求（可留空）")
         self.edt_prayer_default.setText("")
-        btn_apply = QPushButton("套用預設祈求")
+        self.chk_apply_default_prayer = QCheckBox("套用預設祈求")
+        self.chk_apply_default_prayer.setChecked(False)
         btn_all = QPushButton("全選")
         btn_none = QPushButton("清空")
-        btn_apply.clicked.connect(self._apply_default_prayer)
+
+        self.chk_apply_default_prayer.toggled.connect(self._on_toggle_apply_default_prayer)
         btn_all.clicked.connect(lambda: self._set_all_checked(True))
         btn_none.clicked.connect(lambda: self._set_all_checked(False))
+        top.addWidget(self.chk_activity_birthday_format)
         top.addWidget(QLabel("預設祈求"))
         top.addWidget(self.edt_prayer_default, 1)
-        top.addWidget(btn_apply)
+        top.addWidget(self.chk_apply_default_prayer)
         top.addWidget(btn_all)
         top.addWidget(btn_none)
         root.addLayout(top)
@@ -115,9 +123,31 @@ class WenshuPrintDialog(QDialog):
             chk.setCheckState(Qt.Unchecked)
             self.tbl.setItem(row, 0, chk)
             self.tbl.setItem(row, 1, QTableWidgetItem(str(r.get("person_name", ""))))
-            self.tbl.setItem(row, 2, QTableWidgetItem(str(r.get("person_birthday", ""))))
-            self.tbl.setItem(row, 3, QTableWidgetItem(str(r.get("person_address", ""))))
-            self.tbl.setItem(row, 4, QTableWidgetItem(""))
+            lunar = normalize_ymd_text(str(r.get("person_birthday_lunar", "") or ""))
+            ad = normalize_ymd_text(str(r.get("person_birthday_ad", "") or ""))
+            is_leap = int(r.get("person_lunar_is_leap") or 0) == 1
+            if lunar:
+                if is_leap:
+                    birthday_text = f"農曆 {lunar}(閏)"
+                else:
+                    birthday_text = f"農曆 {lunar}"
+            elif ad:
+                birthday_text = f"國曆 {ad}"
+            else:
+                birthday_text = ""
+            self.tbl.setItem(row, 2, QTableWidgetItem(birthday_text))
+            name_item = self.tbl.item(row, 1)
+            birthday_item = self.tbl.item(row, 2)
+            address_item = QTableWidgetItem(str(r.get("person_address", "")))
+            self.tbl.setItem(row, 3, address_item)
+            prayer_item = QTableWidgetItem("")
+            self.tbl.setItem(row, 4, prayer_item)
+
+            # 姓名/生日/地址為唯讀；祈求欄可手動編輯
+            for readonly_item in (name_item, birthday_item, address_item):
+                if readonly_item:
+                    readonly_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            prayer_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
 
     def _set_all_checked(self, checked: bool):
         for r in range(self.tbl.rowCount()):
@@ -125,30 +155,43 @@ class WenshuPrintDialog(QDialog):
             if it:
                 it.setCheckState(Qt.Checked if checked else Qt.Unchecked)
 
-    def _apply_default_prayer(self):
-        text = (self.edt_prayer_default.text() or "").strip()
+    def _on_toggle_apply_default_prayer(self, checked: bool):
+        if not checked:
+            return
+        default_prayer = (self.edt_prayer_default.text() or "").strip()
+        if not default_prayer:
+            return
         for r in range(self.tbl.rowCount()):
-            item = self.tbl.item(r, 4)
-            if item is not None:
-                item.setText(text)
+            it = self.tbl.item(r, 4)
+            if it is None:
+                it = QTableWidgetItem("")
+                it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
+                self.tbl.setItem(r, 4, it)
+            it.setText(default_prayer)
 
     def _on_print(self):
-        lines = ["文疏列印預覽", "--------------------"]
-        selected = 0
+        default_prayer = (self.edt_prayer_default.text() or "").strip()
+        use_default_prayer = self.chk_apply_default_prayer.isChecked()
+        rows = []
         for r in range(self.tbl.rowCount()):
             chk = self.tbl.item(r, 0)
             if not chk or chk.checkState() != Qt.Checked:
                 continue
-            selected += 1
             name = self.tbl.item(r, 1).text() if self.tbl.item(r, 1) else ""
             birthday = self.tbl.item(r, 2).text() if self.tbl.item(r, 2) else ""
             address = self.tbl.item(r, 3).text() if self.tbl.item(r, 3) else ""
-            prayer = self.tbl.item(r, 4).text() if self.tbl.item(r, 4) else ""
-            lines.append(f"姓名：{name}｜生日：{birthday}｜地址：{address}｜祈求：{prayer}")
-        if selected == 0:
+            row_prayer = self.tbl.item(r, 4).text().strip() if self.tbl.item(r, 4) else ""
+            rows.append({
+                "name": name,
+                "birthday": birthday,
+                "address": address,
+                "prayer": row_prayer if row_prayer else (default_prayer if use_default_prayer else ""),
+            })
+        if not rows:
             QMessageBox.information(self, "請先選擇", "請先勾選至少一位報名者再列印文疏")
             return
-        QMessageBox.information(self, "列印文疏", "\n".join(lines))
+        template = "activity_birthday" if self.chk_activity_birthday_format.isChecked() else "blessing"
+        PrintHelper.print_wenshu_report(rows, template=template)
 
 
 class ItemStatsDialog(QDialog):

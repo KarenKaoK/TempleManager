@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import Mock
 from PyQt5.QtGui import QFontDatabase
 from app.utils.print_helper import PrintHelper
 
@@ -28,3 +29,21 @@ def test_get_compatible_font_family(qtbot):
     
     # 如果系統裡有我們支援的字體，它應該要回傳其中之一
     # 這裡只能做基本的型別檢查，因為不同環境字體不同
+
+def test_pair_rows_for_half_a4():
+    rows = [{"name": "A"}, {"name": "B"}, {"name": "C"}]
+    pairs = PrintHelper._pair_rows_for_half_a4(rows)
+    assert pairs == [({"name": "A"}, {"name": "B"}), ({"name": "C"}, None)]
+
+def test_to_roc_birthday_text():
+    assert PrintHelper._to_roc_birthday_text("1944/08/08") == "33年08月08日"
+    assert PrintHelper._to_roc_birthday_text("國曆 1944/08/08") == "國曆33年08月08日"
+    assert PrintHelper._to_roc_birthday_text("農曆 1944/06/20") == "農曆33年06月20日"
+    # 無法解析格式時維持原文
+    assert PrintHelper._to_roc_birthday_text("民國33年08月08日") == "民國33年08月08日"
+
+def test_force_a4_landscape_calls_printer_setters():
+    printer = Mock()
+    PrintHelper._force_a4_landscape(printer)
+    assert printer.setPageSize.called
+    printer.setOrientation.assert_called_once()

@@ -3,6 +3,7 @@ from PyQt5.QtGui import QPainter, QFont, QPen, QColor, QPageLayout, QPageSize, Q
 from PyQt5.QtCore import Qt, QRectF, QPointF
 from PyQt5.QtWidgets import QAction, QToolBar, QPushButton, QComboBox, QLineEdit, QLabel, QCheckBox, QApplication
 from PyQt5.QtGui import QTextDocument
+import re
 from datetime import datetime
 
 class PrintHelper:
@@ -219,6 +220,348 @@ class PrintHelper:
         preview.exec_()
 
     @staticmethod
+    def _force_a4_landscape(printer):
+        """
+        強制輸出為 A4 橫式，避免系統列印對話框（含存 PDF）覆蓋方向。
+        """
+        printer.setPageSize(QPageSize(QPageSize.A4))
+        printer.setOrientation(QPrinter.Landscape)
+
+    @staticmethod
+    def print_wenshu_report(rows, template="blessing"):
+        """
+        文疏列印：
+        - rows: [{"name","birthday","address","prayer"}...]
+        - template: "blessing" | "activity_birthday"
+        頁面：A4 橫式，左右各半張（直式字、右到左）
+        """
+        rows = list(rows or [])
+        if not rows:
+            return
+
+        printer = QPrinter(QPrinter.HighResolution)
+        PrintHelper._force_a4_landscape(printer)
+
+        preview = QPrintPreviewDialog(printer)
+        preview.setWindowTitle("文疏列印預覽")
+        preview.resize(1000, 800)
+
+        def do_print():
+            dialog = QPrintDialog(printer, preview)
+            if dialog.exec_() == QPrintDialog.Accepted:
+                # 使用者在系統列印視窗改了方向時，這裡再強制拉回橫式
+                PrintHelper._force_a4_landscape(printer)
+                PrintHelper._render_wenshu_pages_landscape(printer, rows, template)
+
+        PrintHelper._apply_preview_toolbar(preview, do_print, show_address_toggle=False)
+        preview.paintRequested.connect(
+            lambda p: (PrintHelper._force_a4_landscape(p), PrintHelper._render_wenshu_pages_landscape(p, rows, template))
+        )
+        preview.exec_()
+
+    @staticmethod
+    def _build_wenshu_html(rows, template="blessing"):
+        # 保留舊方法相容；新流程改用 _build_single_wenshu_html + _render_wenshu_pages_landscape
+        if not rows:
+            return ""
+        return PrintHelper._build_single_wenshu_html(rows[0], template=template)
+
+    @staticmethod
+    def _pair_rows_for_half_a4(rows):
+        """兩筆一頁（左右半張）；單數最後一頁右半留白。"""
+        out = []
+        rows = list(rows or [])
+        i = 0
+        while i < len(rows):
+            left = rows[i]
+            right = rows[i + 1] if i + 1 < len(rows) else None
+            out.append((left, right))
+            i += 2
+        return out
+
+    @staticmethod
+    def _build_single_wenshu_html(row, template="blessing"):
+        def esc(v):
+            s = "" if v is None else str(v)
+            return (
+                s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+            )
+
+        now = datetime.now()
+        created = now.strftime("%Y年%m月%d日")
+        roc_year = now.year - 1911
+        roc_date = f"{roc_year}年{now.month:02d}月{now.day:02d}日"
+
+        name = esc((row or {}).get("name", ""))
+        birthday = esc((row or {}).get("birthday", ""))
+        address = esc((row or {}).get("address", ""))
+        prayer = esc((row or {}).get("prayer", ""))
+
+        if template == "activity_birthday":
+            body = f"""
+            <div class="sheet">
+              <h1>深坑天南宮祝壽文疏</h1>
+              <div class="line">祈祝</div>
+              <div class="multi">
+                聖誕千秋　　聖壽無疆<br/>
+                神威顯赫　　神光普照<br/>
+                護佑萬民　　賜福添財<br/>
+                四季安康　　吉祥如意
+              </div>
+              <div class="line">弟子　{name}</div>
+              <div class="line">生日　{birthday}</div>
+              <div class="line">地址　{address}</div>
+              <div class="line">建立年月日　{created}</div>
+              <div class="line">中華民國　{roc_date}</div>
+            </div>
+            """
+        else:
+            body = f"""
+            <div class="sheet">
+              <h1>祈願消災文疏</h1>
+              <div class="line">弟子：{name}</div>
+              <div class="line">出生　{birthday}</div>
+              <div class="line">地址：{address}</div>
+              <div class="line">祈願文：</div>
+              <div class="line">{prayer}</div>
+              <div class="line">感恩中壇元帥降臨，保佑弟子心願如意</div>
+              <div class="line">弟子必感恩還願，中壇元帥慈悲護佑。</div>
+              <div class="line">中華民國　{roc_date}</div>
+            </div>
+            """
+
+        return f"""
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body {{
+              font-family: '{PrintHelper._get_compatible_font_family()}', 'sans-serif';
+              font-size: 13pt;
+              color: #111;
+              margin: 0;
+            }}
+            .sheet {{ line-height: 1.8; }}
+            h1 {{
+              font-size: 18pt;
+              text-align: center;
+              margin: 0 0 8mm 0;
+              font-weight: 700;
+            }}
+            .line {{ margin: 4mm 0; white-space: pre-wrap; }}
+            .multi {{ margin: 6mm 0 8mm 0; text-align: center; }}
+          </style>
+        </head>
+        <body>
+          {body}
+        </body>
+        </html>
+        """
+
+    @staticmethod
+    def _to_roc_birthday_text(birthday_text: str) -> str:
+        """
+        將生日字串轉為民國格式：
+        - 國曆 1944/08/08 -> 國曆33年08月08日
+        - 農曆 1944/06/20 -> 農曆33年06月20日
+        - 未含前綴時：1944/08/08 -> 33年08月08日
+        無法解析則回傳原字串。
+        """
+        text = str(birthday_text or "").strip()
+        if not text:
+            return ""
+
+        m = re.match(r"^(?:(農曆|國曆)\s*)?(\d{4})/(\d{1,2})/(\d{1,2})$", text)
+        if not m:
+            return text
+
+        calendar_type, y, mth, d = m.groups()
+        ad_year = int(y)
+        roc_year = ad_year - 1911
+        core = f"{roc_year}年{int(mth):02d}月{int(d):02d}日"
+        if calendar_type:
+            return f"{calendar_type}{core}"
+        return core
+
+    @staticmethod
+    def _draw_wenshu_half_vertical(painter, area: QRectF, row: dict, template: str):
+        if not row:
+            return
+
+        painter.save()
+        painter.translate(area.topLeft())
+
+        w = area.width()
+        h = area.height()
+
+        margin = w * 0.06
+        content_rect = QRectF(margin, margin, w - 2 * margin, h - 2 * margin)
+
+        painter.setPen(QPen(Qt.black, 2))
+        painter.drawRect(content_rect)
+
+        font_family = PrintHelper._get_compatible_font_family()
+
+        def set_font(size_pt, bold=False):
+            f = QFont(font_family, size_pt)
+            f.setBold(bool(bold))
+            painter.setFont(f)
+            return painter.fontMetrics()
+
+        def draw_v_text(
+            text,
+            x_percent,
+            y_start_percent,
+            font_size,
+            spacing=1.15,
+            bold=False,
+            wrap_columns=1,
+            truncate=True,
+            column_start_shift_rows=0,
+            bottom_padding_percent=0.0,
+            column_gap_scale=1.15,
+        ):
+            text = str(text or "")
+            if not text:
+                return
+            fm = set_font(font_size, bold)
+            char_h = fm.height()
+            step_y = char_h * spacing
+            box = char_h * 1.4
+            x_pos_start = content_rect.right() - (content_rect.width() * (x_percent / 100.0))
+            y_pos_start = content_rect.top() + (content_rect.height() * (y_start_percent / 100.0))
+
+            bottom_padding = content_rect.height() * float(bottom_padding_percent or 0.0) / 100.0
+            usable_h = max(0.0, (content_rect.bottom() - bottom_padding) - y_pos_start)
+            max_rows_per_col = max(1, int(usable_h // step_y))
+            max_cols = max(1, int(wrap_columns or 1))
+
+            max_chars = max_rows_per_col * max_cols
+            if truncate and len(text) > max_chars and max_chars >= 1:
+                text = text[: max_chars - 1] + "…"
+
+            col_step_x = box * float(column_gap_scale or 1.15)
+            idx = 0
+            for col in range(max_cols):
+                x_pos = x_pos_start - (col * col_step_x)
+                if x_pos < content_rect.left() + box * 0.5:
+                    break
+                cursor_y = y_pos_start + (col * max(0, int(column_start_shift_rows)) * step_y)
+                for _ in range(max_rows_per_col):
+                    if idx >= len(text):
+                        return
+                    ch = text[idx]
+                    r = QRectF(x_pos - box / 2.0, cursor_y, box, box)
+                    painter.drawText(r, Qt.AlignCenter | Qt.TextDontClip, ch)
+                    cursor_y += step_y
+                    idx += 1
+
+        name = str((row or {}).get("name", "") or "")
+        birthday = str((row or {}).get("birthday", "") or "")
+        birthday_roc = PrintHelper._to_roc_birthday_text(birthday)
+        address = str((row or {}).get("address", "") or "")
+        prayer = str((row or {}).get("prayer", "") or "")
+
+        now = datetime.now()
+        roc_year = now.year - 1911
+        roc_date = f"{roc_year}年{now.month:02d}月{now.day:02d}日"
+
+        # 人員基本欄位統一字級與格式（弟子/生日/地址）
+        person_font_size = 17
+        person_spacing = 0.9
+
+        if template == "activity_birthday":
+            # 右到左欄位
+            draw_v_text("深坑天南宮祝壽文疏", 8, 10, 27, spacing=1.00, bold=True)
+            draw_v_text("祈祝", 18, 10, 21, spacing=1.00, bold=True)
+            draw_v_text("聖誕千秋      聖壽無疆", 30, 10, 18, spacing=1.00)
+            draw_v_text("神威顯赫      神光普照", 40, 10, 18, spacing=1.00)
+            draw_v_text("護佑萬民      賜福添財", 50, 10, 18, spacing=1.00)
+            draw_v_text("四季安康      吉祥如意", 60, 10, 18, spacing=1.00)
+            if prayer:
+                draw_v_text(f"{prayer}", 18, 28, 21, spacing=1.00)
+            draw_v_text(f"弟子　{name}", 72, 10, person_font_size, spacing=person_spacing)
+            draw_v_text(f"生日　{birthday_roc}", 80, 10, person_font_size, spacing=person_spacing)
+            draw_v_text(
+                f"地址　{address}",
+                88,
+                34,
+                person_font_size,
+                spacing=person_spacing,
+                wrap_columns=2,
+                truncate=True,
+                column_start_shift_rows=6,
+                column_gap_scale=0.9,
+                bottom_padding_percent=10.0,
+            )
+            draw_v_text(f"中華民國　{roc_date}", 96, 10, 16, spacing=1.00)
+        else:
+            draw_v_text("祈願消災文疏", 10, 25, 27, spacing=1.00, bold=True)
+            draw_v_text("深坑天南宮中壇元帥慈悲護佑", 20, 10, person_font_size, spacing=person_spacing)
+            draw_v_text(f"弟子：{name}", 28, 10, person_font_size, spacing=person_spacing)
+            draw_v_text(f"出生　{birthday_roc}", 36, 10, person_font_size, spacing=person_spacing)
+            draw_v_text(
+                f"地址：{address}",
+                44,
+                10,
+                person_font_size,
+                spacing=person_spacing,
+                wrap_columns=2,
+                truncate=True,
+                column_start_shift_rows=8,
+                column_gap_scale=0.9,
+                bottom_padding_percent=10.0,
+            )
+            draw_v_text("祈願文：", 52, 10, person_font_size, spacing=person_spacing)
+            if prayer:
+                draw_v_text(f"{prayer}", 60, 10, person_font_size, spacing=person_spacing, wrap_columns=3, truncate=True)
+            draw_v_text("感恩中壇元帥降臨，保佑弟子心願如意", 76, 10, 16, spacing=1.00)
+            draw_v_text("弟子必感恩還願，中壇元帥慈悲護佑。", 84, 10, 16, spacing=1.00)
+            draw_v_text(f"中華民國　{roc_date}", 92, 10, 16, spacing=1.00)
+
+        painter.restore()
+
+    @staticmethod
+    def _render_wenshu_pages_landscape(printer, rows, template):
+        pairs = PrintHelper._pair_rows_for_half_a4(rows)
+        if not pairs:
+            return
+
+        painter = QPainter(printer)
+        rect = printer.pageRect()
+        width = rect.width()
+        height = rect.height()
+
+        left_rect = QRectF(0, 0, width / 2.0, height)
+        right_rect = QRectF(width / 2.0, 0, width / 2.0, height)
+
+        for page_idx, (left_row, right_row) in enumerate(pairs):
+            if page_idx > 0:
+                printer.newPage()
+
+            PrintHelper._draw_center_dash_line(painter, int(width / 2), int(height))
+
+            PrintHelper._draw_wenshu_half_vertical(painter, left_rect, left_row, template)
+            # 右半若無資料，依需求保留空白
+            PrintHelper._draw_wenshu_half_vertical(painter, right_rect, right_row, template)
+
+        painter.end()
+
+    @staticmethod
+    def _draw_center_dash_line(painter, x: int, height: int):
+        """統一畫中間分隔虛線（更粗更深，預覽與實印都明顯）。"""
+        pen = QPen(QColor("#5F5F5F"))
+        pen.setWidth(6)
+        pen.setStyle(Qt.CustomDashLine)
+        pen.setDashPattern([14, 8])
+        pen.setCapStyle(Qt.FlatCap)
+        painter.setPen(pen)
+        painter.drawLine(int(x), 0, int(x), int(height))
+
+    @staticmethod
     def _get_compatible_font_family():
         """
         跨平台字體選擇策略
@@ -241,8 +584,7 @@ class PrintHelper:
     def print_receipt(data):
         # ... (unchanged)
         printer = QPrinter(QPrinter.HighResolution)
-        printer.setPageSize(QPageSize(QPageSize.A4))
-        printer.setOrientation(QPrinter.Landscape)
+        PrintHelper._force_a4_landscape(printer)
         
         preview = QPrintPreviewDialog(printer)
         preview.setWindowTitle("列印預覽")
@@ -255,6 +597,8 @@ class PrintHelper:
         def do_print():
             dialog = QPrintDialog(printer, preview)
             if dialog.exec_() == QPrintDialog.Accepted:
+                # 使用者在系統列印視窗改了方向時，這裡再強制拉回橫式
+                PrintHelper._force_a4_landscape(printer)
                 PrintHelper._handle_print_painter(printer, data, print_settings['show_address'])
                 
         def toggle_address(state):
@@ -273,11 +617,14 @@ class PrintHelper:
             toggle_address=toggle_address,
         )
 
-        preview.paintRequested.connect(lambda p: PrintHelper._handle_print_painter(p, data, print_settings['show_address']))
+        preview.paintRequested.connect(
+            lambda p: (PrintHelper._force_a4_landscape(p), PrintHelper._handle_print_painter(p, data, print_settings['show_address']))
+        )
         preview.exec_()
 
     @staticmethod
     def _handle_print_painter(printer, data, print_address=True):
+        PrintHelper._force_a4_landscape(printer)
         painter = QPainter(printer)
         
         # 取得可列印範圍 (Pixels)
@@ -289,8 +636,7 @@ class PrintHelper:
         PrintHelper._draw_receipt(painter, data, QRectF(0, 0, width / 2, height), "（存根聯）", print_address)
         
         # 分隔線 (垂直中線)
-        painter.setPen(QPen(Qt.DashLine))
-        painter.drawLine(int(width / 2), 0, int(width / 2), height)
+        PrintHelper._draw_center_dash_line(painter, int(width / 2), int(height))
         
         # 右半部 (收執聯) - A5 Portrait
         PrintHelper._draw_receipt(painter, data, QRectF(width / 2, 0, width / 2, height), "（收執聯）", print_address)
