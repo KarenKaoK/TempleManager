@@ -1,6 +1,7 @@
 from csv import writer
 from datetime import date, datetime, timedelta
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -97,8 +98,12 @@ class FinanceReportDialog(QDialog):
         self.summary_table = QTableWidget(0, 0)
         self.summary_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.summary_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.summary_table.setTextElideMode(Qt.ElideNone)
         root.addWidget(self.summary_table, 2)
+
         self.total_net_label = QLabel("本期收支結餘：0")
+
         self.total_net_label.setStyleSheet(
             "QLabel {"
             "border: 2px solid #C9A56A;"
@@ -118,6 +123,8 @@ class FinanceReportDialog(QDialog):
         )
         self.detail_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.detail_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.detail_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.detail_table.setTextElideMode(Qt.ElideNone)
         root.addWidget(self.detail_table, 3)
 
         footer = QHBoxLayout()
@@ -230,6 +237,7 @@ class FinanceReportDialog(QDialog):
                 self.summary_table.setItem(r, c, item)
 
         self.summary_table.resizeColumnsToContents()
+        self.summary_table.horizontalHeader().setStretchLastSection(False)
         self.total_net_label.setText(f"本期收支結餘：{total_net_sum}")
 
     def _format_week_range(self, start_date: str, end_date: str) -> str:
@@ -273,6 +281,8 @@ class FinanceReportDialog(QDialog):
             ]
             for c, value in enumerate(values):
                 self.detail_table.setItem(r, c, QTableWidgetItem(value))
+        self.detail_table.resizeColumnsToContents()
+        self.detail_table.horizontalHeader().setStretchLastSection(False)
 
     def export_csv(self):
         if not self.summary_rows:

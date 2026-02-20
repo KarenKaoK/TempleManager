@@ -1,6 +1,7 @@
 import random
 import string
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -38,7 +39,10 @@ class AccountManagementDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["帳號", "角色", "狀態", "建立時間", "最近改密碼", "最近登入"])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table.setTextElideMode(Qt.ElideNone)
         self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.setMinimumHeight(360)
         self.table.setColumnWidth(0, 180)
@@ -105,6 +109,8 @@ class AccountManagementDialog(QDialog):
             for j, v in enumerate(values):
                 item = QTableWidgetItem(v)
                 self.table.setItem(i, j, item)
+        self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setStretchLastSection(False)
 
     def reload_settings(self):
         self.reminder_days.setValue(self.controller.get_password_reminder_days())
