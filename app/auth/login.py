@@ -21,6 +21,7 @@ class LoginDialog(QDialog):
 
         # 設定按鈕事件
         self.ui.pushButtonLogin.clicked.connect(self.check_login)
+        self.ui.pushButtonCancel.clicked.connect(self.reject)
 
         # 初始化登入結果
         self.username = None

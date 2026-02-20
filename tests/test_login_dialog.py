@@ -130,3 +130,8 @@ def test_login_button_binding(login_dialog, mocker, qtbot):
     qtbot.mouseClick(login_dialog.ui.pushButtonLogin, Qt.LeftButton)
 
     mock_check_login.assert_called_once()
+
+def test_cancel_button_rejects_dialog(login_dialog, qtbot):
+    """按下取消按鈕會關閉登入對話框（reject）"""
+    with qtbot.waitSignal(login_dialog.rejected):
+        qtbot.mouseClick(login_dialog.ui.pushButtonCancel, Qt.LeftButton)
