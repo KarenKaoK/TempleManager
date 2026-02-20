@@ -134,6 +134,8 @@ class AppController:
                 cur.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
         self._ensure_setting("security/password_reminder_days", "90")
         self._ensure_setting("security/idle_logout_minutes", "15")
+        self._ensure_setting("ui/login_cover_title", "")
+        self._ensure_setting("ui/login_cover_image_path", "")
         self.conn.commit()
 
     def _ensure_people_schema(self):
@@ -238,6 +240,16 @@ class AppController:
     def save_security_settings(self, reminder_days: int, idle_minutes: int):
         self.set_setting("security/password_reminder_days", str(max(0, int(reminder_days))))
         self.set_setting("security/idle_logout_minutes", str(max(0, int(idle_minutes))))
+
+    def get_login_cover_settings(self) -> Dict[str, str]:
+        return {
+            "title": self.get_setting("ui/login_cover_title", ""),
+            "image_path": self.get_setting("ui/login_cover_image_path", ""),
+        }
+
+    def save_login_cover_settings(self, title: str, image_path: str):
+        self.set_setting("ui/login_cover_title", (title or "").strip())
+        self.set_setting("ui/login_cover_image_path", (image_path or "").strip())
 
     def log_security_event(self, actor_username: str, action: str, target_username: Optional[str], detail: str = ""):
         cur = self.conn.cursor()

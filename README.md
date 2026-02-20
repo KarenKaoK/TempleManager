@@ -46,6 +46,7 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 ### 👥 使用者權限
 - **多角色登入**：支援管理員、會計、工作人員
 - **安全登入**：bcrypt 密碼加密保護
+- **登入封面自訂**：管理員可上傳登入封面照片並設定登入標題（毛筆風字體）
 - **權限控制**：依角色限制收支作業、類別維護與停用資料恢復
 - **帳號管理**：僅管理員可新增/重設/停用啟用/刪除帳號，並保留審計紀錄
 
@@ -136,6 +137,8 @@ rm -rf ./temple_old.db
 
 #### 登入系統
 - 首次啟動若尚未有管理員帳號，會先進入管理員建立流程
+- 登入頁可顯示封面照片與標題文字（由「系統管理 -> 封面設定」維護）
+- 封面會隨登入視窗大小調整，維持比例並以左右滿版呈現
 - **UX 優化**：系統登入後會自動進入「信眾資料建檔」頁面，方便快速作業
 - 系統會根據使用者角色顯示相應功能
 - 可於主頁上方切換全域字體大小（小 / 中 / 大）
@@ -211,6 +214,7 @@ rm -rf ./temple_old.db
 - 帳號管理：新增帳號、重設密碼（手動輸入或系統產生臨時密碼）
 - 帳號狀態：停用/啟用、刪除（至少保留一位管理員）
 - 安全設定：密碼提醒天數、閒置自動登出分鐘
+- 封面設定：上傳登入封面照片與設定登入標題
 - 審計紀錄：記錄誰在何時對哪個帳號執行重設/刪除/停用等操作
 
 ### 4. 角色權限與停用規則
@@ -351,13 +355,16 @@ TempleManager/
 │   ├── database/
 │   │   ├── __init__.py
 │   │   ├── copy_data.py
-│   │   └── setup_db.py
+│   │   ├── setup_db.py
+│   │   └── temple.db
 │   ├── dialogs/
 │   │   ├── __init__.py
 │   │   ├── account_management_dialog.py
 │   │   ├── activity_edit_dialog.py
+│   │   ├── activity_household_signup_dialog.py
 │   │   ├── activity_signup_edit_dialog.py
 │   │   ├── base_person_dialog.py
+│   │   ├── cover_settings_dialog.py
 │   │   ├── edit_member_dialog.py
 │   │   ├── expense_dialog.py
 │   │   ├── finance_report_dialog.py
@@ -387,23 +394,27 @@ TempleManager/
 │       ├── activity_signup_page.py
 │       ├── auto_resizing_table.py
 │       ├── main_page.py
-│       └── search_bar.py
+│       ├── search_bar.py
+│       └── spin_with_arrows.py
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py
+│   ├── test_account_security.py
 │   ├── test_activity_controller.py
 │   ├── test_activity_manage_page.py
+│   ├── test_activity_payment_mapping.py
 │   ├── test_activity_signup_page.py
+│   ├── test_activity_wenshu_dialog.py
 │   ├── test_app_controller.py
 │   ├── test_database.py
 │   ├── test_date_utils.py
-│   ├── test_account_security.py
 │   ├── test_expense_dialog.py
 │   ├── test_finance_report_controller.py
 │   ├── test_household_people_controller.py
 │   ├── test_income_dialog.py
 │   ├── test_income_expense_dialog.py
 │   ├── test_login_dialog.py
+│   ├── test_main_page_records_split.py
 │   ├── test_main_window.py
 │   ├── test_member_identity_dialog.py
 │   ├── test_print_helper.py
@@ -411,7 +422,8 @@ TempleManager/
 │   └── test_receipt_logic.py
 ├── requirements.txt
 ├── README.md
-└── test.ipynb
+├── test.ipynb
+└── temple.db
 ```
 
 ### 架構設計

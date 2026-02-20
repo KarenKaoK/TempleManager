@@ -149,3 +149,11 @@ def test_search_people_unified_no_result(controller_with_db):
     c = controller_with_db
     results = c.search_people_unified("XYZ")
     assert results == []
+
+
+def test_login_cover_settings_roundtrip(controller_with_db):
+    c = controller_with_db
+    c.save_login_cover_settings("深坑天南宮", "/tmp/login_cover.png")
+    settings = c.get_login_cover_settings()
+    assert settings["title"] == "深坑天南宮"
+    assert settings["image_path"] == "/tmp/login_cover.png"

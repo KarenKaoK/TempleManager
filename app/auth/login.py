@@ -1,7 +1,8 @@
 import sqlite3
 import bcrypt
+import os
 from PyQt5.QtWidgets import QDialog, QMessageBox
-from PyQt5 import QtWidgets
+from PyQt5 import QtWidgets, QtCore, QtGui
 from app.dialogs.login_ui import Ui_Dialog  
 from app.config import DB_NAME
 from datetime import datetime
@@ -18,6 +19,8 @@ class LoginDialog(QDialog):
         super().__init__()
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
+        self._setup_cover_ui()
+        self._load_cover_settings()
 
         # 設定按鈕事件
         self.ui.pushButtonLogin.clicked.connect(self.check_login)
@@ -27,6 +30,110 @@ class LoginDialog(QDialog):
         self.username = None
         self.role = None
         self._ensure_admin_bootstrap()
+
+    def _setup_cover_ui(self):
+        self.setWindowTitle("登入")
+        self.resize(700, 520)
+        self.setMinimumSize(620, 480)
+        self._cover_pixmap = QtGui.QPixmap()
+
+        self.cover_label = QtWidgets.QLabel(self)
+        self.cover_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.cover_label.setStyleSheet(
+            "QLabel { border: 0px; border-radius: 0px; background: #FAF5EF; color: #7A6B5D; }"
+        )
+        self.cover_label.setText("尚未設定封面照片")
+
+        self.title_label = QtWidgets.QLabel(self)
+        self.title_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.title_label.setStyleSheet(
+            "QLabel { font-size: 30px; font-weight: 700; color: #5A3D2B; "
+            "font-family: 'DFKai-SB', 'BiauKai', 'Kaiti TC', 'KaiTi', 'STKaiti'; }"
+        )
+        self._layout_login_widgets()
+
+    def _layout_login_widgets(self):
+        w = self.width()
+        h = self.height()
+        margin = 0
+        content_w = max(300, w - margin * 2)
+        cover_h = max(190, min(260, int(h * 0.42)))
+
+        cover_top = 14
+        self.cover_label.setGeometry(margin, cover_top, content_w, cover_h)
+        title_y = cover_top + cover_h + 10
+        self.title_label.setGeometry(margin, title_y, content_w, 48)
+
+        label_x = margin + 30
+        field_x = label_x + 80
+        field_w = max(220, min(360, content_w - 140))
+        form_top = title_y + 48 + 22
+
+        self.ui.labelUsername.setGeometry(label_x, form_top, 60, 24)
+        self.ui.lineEditUsername.setGeometry(field_x, form_top - 3, field_w, 30)
+        self.ui.labelPassword.setGeometry(label_x, form_top + 47, 60, 24)
+        self.ui.lineEditPassword.setGeometry(field_x, form_top + 44, field_w, 30)
+
+        btn_w = 113
+        gap = 22
+        total_btn_w = btn_w * 2 + gap
+        start_x = margin + max(0, (content_w - total_btn_w) // 2)
+        btn_y = form_top + 120
+        self.ui.pushButtonLogin.setGeometry(start_x, btn_y, btn_w, 34)
+        self.ui.pushButtonCancel.setGeometry(start_x + btn_w + gap, btn_y, btn_w, 34)
+
+        self._render_cover_pixmap()
+
+    def _render_cover_pixmap(self):
+        if self._cover_pixmap.isNull():
+            self.cover_label.setPixmap(QtGui.QPixmap())
+            return
+        target_w = max(1, self.cover_label.width())
+        target_h = max(1, self.cover_label.height())
+
+        scaled = self._cover_pixmap.scaledToWidth(target_w, QtCore.Qt.SmoothTransformation)
+        if scaled.height() > target_h:
+            y = (scaled.height() - target_h) // 2
+            scaled = scaled.copy(0, y, target_w, target_h)
+
+        self.cover_label.setPixmap(scaled)
+
+    def _load_cover_settings(self):
+        title = ""
+        image_path = ""
+        conn = sqlite3.connect(DB_NAME)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT key, value FROM app_settings WHERE key IN (?, ?)",
+                ("ui/login_cover_title", "ui/login_cover_image_path"),
+            )
+            for k, v in cur.fetchall() or []:
+                if k == "ui/login_cover_title":
+                    title = str(v or "")
+                elif k == "ui/login_cover_image_path":
+                    image_path = str(v or "")
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+        self.title_label.setText((title or "").strip() or "宮廟管理系統")
+
+        if image_path and os.path.exists(image_path):
+            pixmap = QtGui.QPixmap(image_path)
+            if not pixmap.isNull():
+                self._cover_pixmap = pixmap
+                self._render_cover_pixmap()
+                self.cover_label.setText("")
+                return
+        self._cover_pixmap = QtGui.QPixmap()
+        self.cover_label.setPixmap(QtGui.QPixmap())
+        self.cover_label.setText("尚未設定封面照片")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_login_widgets()
 
     def _column_exists(self, conn, table, column):
         try:

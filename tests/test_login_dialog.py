@@ -2,6 +2,7 @@
 import pytest
 from unittest import mock
 from PyQt5.QtCore import Qt
+from PyQt5 import QtGui
 from app.auth.login import LoginDialog
 
 @pytest.fixture
@@ -135,3 +136,28 @@ def test_cancel_button_rejects_dialog(login_dialog, qtbot):
     """按下取消按鈕會關閉登入對話框（reject）"""
     with qtbot.waitSignal(login_dialog.rejected):
         qtbot.mouseClick(login_dialog.ui.pushButtonCancel, Qt.LeftButton)
+
+
+def test_cover_area_resizes_with_dialog(login_dialog, qtbot):
+    """登入視窗放大時，封面區塊也會跟著放大"""
+    login_dialog.resize(740, 560)
+    login_dialog._layout_login_widgets()
+    expected_width = max(300, login_dialog.width())
+    expected_height = max(190, min(260, int(login_dialog.height() * 0.42)))
+    assert login_dialog.cover_label.width() == expected_width
+    assert login_dialog.cover_label.height() == expected_height
+
+
+def test_cover_pixmap_keeps_aspect_ratio_without_crop(login_dialog):
+    """封面圖縮放後保持比例，且不超出容器（不裁切）"""
+    login_dialog._cover_pixmap = QtGui.QPixmap(800, 400)  # 2:1
+    login_dialog._cover_pixmap.fill(Qt.white)
+    login_dialog.cover_label.resize(300, 170)
+    login_dialog._render_cover_pixmap()
+
+    shown = login_dialog.cover_label.pixmap()
+    assert shown is not None
+    assert shown.width() <= login_dialog.cover_label.width()
+    assert shown.height() <= login_dialog.cover_label.height()
+    ratio = shown.width() / shown.height()
+    assert abs(ratio - 2.0) < 0.05

@@ -16,6 +16,7 @@ from app.widgets.activity_signup_page import ActivitySignupPage
 from app.dialogs.income_expense_dialog import IncomeExpenseDialog
 from app.dialogs.finance_report_dialog import FinanceReportDialog
 from app.dialogs.account_management_dialog import AccountManagementDialog
+from app.dialogs.cover_settings_dialog import CoverSettingsDialog
 
 class MainWindow(QMainWindow):
     def __init__(self, username, role, controller):
@@ -164,8 +165,11 @@ class MainWindow(QMainWindow):
         if self._can_manage_accounts():
             system_menu = menu_bar.addMenu("系統管理")
             account_action = QAction("帳號管理", self)
+            cover_action = QAction("封面設定", self)
             account_action.triggered.connect(self.open_account_management_dialog)
+            cover_action.triggered.connect(self.open_cover_settings_dialog)
             system_menu.addAction(account_action)
+            system_menu.addAction(cover_action)
 
     # -------------------------
     # Dialogs
@@ -295,6 +299,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "權限不足", "此功能僅限管理員。")
             return
         dialog = AccountManagementDialog(self.controller, self.username, self)
+        dialog.exec_()
+
+    def open_cover_settings_dialog(self):
+        if not self._can_manage_accounts():
+            QMessageBox.warning(self, "權限不足", "此功能僅限管理員。")
+            return
+        dialog = CoverSettingsDialog(self.controller, self)
         dialog.exec_()
 
     def _setup_idle_logout(self):
