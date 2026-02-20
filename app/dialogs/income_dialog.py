@@ -157,6 +157,7 @@ class IncomeSetupDialog(QDialog):
 
     def _generate_next_item_id(self):
         """產生下一個兩位數代號（01, 02, ...）。"""
+        reserved_ids = {"90", "91"}  # 系統保留項目：活動收入 / 點燈收入
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM income_items")
@@ -169,6 +170,8 @@ class IncomeSetupDialog(QDialog):
             if not sid:
                 continue
             if sid.isdigit():
+                if sid in reserved_ids:
+                    continue
                 max_num = max(max_num, int(sid))
                 continue
 
@@ -180,6 +183,8 @@ class IncomeSetupDialog(QDialog):
                 else:
                     break
             if tail_digits:
+                if tail_digits in reserved_ids:
+                    continue
                 max_num = max(max_num, int(tail_digits))
 
         return f"{max_num + 1:02d}"

@@ -98,6 +98,19 @@ class FakeAccountManagementDialog:
         self.exec_called = True
 
 
+class FakeCoverSettingsDialog:
+    last_instance = None
+
+    def __init__(self, controller, parent):
+        self.controller = controller
+        self.parent = parent
+        self.exec_called = False
+        FakeCoverSettingsDialog.last_instance = self
+
+    def exec_(self):
+        self.exec_called = True
+
+
 # -------------------------
 # Tests
 # -------------------------
@@ -348,4 +361,37 @@ def test_staff_open_account_management_dialog_is_blocked(qtbot, monkeypatch):
     qtbot.addWidget(window)
 
     window.open_account_management_dialog()
+    warn_mock.assert_called_once()
+
+
+def test_admin_can_open_cover_settings_dialog(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "CoverSettingsDialog", FakeCoverSettingsDialog)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    window = MainWindow("admin", "管理員", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_cover_settings_dialog()
+    instance = FakeCoverSettingsDialog.last_instance
+    assert instance is not None
+    assert instance.controller is mock_controller
+    assert instance.parent is window
+    assert instance.exec_called is True
+
+
+def test_staff_open_cover_settings_dialog_is_blocked(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    warn_mock = MagicMock()
+    monkeypatch.setattr(main_window_module.QMessageBox, "warning", warn_mock)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    window = MainWindow("staff", "工作人員", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_cover_settings_dialog()
     warn_mock.assert_called_once()

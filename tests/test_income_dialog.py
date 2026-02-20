@@ -101,6 +101,31 @@ def test_income_dialog_generate_next_id_from_empty_db(qtbot, empty_income_db):
     qtbot.addWidget(dialog)
     assert dialog._generate_next_item_id() == "01"
 
+def test_income_dialog_generate_next_id_ignores_reserved_90_91(qtbot, tmp_path):
+    db_path = tmp_path / "test_reserved_income.db"
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE income_items (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            amount INTEGER DEFAULT 0
+        )
+        """
+    )
+    cursor.execute("INSERT INTO income_items (id, name, amount) VALUES ('90', '活動收入', 0)")
+    cursor.execute("INSERT INTO income_items (id, name, amount) VALUES ('91', '點燈收入', 0)")
+    conn.commit()
+    conn.close()
+
+    dialog = IncomeSetupDialog(db_path=str(db_path))
+    qtbot.addWidget(dialog)
+
+    # 保留項目不應影響一般項目自動編號
+    assert dialog._generate_next_item_id() == "01"
+
 def test_income_dialog_add_duplicate_id(qtbot, temp_income_db):
     """測試新增收入項目時，若 ID 重複，則不新增並顯示錯誤訊息"""
     from app.dialogs.income_dialog import IncomeSetupDialog

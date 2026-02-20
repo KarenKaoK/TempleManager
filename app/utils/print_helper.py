@@ -476,19 +476,19 @@ class PrintHelper:
         if template == "activity_birthday":
             # 右到左欄位
             draw_v_text("深坑天南宮祝壽文疏", 8, 10, 27, spacing=1.00, bold=True)
-            draw_v_text("祈祝", 18, 10, 21, spacing=1.00, bold=True)
-            draw_v_text("聖誕千秋      聖壽無疆", 30, 10, 18, spacing=1.00)
-            draw_v_text("神威顯赫      神光普照", 40, 10, 18, spacing=1.00)
-            draw_v_text("護佑萬民      賜福添財", 50, 10, 18, spacing=1.00)
-            draw_v_text("四季安康      吉祥如意", 60, 10, 18, spacing=1.00)
+            draw_v_text("祈祝", 16, 10, 21, spacing=1.00, bold=True)
+            draw_v_text("聖誕千秋      聖壽無疆", 26, 10, 18, spacing=1.00)
+            draw_v_text("神威顯赫      神光普照", 34, 10, 18, spacing=1.00)
+            draw_v_text("護佑萬民      賜福添財", 42, 10, 18, spacing=1.00)
+            draw_v_text("四季安康      吉祥如意", 50, 10, 18, spacing=1.00)
             if prayer:
-                draw_v_text(f"{prayer}", 18, 28, 21, spacing=1.00)
-            draw_v_text(f"弟子　{name}", 72, 10, person_font_size, spacing=person_spacing)
-            draw_v_text(f"生日　{birthday_roc}", 80, 10, person_font_size, spacing=person_spacing)
+                draw_v_text(f"{prayer}", 16, 28, 21, spacing=1.00)
+            draw_v_text(f"弟子:{name}", 60, 10, person_font_size, spacing=person_spacing)
+            draw_v_text(f"生日:{birthday_roc}", 68, 10, person_font_size, spacing=person_spacing)
             draw_v_text(
-                f"地址　{address}",
-                88,
-                34,
+                f"地址:{address}",
+                76,
+                10,
                 person_font_size,
                 spacing=person_spacing,
                 wrap_columns=2,
@@ -497,14 +497,14 @@ class PrintHelper:
                 column_gap_scale=0.9,
                 bottom_padding_percent=10.0,
             )
-            draw_v_text(f"中華民國　{roc_date}", 96, 10, 16, spacing=1.00)
+            draw_v_text(f"中華民國{roc_date}", 92, 10, 16, spacing=1.00)
         else:
             draw_v_text("祈願消災文疏", 10, 25, 27, spacing=1.00, bold=True)
             draw_v_text("深坑天南宮中壇元帥慈悲護佑", 20, 10, person_font_size, spacing=person_spacing)
-            draw_v_text(f"弟子：{name}", 28, 10, person_font_size, spacing=person_spacing)
-            draw_v_text(f"出生　{birthday_roc}", 36, 10, person_font_size, spacing=person_spacing)
+            draw_v_text(f"弟子:{name}", 28, 10, person_font_size, spacing=person_spacing)
+            draw_v_text(f"出生:{birthday_roc}", 36, 10, person_font_size, spacing=person_spacing)
             draw_v_text(
-                f"地址：{address}",
+                f"地址:{address}",
                 44,
                 10,
                 person_font_size,
@@ -515,12 +515,12 @@ class PrintHelper:
                 column_gap_scale=0.9,
                 bottom_padding_percent=10.0,
             )
-            draw_v_text("祈願文：", 52, 10, person_font_size, spacing=person_spacing)
+            draw_v_text("祈願文:", 52, 10, person_font_size, spacing=person_spacing)
             if prayer:
                 draw_v_text(f"{prayer}", 60, 10, person_font_size, spacing=person_spacing, wrap_columns=3, truncate=True)
             draw_v_text("感恩中壇元帥降臨，保佑弟子心願如意", 76, 10, 16, spacing=1.00)
             draw_v_text("弟子必感恩還願，中壇元帥慈悲護佑。", 84, 10, 16, spacing=1.00)
-            draw_v_text(f"中華民國　{roc_date}", 92, 10, 16, spacing=1.00)
+            draw_v_text(f"中華民國{roc_date}", 92, 10, 16, spacing=1.00)
 
         painter.restore()
 

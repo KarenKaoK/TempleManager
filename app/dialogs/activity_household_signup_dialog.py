@@ -23,7 +23,7 @@ class ActivityHouseholdSignupDialog(QDialog):
     """
     整戶活動報名（新版）
     - 上半：每位成員後面直接顯示所有方案，直接輸入數量
-    - 下半：方案說明、總金額、收據
+    - 下半：方案說明、總金額
     - 最後統一一次存入
     """
 
@@ -137,7 +137,7 @@ class ActivityHouseholdSignupDialog(QDialog):
         lbl_title.setStyleSheet("font-size:16px; font-weight:800;")
         root.addWidget(lbl_title)
 
-        lbl_hint = QLabel("上半部請勾選成員並填各方案數量；下半部確認方案說明、總金額與收據後一次存入")
+        lbl_hint = QLabel("上半部請勾選成員並填各方案數量；下半部確認方案說明與總金額後一次存入")
         lbl_hint.setStyleSheet("color:#666;")
         root.addWidget(lbl_hint)
 
@@ -160,7 +160,7 @@ class ActivityHouseholdSignupDialog(QDialog):
 
         root.addWidget(self.tbl, 4)
 
-        # ===== 下半：方案說明 + 總金額 + 收據 =====
+        # ===== 下半：方案說明 + 總金額 =====
         lower = QFrame()
         lower.setStyleSheet("QFrame { background:#FFF8EE; border:1px solid #F0D9C4; border-radius:10px; }")
         lower_layout = QVBoxLayout(lower)
@@ -184,17 +184,11 @@ class ActivityHouseholdSignupDialog(QDialog):
         self.lbl_total.setStyleSheet("font-size:18px; font-weight:900; color:#B42318;")
         row2.addWidget(self.lbl_total, 0, 0)
 
-        row2.addWidget(QLabel("收據："), 0, 1)
-        self.edt_receipt = QLineEdit()
-        self.edt_receipt.setPlaceholderText("可選填")
-        self.edt_receipt.setMinimumWidth(220)
-        row2.addWidget(self.edt_receipt, 0, 2)
-
         self.lbl_count = QLabel("已勾選：0 人")
         self.lbl_count.setStyleSheet("font-weight:700; color:#5A4A3F;")
-        row2.addWidget(self.lbl_count, 0, 3)
+        row2.addWidget(self.lbl_count, 0, 1)
 
-        row2.setColumnStretch(4, 1)
+        row2.setColumnStretch(2, 1)
         lower_layout.addLayout(row2)
         root.addWidget(lower, 2)
 
@@ -368,7 +362,6 @@ class ActivityHouseholdSignupDialog(QDialog):
 
         requests: List[Dict[str, Any]] = []
         missing: List[str] = []
-        receipt_note = (self.edt_receipt.text() or "").strip() or None
 
         for r in selected_rows:
             person_item = self.tbl.item(r, 1)
@@ -391,7 +384,6 @@ class ActivityHouseholdSignupDialog(QDialog):
                     "selected_plans": selected_plans,
                     "selected_items": selected_items,
                     "total_amount": int(total_amount),
-                    "note": receipt_note,
                 }
             )
 

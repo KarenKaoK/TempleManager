@@ -411,12 +411,15 @@ class ActivityDetailPanel(QWidget):
         self.tbl_plans = QTableWidget(0, 4)
         self.tbl_plans.setHorizontalHeaderLabels(["方案名稱", "方案項目", "費用方式", "金額"])
         self.tbl_plans.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.tbl_plans.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.tbl_plans.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_plans.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tbl_plans.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.tbl_plans.horizontalHeader().setStretchLastSection(False)
         self.tbl_plans.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl_plans.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_plans.setAlternatingRowColors(True)
+        self.tbl_plans.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tbl_plans.setTextElideMode(Qt.ElideNone)
 
         rf.addWidget(self.tbl_plans, 1)
 
