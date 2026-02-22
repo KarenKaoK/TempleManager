@@ -38,3 +38,5 @@ stack-data==0.6.3
 tornado==6.4.2
 traitlets==5.14.3
 wcwidth==0.2.13
+APScheduler==3.* 
+PyYAML==6.*

@@ -55,6 +55,14 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 - **日期格式統一**：畫面日期輸入與顯示統一為 `YYYY/MM/DD`
 - **主頁表格可讀性**：信眾戶長/戶員清單支援水平捲動，欄位內容過長時可左右查看
 
+### ✉️ email 自動寄信
+- **支援 YAML 設定寄信內容與排程時間**：於 mail_config.yaml 中定義subject, body, attachments, cron 排程時間
+- **支援多封不同排程信件**: 例如每日通知、每月報表、系統 Heartbeat 監控信
+- **支援附件寄送**:支援附件寄送、支援附件寄送
+- **寄送紀錄寫入 SQLite**: 建立 email_outbox 表、記錄 SENT / FAILED、保留錯誤訊息以供排查
+- **支援 Gmail App Password（安全機制）**:帳號與密碼透過環境變數讀取且不會將密碼明碼寫入 YAML
+
+
 ## 環境需求與安裝
 
 ### 系統需求
@@ -132,6 +140,19 @@ python -m app.database.copy_data --source ./temple_old.db --target app/database/
 rm -rf ./temple_old.db
 ```
 如需連 `users` 一併複製，額外加上 `--include-users`。
+
+### 2-2. 啟動自動發信排程
+
+設定環境變數
+```bash
+export GMAIL_USER="@gmail.com"
+export GMAIL_APP_PASSWORD=" "
+```
+
+啟動排程
+```bash
+python -m app.mailer.worker app/mailer/mail_config.yaml
+```
 
 ### 3. 系統功能導覽
 

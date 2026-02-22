@@ -1,0 +1,58 @@
+version: 1
+
+timezone: "Asia/Taipei"
+
+db:
+  path: "./app/database/temple.db"
+
+smtp:
+  host: "smtp.gmail.com"
+  port: 587
+  username_env: "GMAIL_USER"
+  password_env: "GMAIL_APP_PASSWORD"
+  sender_name: "TempleManager"
+  use_starttls: true
+
+jobs:
+  - id: "heartbeat"
+    enabled: true
+    to:
+      - "a88040303@gmail.com"
+    subject: "[天南宮宮廟管理系統] Heartbeat"
+    body: |
+      這是一封心跳信，用於確認 mailer worker 仍在運行、寄信功能正常。
+      若你收到此信，代表服務正常。
+    cron:
+      hour: 9
+      minute: 5
+
+  - id: "daily_finance_report"
+    enabled: true
+    to:
+      - "a88040303@gmail.com"
+    subject: "[天南宮宮廟管理系統] 每日通知：每日會計彙整表"
+    body: |
+      這是一封自動寄送的通知信，附件：每日會計彙整表
+      
+    attachments:
+      - "./reports/finance_report.csv"
+    cron:
+      hour: 20
+      minute: 0
+
+  - id: "monthly_finance_report"
+    enabled: true
+    mode: "monthly_finance"
+    period: "current_month"
+    subject: "[天南宮宮廟管理系統]每月會計彙整表"
+    body: |
+      這是一封自動寄送的通知信，附件：每月會計彙整表
+    to:
+      - "a88040303@gmail.com"
+
+    attachments:
+      - "./reports/finance_report.csv"
+    cron:
+      day: "last"
+      hour: 20
+      minute: 00
