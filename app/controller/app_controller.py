@@ -4,6 +4,7 @@ import locale
 import sqlite3
 import json
 import re
+import os
 from typing import Tuple, Optional,  List, Dict, Any
 
 from datetime import datetime, date, timedelta
@@ -23,9 +24,11 @@ class AppController:
     ACTIVITY_INCOME_ITEM_ID = "90"
 
     def __init__(self, db_path=DB_NAME):
-        self.conn = sqlite3.connect(db_path)
+        self.db_path = db_path
+        self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self._ensure_security_schema()
+        self._ensure_backup_schema()
         self._ensure_people_schema()
         self._ensure_activity_signup_schema()
         self._ensure_system_income_items()
@@ -136,6 +139,38 @@ class AppController:
         self._ensure_setting("security/idle_logout_minutes", "15")
         self._ensure_setting("ui/login_cover_title", "")
         self._ensure_setting("ui/login_cover_image_path", "")
+        self.conn.commit()
+
+    def _ensure_backup_schema(self):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS backup_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                trigger_mode TEXT NOT NULL,      -- MANUAL / SCHEDULED
+                status TEXT NOT NULL,            -- SUCCESS / FAILED
+                backup_file TEXT,
+                file_size_bytes INTEGER,
+                error_message TEXT
+            )
+            """
+        )
+        self._ensure_setting("backup/enabled", "0")
+        self._ensure_setting("backup/frequency", "daily")     # daily / weekly / monthly
+        self._ensure_setting("backup/time", "23:00")          # HH:MM
+        self._ensure_setting("backup/weekday", "1")           # 1=Mon ... 7=Sun
+        self._ensure_setting("backup/monthday", "1")          # 1..31
+        self._ensure_setting("backup/keep_latest", "20")
+        self._ensure_setting("backup/local_dir", "")
+        self._ensure_setting("backup/last_run_at", "")
+        self._ensure_setting("backup/drive_folder_id", "")    # phase-2 用
+        self._ensure_setting("backup/oauth_client_secret_path", "")
+        self._ensure_setting("backup/oauth_token_path", "")
+        self._ensure_setting("backup/drive_credentials_path", "")  # legacy key
+        self._ensure_setting("backup/use_cli_scheduler", "0")
+        self._ensure_setting("backup/enable_local", "1")
+        self._ensure_setting("backup/enable_drive", "0")
         self.conn.commit()
 
     def _ensure_people_schema(self):
@@ -250,6 +285,402 @@ class AppController:
     def save_login_cover_settings(self, title: str, image_path: str):
         self.set_setting("ui/login_cover_title", (title or "").strip())
         self.set_setting("ui/login_cover_image_path", (image_path or "").strip())
+
+    # -------------------------
+    # Backup
+    # -------------------------
+    def get_backup_settings(self) -> Dict[str, Any]:
+        def _to_int(v: str, fallback: int) -> int:
+            try:
+                return int(str(v))
+            except Exception:
+                return fallback
+
+        return {
+            "enabled": self.get_setting("backup/enabled", "0") == "1",
+            "frequency": (self.get_setting("backup/frequency", "daily") or "daily").strip().lower(),
+            "time": (self.get_setting("backup/time", "23:00") or "23:00").strip(),
+            "weekday": max(1, min(7, _to_int(self.get_setting("backup/weekday", "1"), 1))),
+            "monthday": max(1, min(31, _to_int(self.get_setting("backup/monthday", "1"), 1))),
+            "keep_latest": max(1, _to_int(self.get_setting("backup/keep_latest", "20"), 20)),
+            "local_dir": (self.get_setting("backup/local_dir", "") or "").strip(),
+            "last_run_at": (self.get_setting("backup/last_run_at", "") or "").strip(),
+            "drive_folder_id": (self.get_setting("backup/drive_folder_id", "") or "").strip(),
+            "oauth_client_secret_path": (self.get_setting("backup/oauth_client_secret_path", "") or "").strip(),
+            "oauth_token_path": (self.get_setting("backup/oauth_token_path", "") or "").strip(),
+            "drive_credentials_path": (self.get_setting("backup/drive_credentials_path", "") or "").strip(),  # legacy read
+            "enable_local": self.get_setting("backup/enable_local", "1") == "1",
+            "enable_drive": self.get_setting("backup/enable_drive", "0") == "1",
+            "use_cli_scheduler": self.get_setting("backup/use_cli_scheduler", "0") == "1",
+        }
+
+    def save_backup_settings(self, settings: Dict[str, Any]):
+        if not isinstance(settings, dict):
+            raise ValueError("settings must be a dict")
+        self.set_setting("backup/enabled", "1" if bool(settings.get("enabled")) else "0")
+        self.set_setting("backup/frequency", str(settings.get("frequency", "daily")).strip().lower())
+        self.set_setting("backup/time", str(settings.get("time", "23:00")).strip())
+        self.set_setting("backup/weekday", str(max(1, min(7, int(settings.get("weekday", 1))))))
+        self.set_setting("backup/monthday", str(max(1, min(31, int(settings.get("monthday", 1))))))
+        self.set_setting("backup/keep_latest", str(max(1, int(settings.get("keep_latest", 20)))))
+        self.set_setting("backup/local_dir", str(settings.get("local_dir", "")).strip())
+        self.set_setting("backup/drive_folder_id", str(settings.get("drive_folder_id", "")).strip())
+        self.set_setting("backup/oauth_client_secret_path", str(settings.get("oauth_client_secret_path", "")).strip())
+        self.set_setting("backup/oauth_token_path", str(settings.get("oauth_token_path", "")).strip())
+        self.set_setting("backup/drive_credentials_path", str(settings.get("oauth_client_secret_path", "")).strip())  # legacy mirror
+        self.set_setting("backup/enable_local", "1" if bool(settings.get("enable_local", True)) else "0")
+        self.set_setting("backup/enable_drive", "1" if bool(settings.get("enable_drive", False)) else "0")
+        self.set_setting("backup/use_cli_scheduler", "1" if bool(settings.get("use_cli_scheduler")) else "0")
+
+    def _default_backup_dir(self) -> str:
+        return os.path.join(os.path.dirname(DB_NAME), "backups")
+
+    def _default_oauth_token_path(self) -> str:
+        return os.path.join(os.path.dirname(DB_NAME), "drive_oauth_token.json")
+
+    @staticmethod
+    def _drive_scopes() -> List[str]:
+        return ["https://www.googleapis.com/auth/drive"]
+
+    def _parse_hhmm(self, hhmm: str) -> Tuple[int, int]:
+        s = (hhmm or "").strip()
+        m = re.match(r"^(\d{1,2}):(\d{2})$", s)
+        if not m:
+            return (23, 0)
+        h = max(0, min(23, int(m.group(1))))
+        mm = max(0, min(59, int(m.group(2))))
+        return (h, mm)
+
+    def _insert_backup_log(
+        self,
+        created_at: str,
+        trigger_mode: str,
+        status: str,
+        backup_file: str = "",
+        file_size_bytes: int = 0,
+        error_message: str = "",
+    ):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO backup_logs (created_at, trigger_mode, status, backup_file, file_size_bytes, error_message)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (created_at, trigger_mode, status, backup_file, int(file_size_bytes or 0), error_message or ""),
+        )
+        self.conn.commit()
+
+    def create_local_backup(self, manual: bool = False, now: Optional[datetime] = None) -> Dict[str, Any]:
+        now_dt = now or datetime.now()
+        created_at = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+        settings = self.get_backup_settings()
+        enable_local = bool(settings.get("enable_local"))
+        enable_drive = bool(settings.get("enable_drive"))
+        if not enable_local and not enable_drive:
+            raise ValueError("請至少啟用一種備份目的地（本機或 Google Drive）")
+
+        return self._create_backup_with_targets(
+            manual=manual,
+            now=now_dt,
+            created_at=created_at,
+            settings=settings,
+            enable_local=enable_local,
+            enable_drive=enable_drive,
+        )
+
+    def _compose_backup_log_file_display(
+        self,
+        local_backup_file: str,
+        enable_local: bool,
+        enable_drive: bool,
+        drive_folder_id: str = "",
+        drive_folder_name: str = "",
+        drive_file_id: str = "",
+        drive_file_name: str = "",
+    ) -> str:
+        parts = []
+        if enable_local and local_backup_file:
+            parts.append(f"LOCAL:{local_backup_file}")
+        if enable_drive:
+            folder = (drive_folder_name or "").strip() or ((drive_folder_id or "").strip() or "(root)")
+            file_name = (drive_file_name or "").strip() or ((drive_file_id or "").strip() or "unknown")
+            parts.append(f"DRIVE:{folder}/{file_name}")
+        return " | ".join(parts) if parts else (local_backup_file or "")
+
+    def _create_backup_with_targets(
+        self,
+        manual: bool,
+        now: datetime,
+        created_at: str,
+        settings: Dict[str, Any],
+        enable_local: bool,
+        enable_drive: bool,
+    ) -> Dict[str, Any]:
+        trigger = "MANUAL" if manual else "SCHEDULED"
+        backup_dir = settings["local_dir"] or self._default_backup_dir()
+        os.makedirs(backup_dir, exist_ok=True)
+
+        filename = f"temple_backup_{now.strftime('%Y%m%d_%H%M%S')}.db"
+        backup_file = os.path.join(backup_dir, filename)
+
+        try:
+            dst_conn = sqlite3.connect(backup_file)
+            try:
+                self.conn.backup(dst_conn)
+            finally:
+                dst_conn.close()
+
+            size = os.path.getsize(backup_file) if os.path.exists(backup_file) else 0
+
+            drive_file_id = ""
+            drive_folder_name = ""
+            if enable_drive:
+                drive_file_id, drive_folder_name = self._upload_backup_to_drive(
+                    backup_file,
+                    folder_id=settings.get("drive_folder_id", ""),
+                    oauth_client_secret_path=settings.get("oauth_client_secret_path", ""),
+                    oauth_token_path=settings.get("oauth_token_path", ""),
+                    keep_latest=int(settings.get("keep_latest", 20)),
+                )
+
+            if enable_local:
+                self._prune_local_backups(backup_dir, settings["keep_latest"])
+            else:
+                try:
+                    os.remove(backup_file)
+                except Exception:
+                    pass
+
+            backup_file_display = self._compose_backup_log_file_display(
+                local_backup_file=backup_file,
+                enable_local=enable_local,
+                enable_drive=enable_drive,
+                drive_folder_id=settings.get("drive_folder_id", ""),
+                drive_folder_name=drive_folder_name,
+                drive_file_id=drive_file_id,
+                drive_file_name=os.path.basename(backup_file),
+            )
+            self._insert_backup_log(created_at, trigger, "SUCCESS", backup_file_display, size, "")
+            return {
+                "created_at": created_at,
+                "status": "SUCCESS",
+                "backup_file": backup_file,
+                "file_size_bytes": size,
+                "drive_file_id": drive_file_id,
+            }
+        except Exception as e:
+            backup_file_display = self._compose_backup_log_file_display(
+                local_backup_file=backup_file,
+                enable_local=enable_local,
+                enable_drive=enable_drive,
+                drive_folder_id=settings.get("drive_folder_id", ""),
+                drive_folder_name="",
+                drive_file_id="",
+                drive_file_name=os.path.basename(backup_file) if backup_file else "",
+            )
+            self._insert_backup_log(created_at, trigger, "FAILED", backup_file_display, 0, str(e))
+            raise
+
+    def _upload_backup_to_drive(
+        self,
+        local_file: str,
+        folder_id: str,
+        oauth_client_secret_path: str,
+        oauth_token_path: str,
+        keep_latest: int,
+    ) -> Tuple[str, str]:
+        service = self._build_drive_service_oauth(
+            oauth_client_secret_path=oauth_client_secret_path,
+            oauth_token_path=oauth_token_path,
+            interactive=False,
+        )
+        body = {"name": os.path.basename(local_file)}
+        if folder_id:
+            body["parents"] = [folder_id]
+        from googleapiclient.http import MediaFileUpload
+
+        media = MediaFileUpload(local_file, mimetype="application/octet-stream", resumable=False)
+        res = service.files().create(
+            body=body,
+            media_body=media,
+            fields="id",
+            supportsAllDrives=True,
+        ).execute()
+        folder_name = ""
+        folder_id_clean = (folder_id or "").strip()
+        if folder_id_clean:
+            try:
+                folder_meta = service.files().get(
+                    fileId=folder_id_clean,
+                    fields="name",
+                    supportsAllDrives=True,
+                ).execute()
+                folder_name = str(folder_meta.get("name") or "")
+            except Exception:
+                folder_name = ""
+        else:
+            folder_name = "(root)"
+
+        self._prune_drive_backups(service, folder_id=folder_id, keep_latest=keep_latest)
+        return str(res.get("id") or ""), folder_name
+
+    def authorize_google_drive_oauth(self, oauth_client_secret_path: str, oauth_token_path: str = "") -> Dict[str, str]:
+        token_path = (oauth_token_path or "").strip() or self._default_oauth_token_path()
+
+        service = self._build_drive_service_oauth(
+            oauth_client_secret_path=(oauth_client_secret_path or "").strip(),
+            oauth_token_path=token_path,
+            interactive=True,
+        )
+        about = service.about().get(fields="user(emailAddress)").execute()
+        email = str((about.get("user") or {}).get("emailAddress") or "")
+        return {"email": email, "token_path": token_path}
+
+    def _build_drive_service_oauth(
+        self,
+        oauth_client_secret_path: str,
+        oauth_token_path: str,
+        interactive: bool,
+    ):
+        if not oauth_client_secret_path:
+            raise ValueError("請先設定 OAuth credentials.json 路徑")
+        if not os.path.isfile(oauth_client_secret_path):
+            raise ValueError(f"OAuth 憑證檔不存在：{oauth_client_secret_path}")
+        if not oauth_token_path:
+            raise ValueError("請先設定 OAuth token.json 路徑")
+
+        try:
+            from google.auth.transport.requests import Request
+            from google.oauth2.credentials import Credentials
+            from google_auth_oauthlib.flow import InstalledAppFlow
+            from googleapiclient.discovery import build
+        except Exception:
+            raise RuntimeError(
+                "缺少 Google OAuth 套件，請安裝：pip install google-api-python-client google-auth google-auth-oauthlib"
+            )
+
+        creds = None
+        if os.path.isfile(oauth_token_path):
+            try:
+                creds = Credentials.from_authorized_user_file(oauth_token_path, self._drive_scopes())
+            except Exception:
+                creds = None
+
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            elif interactive:
+                flow = InstalledAppFlow.from_client_secrets_file(oauth_client_secret_path, self._drive_scopes())
+                creds = flow.run_local_server(port=0, access_type="offline", prompt="consent")
+            else:
+                raise ValueError("尚未完成 Google OAuth 授權，請先在資料備份頁按「Google 授權」")
+
+        os.makedirs(os.path.dirname(os.path.abspath(oauth_token_path)), exist_ok=True)
+        with open(oauth_token_path, "w", encoding="utf-8") as f:
+            f.write(creds.to_json())
+
+        return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+    def _prune_drive_backups(self, service, folder_id: str, keep_latest: int):
+        keep = max(1, int(keep_latest or 1))
+        q = "name contains 'temple_backup_' and name contains '.db' and trashed = false"
+        if folder_id:
+            q += f" and '{folder_id}' in parents"
+        files = []
+        page_token = None
+        while True:
+            resp = service.files().list(
+                q=q,
+                spaces="drive",
+                fields="nextPageToken, files(id,name,createdTime)",
+                orderBy="createdTime desc",
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True,
+                pageSize=200,
+                pageToken=page_token,
+            ).execute()
+            files.extend(resp.get("files", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        for f in files[keep:]:
+            service.files().delete(fileId=f["id"], supportsAllDrives=True).execute()
+
+    def _prune_local_backups(self, backup_dir: str, keep_latest: int):
+        keep = max(1, int(keep_latest or 1))
+        files: List[str] = []
+        for name in os.listdir(backup_dir):
+            if not name.startswith("temple_backup_") or not name.endswith(".db"):
+                continue
+            files.append(os.path.join(backup_dir, name))
+        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        for p in files[keep:]:
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+    def list_backup_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
+        lim = max(1, int(limit or 100))
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT id, created_at, trigger_mode, status, backup_file, file_size_bytes, error_message
+            FROM backup_logs
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (lim,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+    def should_run_scheduled_backup(self, now: Optional[datetime] = None) -> bool:
+        s = self.get_backup_settings()
+        if not s.get("enabled"):
+            return False
+
+        now_dt = now or datetime.now()
+        hh, mm = self._parse_hhmm(s.get("time", "23:00"))
+        if (now_dt.hour, now_dt.minute) < (hh, mm):
+            return False
+
+        freq = (s.get("frequency") or "daily").lower()
+        if freq == "weekly" and now_dt.isoweekday() != int(s.get("weekday", 1)):
+            return False
+        if freq == "monthly" and now_dt.day != int(s.get("monthday", 1)):
+            return False
+
+        last_run_text = s.get("last_run_at") or ""
+        if not last_run_text:
+            return True
+        try:
+            last_dt = datetime.strptime(last_run_text, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return True
+
+        if freq == "daily":
+            return last_dt.date() != now_dt.date()
+        if freq == "weekly":
+            return last_dt.isocalendar()[:2] != now_dt.isocalendar()[:2]
+        if freq == "monthly":
+            return (last_dt.year, last_dt.month) != (now_dt.year, now_dt.month)
+        return last_dt.date() != now_dt.date()
+
+    def mark_backup_run(self, now: Optional[datetime] = None):
+        dt = now or datetime.now()
+        self.set_setting("backup/last_run_at", dt.strftime("%Y-%m-%d %H:%M:%S"))
+
+    def run_scheduled_backup_once(self, now: Optional[datetime] = None) -> bool:
+        """
+        執行一次排程判斷：
+        - 若未達條件：回傳 False
+        - 若達條件並完成備份：回傳 True
+        """
+        if not self.should_run_scheduled_backup(now=now):
+            return False
+        self.create_local_backup(manual=False, now=now)
+        self.mark_backup_run(now=now)
+        return True
 
     def log_security_event(self, actor_username: str, action: str, target_username: Optional[str], detail: str = ""):
         cur = self.conn.cursor()

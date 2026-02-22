@@ -75,12 +75,19 @@ temple_venv\Scripts\activate       # Windows
 #### 2. 安裝相依套件
 ```bash
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install --only-binary=:all: -r requirements.txt
 pip install lunardate
 ```
 
+`--only-binary=:all:` 說明：
+- 強制 pip 只安裝預編譯 wheel，不從原始碼編譯套件。
+- 可避免 PyQt5 在某些環境（例如缺少 `qmake`）安裝失敗。
+- 若某套件暫無對應 wheel，pip 會直接報錯，便於快速定位相依版本問題。
+
+建議：使用 Python 3.12 建立虛擬環境，可降低 GUI 相依套件 wheel 相容性問題。
+
 主要相依套件包括：
-- **PyQt5==5.15.9** - GUI 介面框架
+- **PyQt5==5.15.11** - GUI 介面框架
 - **bcrypt==4.2.1** - 密碼加密
 - **pytest==8.3.5** - 測試框架
 - **pytest-qt==4.4.0** - PyQt5 測試支援
@@ -507,15 +514,80 @@ TempleManager/
   - 活動選擇與報名人員關聯
 
 ### 系統管理功能
-- **使用者權限管理**
-  - 四種角色：管理員、會計、委員、工作人員
-  - 安全密碼加密儲存
-  - 角色權限控制
+#### 使用者權限管理
+- 四種角色：管理員、會計、委員、工作人員
+- 安全密碼加密儲存
+- 角色權限控制
 
-- **資料備份與維護**
-  - SQLite 資料庫自動備份
-  - 資料完整性檢查
-  - 系統初始化與重置
+#### 資料備份與維護
+- 備份設定與執行（本機 / Google Drive）
+- 備份紀錄查詢與失敗訊息檢視
+- 備份排程模式切換（內建 / CLI + OS 排程）
+
+##### 資料備份
+- 備份目的地：可同時備份到本機 + Google Drive（OAuth）
+- 保留規則：本機與 Drive 都依「保留最新備份數」清理舊檔
+
+##### 實際執行邏輯（避免混淆）：
+1. `啟用自動備份`
+   - 代表「允許排程判斷」生效。
+2. `改用 CLI/作業系統排程`
+   - 勾選：由 OS 排程器呼叫 CLI（適合登出或程式未開啟）。
+   - 未勾選：由程式內建排程觸發（程式需開啟）。
+3. CLI 模式下，UI 頻率仍然有效
+   - OS 只是負責「呼叫」，真正是否執行仍依 UI 設定（每日/每週/每月、時間、週幾/幾號）。
+   - 因此不會打架，是「OS 觸發 + UI 條件判斷」雙層機制。
+4. `立即備份`
+   - 按下就執行，不看排程時間。
+   - 會依當下勾選目的地備份（本機 / Drive / 雙寫）。
+5. Google Drive 採 OAuth：首次需人工授權一次，後續使用 token 自動續期。
+
+##### 建議配置：
+- 若希望登出後也能備份：勾選「改用 CLI/作業系統排程」，並在 OS 設定排程。
+- OS 觸發頻率可略高於需求（例如每天固定時間）；最終仍由 UI 條件決定是否真的備份。
+
+##### 建議設定流程（上線順序）：
+- 步驟 1：先準備 Google OAuth `credentials.json`（初始不需要 `token.json`）
+- 步驟 2：再設定 CLI/OS 排程（Windows 工作排程器或 macOS launchd）
+- 步驟 3：最後到系統內「資料備份」填入目的地、JSON 路徑、資料夾 ID 與保留數量
+- 步驟 4：用「立即備份」與 `--run-once` 各驗證一次
+
+##### Google Drive（OAuth）設定（詳細）：
+1. 第一步：建立 OAuth 憑證
+   - Google Cloud Console → 「API 和服務」→ 「憑證」
+   - 點擊「+ 建立憑證」→ 「OAuth 用戶端 ID」
+   - 應用程式類型選擇「桌面應用程式 (Desktop App)」
+   - 名稱可自訂（例如 `MyPCBackup`），建立後下載 JSON
+   - 將下載檔案重新命名為 `credentials.json`
+   - 建議放在專案外路徑
+   - 進入「OAuth 同意畫面」，確認 `User Type` 為「外部」
+   - 在「測試使用者 (Test users)」加入你的 Gmail（未加入可能出現 `403 Access Blocked`）
+2. 第二步：首次授權前的系統設定
+   - 在「系統管理 -> 資料備份」先設定 `OAuth 憑證 JSON` 路徑（`credentials.json`）
+   - `OAuth Token 檔案` 建議先指定儲存位置（建議專案外；首次授權後會建立/更新）
+   - 按「Google 授權（首次）」完成人工授權
+   - 授權後系統才會建立/更新 `token.json`，後續可自動 refresh
+3. 第三步：設定目標資料夾
+   - 建立（或選擇）備份資料夾，例如「自動化備份區」
+   - 取得資料夾 ID（網址 `.../folders/<folder_id>`）
+4. 第四步：確認 API 已啟用
+   - Google Cloud Console → API 和服務 → 啟用 API 和服務
+   - 確認 Google Drive API 為「已啟用」
+5. 系統內設定
+   - 在「系統管理 -> 資料備份」勾選 `Google Drive（OAuth）`
+   - 填入 `OAuth 憑證 JSON`、`OAuth Token 檔案` 與 `Drive 資料夾 ID`
+   - 可同時勾選本機備份，形成雙寫
+
+##### Windows（工作排程器）：
+1. 開啟「工作排程器」-> 建立工作
+2. 觸發條件設每日/每週/每月
+3. 動作填入：`python -m app.backup_runner --run-once`
+4. 起始於（Start in）設為專案根目錄（含 `app/` 的資料夾）
+
+##### macOS（launchd）：
+1. 建立 plist 呼叫 `python -m app.backup_runner --run-once`
+2. WorkingDirectory 指向專案根目錄
+3. 以 `launchctl load` 啟用排程
 
 ### 活動人員搜尋
 * 快速搜尋：
@@ -558,7 +630,8 @@ pytest -v
 ### 開發環境設定
 ```bash
 # 安裝開發相依套件
-pip install -r requirements.txt
+pip install --upgrade pip
+pip install --only-binary=:all: -r requirements.txt
 
 # 執行測試
 pytest
@@ -567,6 +640,8 @@ pytest
 # flake8 app/
 # black app/
 ```
+
+說明：此專案統一使用 wheel 安裝（`--only-binary=:all:`），可避免本機從原始碼編譯 PyQt5 等 GUI 相依套件時，因缺少 `qmake`/編譯環境而失敗，安裝結果也更一致。
 
 ## 常見問題
 
@@ -577,7 +652,7 @@ A: 刪除 `app/database/temple.db`，再執行 `python -m app.database.setup_db`
 A: 可由其他管理員在「系統管理 -> 帳號管理」執行重設密碼；若系統中已無可登入管理員，請先備份資料庫後重建並重新建立管理員帳號。
 
 ### Q: 如何備份資料？
-A: 直接複製 `app/database/temple.db` 檔案即可完成資料備份
+A: 請參考上方「系統管理功能 -> 資料備份」章節。
 
 ### Q: 系統支援哪些作業系統？
 A: 支援 Windows、macOS、Linux 等所有支援 Python 和 PyQt5 的作業系統

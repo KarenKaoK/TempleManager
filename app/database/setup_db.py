@@ -64,6 +64,103 @@ def create_security_tables(db_name=DB_NAME):
         VALUES ('security/idle_logout_minutes', '15', CURRENT_TIMESTAMP)
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS backup_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            trigger_mode TEXT NOT NULL,
+            status TEXT NOT NULL,
+            backup_file TEXT,
+            file_size_bytes INTEGER,
+            error_message TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/enabled', '0', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/frequency', 'daily', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/time', '23:00', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/weekday', '1', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/monthday', '1', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/keep_latest', '20', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/local_dir', '', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/last_run_at', '', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/drive_folder_id', '', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/use_cli_scheduler', '0', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/oauth_client_secret_path', '', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/oauth_token_path', '', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/enable_local', '1', CURRENT_TIMESTAMP)
+        """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('backup/enable_drive', '0', CURRENT_TIMESTAMP)
+        """
+    )
     conn.commit()
     conn.close()
     print("✅ 安全設定與稽核資料表檢查完成")

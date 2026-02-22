@@ -111,6 +111,19 @@ class FakeCoverSettingsDialog:
         self.exec_called = True
 
 
+class FakeBackupSettingsDialog:
+    last_instance = None
+
+    def __init__(self, controller, parent):
+        self.controller = controller
+        self.parent = parent
+        self.exec_called = False
+        FakeBackupSettingsDialog.last_instance = self
+
+    def exec_(self):
+        self.exec_called = True
+
+
 # -------------------------
 # Tests
 # -------------------------
@@ -395,3 +408,108 @@ def test_staff_open_cover_settings_dialog_is_blocked(qtbot, monkeypatch):
 
     window.open_cover_settings_dialog()
     warn_mock.assert_called_once()
+
+
+def test_admin_can_open_backup_settings_dialog(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "BackupSettingsDialog", FakeBackupSettingsDialog)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    mock_controller.should_run_scheduled_backup.return_value = False
+    window = MainWindow("admin", "管理員", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_backup_settings_dialog()
+    instance = FakeBackupSettingsDialog.last_instance
+    assert instance is not None
+    assert instance.controller is mock_controller
+    assert instance.parent is window
+    assert instance.exec_called is True
+
+
+def test_staff_open_backup_settings_dialog_is_blocked(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    warn_mock = MagicMock()
+    monkeypatch.setattr(main_window_module.QMessageBox, "warning", warn_mock)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    mock_controller.should_run_scheduled_backup.return_value = False
+    window = MainWindow("staff", "工作人員", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_backup_settings_dialog()
+    warn_mock.assert_called_once()
+
+
+def test_backup_schedule_failure_has_cooldown(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    mock_controller.get_backup_settings.return_value = {"use_cli_scheduler": False}
+    mock_controller.should_run_scheduled_backup.return_value = True
+    mock_controller.create_local_backup.side_effect = RuntimeError("backup failed")
+    mock_controller.mark_backup_run.return_value = None
+
+    window = MainWindow("admin", "管理員", mock_controller)
+    qtbot.addWidget(window)
+
+    if hasattr(window, "_backup_timer") and window._backup_timer is not None:
+        window._backup_timer.stop()
+
+    t = {"v": 1000.0}
+    monkeypatch.setattr(main_window_module.time, "monotonic", lambda: t["v"])
+    window._on_scheduled_backup_failed("backup failed")
+    assert window._scheduled_backup_running is False
+    assert window._backup_retry_cooldown_until > 1000.0
+
+
+def test_backup_schedule_skip_when_background_backup_running(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    mock_controller.get_backup_settings.return_value = {"use_cli_scheduler": False}
+    mock_controller.should_run_scheduled_backup.return_value = True
+    mock_controller.create_local_backup.return_value = {"backup_file": "x.db", "file_size_bytes": 1}
+    mock_controller.mark_backup_run.return_value = None
+
+    window = MainWindow("admin", "管理員", mock_controller)
+    qtbot.addWidget(window)
+    if hasattr(window, "_backup_timer") and window._backup_timer is not None:
+        window._backup_timer.stop()
+
+    # 未來改成背景執行後，執行中應直接跳過，不可重複觸發
+    window._scheduled_backup_running = True
+    window._check_backup_schedule()
+
+    mock_controller.create_local_backup.assert_not_called()
+
+
+def test_scheduled_backup_finished_marks_run_and_clears_running(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    mock_controller.get_backup_settings.return_value = {"use_cli_scheduler": False}
+    mock_controller.mark_backup_run.return_value = None
+
+    window = MainWindow("admin", "管理員", mock_controller)
+    qtbot.addWidget(window)
+    if hasattr(window, "_backup_timer") and window._backup_timer is not None:
+        window._backup_timer.stop()
+
+    window._scheduled_backup_running = True
+    window._backup_retry_cooldown_until = 9999.0
+    window._on_scheduled_backup_finished()
+
+    assert window._scheduled_backup_running is False
+    assert window._backup_retry_cooldown_until == 0.0
+    mock_controller.mark_backup_run.assert_called_once()

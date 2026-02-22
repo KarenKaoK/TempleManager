@@ -7,3 +7,8 @@ __pycache__
 .pytest_cache/
 __pycache__/
 AGENTS.md
+
+# secrets / credentials
+secrets/
+*.service-account.json
+*gdrive*key*.json
