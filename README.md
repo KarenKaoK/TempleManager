@@ -84,8 +84,8 @@ temple_venv\Scripts\activate       # Windows
 ```bash
 pip install --upgrade pip
 pip install --only-binary=:all: -r requirements.txt
-pip install lunardate
 ```
+說明：`lunardate` 已包含在 `requirements.txt`，不需另外單獨安裝。
 
 `--only-binary=:all:` 說明：
 - 強制 pip 只安裝預編譯 wheel，不從原始碼編譯套件。
@@ -125,6 +125,7 @@ pip install lunardate
 ```bash
 python -m app.database.setup_db
 ```
+若你已在使用既有資料庫（`app/database/temple.db`），通常不需要重複初始化；此步驟主要用於首次安裝或重建資料庫時。
 
 初始化過程會：
 - 建立 `temple.db` SQLite 資料庫
