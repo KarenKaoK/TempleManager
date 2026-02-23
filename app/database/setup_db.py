@@ -1,5 +1,6 @@
 import sqlite3
 import bcrypt
+from datetime import datetime
 from app.config import DB_NAME, DEFAULT_USERS, USER_ROLES
 
 def create_users_table(db_name=DB_NAME):
@@ -18,8 +19,8 @@ def create_users_table(db_name=DB_NAME):
         must_change_password INTEGER DEFAULT 0,
         password_changed_at TEXT,
         last_login_at TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+        updated_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
     )
     """)
     
@@ -31,6 +32,7 @@ def create_users_table(db_name=DB_NAME):
 def create_security_tables(db_name=DB_NAME):
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
+    now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS security_logs (
@@ -39,7 +41,7 @@ def create_security_tables(db_name=DB_NAME):
             action TEXT NOT NULL,
             target_username TEXT,
             detail TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
         """
     )
@@ -48,22 +50,18 @@ def create_security_tables(db_name=DB_NAME):
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            updated_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
         """
     )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('security/password_reminder_days', '90', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('security/idle_logout_minutes', '15', CURRENT_TIMESTAMP)
-        """
-    )
+    def seed_setting(key: str, value: str):
+        cursor.execute(
+            "INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+            (key, value, now_text),
+        )
+
+    seed_setting("security/password_reminder_days", "90")
+    seed_setting("security/idle_logout_minutes", "15")
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS backup_logs (
@@ -77,90 +75,20 @@ def create_security_tables(db_name=DB_NAME):
         )
         """
     )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/enabled', '0', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/frequency', 'daily', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/time', '23:00', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/weekday', '1', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/monthday', '1', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/keep_latest', '20', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/local_dir', '', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/last_run_at', '', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/drive_folder_id', '', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/use_cli_scheduler', '0', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/oauth_client_secret_path', '', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/oauth_token_path', '', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/enable_local', '1', CURRENT_TIMESTAMP)
-        """
-    )
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('backup/enable_drive', '0', CURRENT_TIMESTAMP)
-        """
-    )
+    seed_setting("backup/enabled", "0")
+    seed_setting("backup/frequency", "daily")
+    seed_setting("backup/time", "23:00")
+    seed_setting("backup/weekday", "1")
+    seed_setting("backup/monthday", "1")
+    seed_setting("backup/keep_latest", "20")
+    seed_setting("backup/local_dir", "")
+    seed_setting("backup/last_run_at", "")
+    seed_setting("backup/drive_folder_id", "")
+    seed_setting("backup/use_cli_scheduler", "0")
+    seed_setting("backup/oauth_client_secret_path", "")
+    seed_setting("backup/oauth_token_path", "")
+    seed_setting("backup/enable_local", "1")
+    seed_setting("backup/enable_drive", "0")
     conn.commit()
     conn.close()
     print("✅ 安全設定與稽核資料表檢查完成")
@@ -320,8 +248,8 @@ def create_activities_table(db_name=DB_NAME):
         activity_end_date TEXT NOT NULL,
         note TEXT,
         status INTEGER DEFAULT 1,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT DEFAULT (datetime('now', 'localtime'))
     );
     """)
 
@@ -354,8 +282,8 @@ def create_activity_plans_table(db_name=DB_NAME):
     sort_order INTEGER DEFAULT 0,
     is_active INTEGER DEFAULT 1,
 
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
 
     FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE CASCADE
     );
@@ -386,8 +314,8 @@ def create_activity_signups_table(db_name=DB_NAME):
 
     total_amount INTEGER NOT NULL DEFAULT 0,  -- 報名總金額快照
 
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
 
     FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE CASCADE,
     FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE RESTRICT
@@ -425,7 +353,7 @@ def create_transactions_table(db_name=DB_NAME):
         receipt_number TEXT, -- 收據號碼
         note TEXT,
         is_deleted INTEGER DEFAULT 0, -- 軟刪除標記 (0=正常, 1=已刪除)
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
         
         -- 確保 payer_person_id 有對應的人 (雖 SQLite 預設不開 FK，但宣告有好處)
         FOREIGN KEY (payer_person_id) REFERENCES people(id)

@@ -110,7 +110,7 @@ class AppController:
                 action TEXT NOT NULL,
                 target_username TEXT,
                 detail TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
             """
         )
@@ -119,7 +119,7 @@ class AppController:
             CREATE TABLE IF NOT EXISTS app_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
             """
         )
@@ -132,7 +132,7 @@ class AppController:
                 cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
             if not self._column_exists("users", "updated_at"):
                 cur.execute("ALTER TABLE users ADD COLUMN updated_at TEXT")
-                cur.execute("UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+                cur.execute("UPDATE users SET updated_at = ? WHERE updated_at IS NULL", (self._now(),))
             if not self._column_exists("users", "last_login_at"):
                 cur.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
         self._ensure_setting("security/password_reminder_days", "90")
@@ -1835,6 +1835,7 @@ class AppController:
             return
 
         cursor = self.conn.cursor()
+        now_text = self._now()
         cursor.execute(
             """
             UPDATE activities
@@ -1844,7 +1845,7 @@ class AppController:
                 activity_end_date = ?,
                 note = ?,
                 status = ?,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = ?
             WHERE id = ?
             """,
             (
@@ -1853,6 +1854,7 @@ class AppController:
                 data.get("activity_end_date"),
                 data.get("note", ""),
                 int(data.get("status", 1)),
+                now_text,
                 activity_id,
             ),
         )
@@ -1886,13 +1888,14 @@ class AppController:
         - UI 查詢時會排除 status = -1 的資料
         """
         cur = self.conn.cursor()
+        now_text = self._now()
         cur.execute("""
             UPDATE activities
             SET status = -1,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = ?
             WHERE id = ?
             AND COALESCE(status, 1) != -1
-        """, (activity_id,))
+        """, (now_text, activity_id))
         self.conn.commit()
         return cur.rowcount > 0
 
@@ -2275,12 +2278,13 @@ class AppController:
             min_price = 0
 
         # ---- 3. 寫入 DB ----
+        now_text = self._now()
         cursor.execute("""
             INSERT INTO activity_plans
             (id, activity_id, name, items,
              price_type, fixed_price, suggested_price, min_price,
-             note)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             note, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             plan_id,
             activity_id,
@@ -2290,7 +2294,9 @@ class AppController:
             fixed_price,
             suggested_price,
             min_price,
-            note
+            note,
+            now_text,
+            now_text,
         ))
 
         conn.commit()
@@ -2372,7 +2378,8 @@ class AppController:
         set_if("is_active", "is_active", 1)
 
         if "updated_at" in cols:
-            set_parts.append("updated_at = CURRENT_TIMESTAMP")
+            set_parts.append("updated_at = ?")
+            params.append(self._now())
 
         if not set_parts:
             raise RuntimeError("activity_plans schema has no updatable columns")
@@ -3216,11 +3223,12 @@ class AppController:
         """
         activity_id = generate_activity_id_safe(self._activity_id_exists)
         cursor = self.conn.cursor()
+        now_text = self._now()
         cursor.execute("""
             INSERT INTO activities (
                 id, name, activity_start_date, activity_end_date,
                 note, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             activity_id,
             data.get("name"),
@@ -3228,6 +3236,8 @@ class AppController:
             data.get("activity_end_date"),
             data.get("note"),
             int(data.get("status", 1)),
+            now_text,
+            now_text,
         ))
         self.conn.commit()
         return activity_id

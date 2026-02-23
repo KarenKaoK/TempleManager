@@ -1,4 +1,5 @@
 # tests/test_login_dialog.py
+import re
 import pytest
 from unittest import mock
 from PyQt5.QtCore import Qt
@@ -161,3 +162,38 @@ def test_cover_pixmap_keeps_aspect_ratio_without_crop(login_dialog):
     assert shown.height() <= login_dialog.cover_label.height()
     ratio = shown.width() / shown.height()
     assert abs(ratio - 2.0) < 0.05
+
+
+def test_login_updates_last_login_with_local_python_timestamp(login_dialog, mocker):
+    """登入成功時 last_login_at 應由 Python 顯式寫入（避免 SQLite CURRENT_TIMESTAMP/UTC）"""
+    login_dialog.ui.lineEditUsername.setText("admin")
+    login_dialog.ui.lineEditPassword.setText("admin123")
+
+    mock_conn = mocker.patch("app.auth.login.sqlite3.connect")
+    mock_cursor = mock_conn.return_value.cursor.return_value
+
+    import bcrypt
+    password_hash = bcrypt.hashpw("admin123".encode(), bcrypt.gensalt())
+    mock_cursor.fetchone.return_value = (password_hash, "管理者")
+
+    def fake_column_exists(_conn, _table, col):
+        return col == "last_login_at"
+
+    mocker.patch.object(login_dialog, "_column_exists", side_effect=fake_column_exists)
+
+    mocker.patch("app.auth.login.QMessageBox.information")
+    mocker.patch.object(login_dialog, "accept")
+
+    login_dialog.check_login()
+
+    execute_calls = mock_cursor.execute.call_args_list
+    update_calls = [c for c in execute_calls if "UPDATE users SET last_login_at" in str(c.args[0])]
+    assert len(update_calls) == 1
+
+    sql = update_calls[0].args[0]
+    params = update_calls[0].args[1]
+    assert "CURRENT_TIMESTAMP" not in sql
+    assert sql == "UPDATE users SET last_login_at = ? WHERE username=?"
+    assert params[1] == "admin"
+    assert isinstance(params[0], str)
+    assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", params[0])

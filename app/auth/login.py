@@ -321,7 +321,8 @@ class LoginDialog(QDialog):
                 self.username = username
                 self.role = user[1]
                 if has_last_login:
-                    cursor.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE username=?", (username,))
+                    login_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    cursor.execute("UPDATE users SET last_login_at = ? WHERE username=?", (login_now, username))
                     conn.commit()
                 reminder = self._build_password_reminder(conn, password_changed_at, created_at)
                 conn.close()

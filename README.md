@@ -132,9 +132,7 @@ temple_venv\Scripts\activate       # Windows
 ```bash
 pip install --upgrade pip
 pip install --only-binary=:all: -r requirements.txt
-pip install lunardate
 ```
-
 `--only-binary=:all:` 說明：
 - 強制 pip 只安裝預編譯 wheel，不從原始碼編譯套件。
 - 可避免 PyQt5 在某些環境（例如缺少 `qmake`）安裝失敗。
@@ -173,6 +171,7 @@ pip install lunardate
 ```bash
 python -m app.database.setup_db
 ```
+若你已在使用既有資料庫（`app/database/temple.db`），通常不需要重複初始化；此步驟主要用於首次安裝或重建資料庫時。
 
 初始化過程會：
 - 建立 `temple.db` SQLite 資料庫
@@ -462,6 +461,16 @@ python -m app.scheduler.worker
 
 ### 詳細資料庫文件
 - [Notion 資料庫文件](https://skitter-apricot-d73.notion.site/SQLite-204ea3ff5528806d8a33cb0ac886045c?source=copy_link)
+
+### 時間欄位與時區策略
+- 主系統業務資料（例如：帳號登入時間、活動更新時間、備份紀錄時間）已統一為 **本地時間**。
+- 實作策略：以 **Python 顯式寫入本地時間字串**（`YYYY-MM-DD HH:MM:SS`）為主，並同步將新建資料庫的時間欄位 default 調整為本地時間 fallback。
+- 目的：避免 SQLite `CURRENT_TIMESTAMP`（UTC）與本地時間混用，造成 UI 顯示時差（例如「最近登入時間」偏差）。
+- 舊資料不做回填修正，僅確保後續新資料寫入正確。
+
+#### 例外（目前保留 UTC）
+- `app/mailer/outbox_db.py`（郵件模組 outbox）目前使用 `UTC ISO 8601`（含時區，如 `+00:00`）儲存 `created_at`。
+- 此為刻意保留的例外策略（資料具時區資訊），暫不納入主系統本地時間統一範圍。
 
 ## 專案架構
 
