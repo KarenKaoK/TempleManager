@@ -56,11 +56,59 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 - **主頁表格可讀性**：信眾戶長/戶員清單支援水平捲動，欄位內容過長時可左右查看
 
 ### ✉️ 排程與自動寄信
-- **統一排程服務**：`python -m app.scheduler.worker` 長駐執行，依 `app/mailer/mail_config.yaml` 觸發排程
+- **統一排程服務**：`python -m app.scheduler.worker` 長駐執行，依 `app/scheduler/scheduler_config.yaml` 觸發排程
 - **自動報表產生**：寄信前自動產出 CSV 報表為附件，無需手動產生
 - **支援多封不同排程信件**：Heartbeat 心跳、每日/每月收支、活動報名狀況、信眾資料表
 - **寄送紀錄寫入 SQLite**：`email_outbox` 表記錄 SENT / FAILED、保留錯誤訊息以供排查
 - **支援 Gmail App Password（安全機制）**：帳號與密碼透過環境變數讀取且不會將密碼明碼寫入 YAML
+
+排程設定檔範例（節錄）：
+
+```yaml
+timezone: "Asia/Taipei"
+
+db:
+  path: "./app/database/temple.db"
+
+smtp:
+  host: "smtp.gmail.com"
+  port: 587
+  username_env: "GMAIL_USER"
+  password_env: "GMAIL_APP_PASSWORD"
+  sender_name: "TempleManager"
+  use_starttls: true
+
+reports:
+  cleanup:
+    enabled: true
+    dir: "./reports"
+    retention_days: 365
+    cron:
+      hour: 3
+      minute: 30
+```
+
+#### 🧹 Reports cleanup（house-keeping）
+
+Worker 會定期清理 `reports/` 目錄下的 **CSV 報表**，避免檔案累積過多。
+
+- **會刪除什麼**：僅刪除 `dir` 目錄底下（第一層）的 `*.csv` 檔案；其他副檔名不會刪。
+- **日期來源**：依檔名最後一段的日期判斷，例如：
+  - 每日報表：`每日收支明細表_yyyymmdd.csv`、`每日活動報表_yyyymmdd.csv`
+  - 每月報表：`每月收支明細表_yyyymm.csv`、`每月信眾資料表_yyyymm.csv`
+- **刪除條件**：若「今天」減去檔名中的日期，`age_days > retention_days` 就刪除。
+- **保留多久**：用 `retention_days` 控制，預設 365（一年）。
+設定欄位：
+- `reports.cleanup.enabled`: 是否啟用（`false` 會完全跳過）
+- `reports.cleanup.dir`: 目標目錄（相對路徑以專案根目錄為基準）
+- `reports.cleanup.retention_days`: 保留天數（小於 0 會視為安全保護：不刪任何檔案）
+- `reports.cleanup.cron`: APScheduler cron（例如 `hour/minute`）
+
+手動快速驗證（不等排程）：
+
+```bash
+python -c "from pathlib import Path; from app.scheduler.worker import load_cfg; from app.report_generator.cleanup import cleanup_reports; cfg=load_cfg('app/scheduler/scheduler_config.yaml'); cleanup_reports(Path('.').resolve(), cfg)"
+```
 
 
 ## 環境需求與安裝
@@ -160,7 +208,7 @@ export GMAIL_APP_PASSWORD="your_app_password"
 python -m app.scheduler.worker
 ```
 
-排程設定檔位於 `app/mailer/mail_config.yaml`。以下為預設排程的報表類型與寄送時間：
+排程設定檔位於 `app/scheduler/scheduler_config.yaml`。以下為預設排程的報表類型與寄送時間：
 
 | 排程 Job | 說明 | 排程時間 | 報表檔名 |
 |----------|------|----------|----------|
