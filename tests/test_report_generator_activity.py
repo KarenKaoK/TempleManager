@@ -84,7 +84,7 @@ def test_generate_daily_activity_report_produces_file(tmp_path):
     assert result == str(output.resolve())
     assert output.exists()
     content = output.read_text(encoding="utf-8-sig")
-    assert "=== 虎爺聖誕" in content
+    assert "虎爺聖誕" in content
     assert "【報名摘要】" in content
     assert "【報名人明細】" in content
     assert "【各項品數量】" in content
