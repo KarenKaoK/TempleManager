@@ -13,6 +13,15 @@ smtp:
   sender_name: "TempleManager"
   use_starttls: true
 
+reports:
+  cleanup:
+    enabled: true
+    dir: "./reports"
+    retention_days: 365
+    cron:
+      hour: 20
+      minute: 45
+
 jobs:
   - id: "heartbeat"
     enabled: true
@@ -23,8 +32,8 @@ jobs:
       這是一封心跳信，用於確認 mailer worker 仍在運行、寄信功能正常。
       若你收到此信，代表服務正常。
     cron:
-      hour: 17
-      minute: 13
+      hour: 20
+      minute: 22
 
   - id: "daily_finance_report"
     enabled: true
@@ -80,3 +89,4 @@ jobs:
       day: 22
       hour: 17
       minute: 13
+

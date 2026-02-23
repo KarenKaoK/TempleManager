@@ -1,6 +1,6 @@
 """
 Scheduler worker：統一排程主程式。
-負責載入 mail_config.yaml、註冊 mail jobs、執行排程。
+負責載入 scheduler_config.yaml、註冊排程 jobs（mailer / 報表 / housekeeping 等）、執行排程。
 支援 report 欄位：先產生報表再寄信。
 """
 from __future__ import annotations
@@ -19,6 +19,7 @@ from app.mailer.outbox_db import connect, ensure_schema, insert_record
 from app.report_generator import activity as report_activity
 from app.report_generator import believer as report_believer
 from app.report_generator import finance as report_finance
+from app.report_generator.cleanup import cleanup_reports
 
 
 def load_cfg(path: str) -> Dict[str, Any]:
@@ -47,14 +48,14 @@ def resolve_paths(base_dir: Path, paths: Optional[List[str]]) -> List[str]:
 
 
 def main() -> None:
-    config_path = sys.argv[1] if len(sys.argv) > 1 else "app/mailer/mail_config.yaml"
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "app/scheduler/scheduler_config.yaml"
     cfg = load_cfg(config_path)
 
     tz = str(cfg.get("timezone", "Asia/Taipei")).strip() or "Asia/Taipei"
 
     # 專案根目錄：TempleManager/
     config_file = Path(config_path).resolve()
-    project_root = config_file.parents[2]  # .../TempleManager/app/mailer/mail_config.yaml -> parents[2] = TempleManager
+    project_root = config_file.parents[2]  # .../TempleManager/app/scheduler/scheduler_config.yaml -> parents[2] = TempleManager
 
     # DB path：相對路徑以專案根目錄解
     db_path = (cfg.get("db") or {}).get("path", "./app/database/temple.db")
@@ -157,7 +158,7 @@ def main() -> None:
         finally:
             conn.close()
 
-    # 註冊排程
+    # 註冊 mail 排程
     for job in (cfg.get("jobs") or []):
         if not bool(job.get("enabled", True)):
             continue
@@ -167,6 +168,33 @@ def main() -> None:
         cron = job.get("cron") or {}
         trigger = CronTrigger(timezone=tz, **cron)
         sched.add_job(run_job, trigger, kwargs={"job_id": job_id}, id=job_id, replace_existing=True)
+
+    # 註冊 reports 清理排程（若有設定）
+    cleanup_cfg = ((cfg.get("reports") or {}).get("cleanup") or {})
+    if cleanup_cfg.get("enabled", True):
+        cleanup_cron = cleanup_cfg.get("cron") or {}
+        if not cleanup_cron:
+            cleanup_cron = {"hour": 3, "minute": 30}
+
+        try:
+            cleanup_trigger = CronTrigger(timezone=tz, **cleanup_cron)
+        except TypeError as e:
+            print(f"[ERR] invalid reports.cleanup.cron config: {e}")
+        else:
+
+            def run_cleanup() -> None:
+                try:
+                    cleanup_reports(project_root, cfg)
+                except Exception as e:
+                    print(f"[ERR] reports_cleanup job failed: {e}")
+
+            sched.add_job(
+                run_cleanup,
+                cleanup_trigger,
+                id="reports_cleanup",
+                replace_existing=True,
+            )
+            print(f"[INFO] reports_cleanup job registered with cron={cleanup_cron}")
 
     sched.start()
     print(f"[START] scheduler worker running. config={config_file} db={db_path_resolved} tz={tz}")
