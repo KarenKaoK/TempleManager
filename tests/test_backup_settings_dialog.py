@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from app.dialogs.backup_settings_dialog import BackupHelpDialog, BackupSettingsDialog
+from app.dialogs.backup_settings_dialog import BackupHelpDialog, BackupSettingsDialog, ScheduleSettingsDialog
 
 
 class DummyController:
@@ -104,3 +104,30 @@ def test_backup_settings_dialog_format_bytes_human():
     assert BackupSettingsDialog._format_bytes_human(1536) == "1.5 KB"
     assert BackupSettingsDialog._format_bytes_human(1024 * 1024) == "1.0 MB"
     assert BackupSettingsDialog._format_bytes_human(1024 * 1024 * 1024) == "1.0 GB"
+
+
+def test_schedule_settings_dialog_hidden_cli_always_returns_false(qtbot):
+    dialog = ScheduleSettingsDialog(
+        enabled=True,
+        frequency="daily",
+        time_text="20:45",
+        weekday=1,
+        monthday=1,
+        use_cli_scheduler=True,  # 模擬舊設定殘留
+    )
+    qtbot.addWidget(dialog)
+
+    values = dialog.get_values()
+    assert values["use_cli_scheduler"] is False
+    assert dialog.chk_use_cli_scheduler.isHidden() is True
+
+
+def test_backup_settings_dialog_runtime_scheduler_status_text():
+    text = BackupSettingsDialog._build_runtime_scheduler_status_text(
+        timer_active=False,
+        schedule_enabled=True,
+        last_run_at_text="2026-02-23 07:06:25",
+    )
+    assert "排程器狀態：未運作" in text
+    assert "排程設定：已啟用" in text
+    assert "上次排程執行：2026-02-23 07:06:25" in text
