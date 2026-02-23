@@ -55,12 +55,12 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 - **日期格式統一**：畫面日期輸入與顯示統一為 `YYYY/MM/DD`
 - **主頁表格可讀性**：信眾戶長/戶員清單支援水平捲動，欄位內容過長時可左右查看
 
-### ✉️ email 自動寄信
-- **支援 YAML 設定寄信內容與排程時間**：於 mail_config.yaml 中定義subject, body, attachments, cron 排程時間
-- **支援多封不同排程信件**: 例如每日通知、每月報表、系統 Heartbeat 監控信
-- **支援附件寄送**:支援附件寄送、支援附件寄送
-- **寄送紀錄寫入 SQLite**: 建立 email_outbox 表、記錄 SENT / FAILED、保留錯誤訊息以供排查
-- **支援 Gmail App Password（安全機制）**:帳號與密碼透過環境變數讀取且不會將密碼明碼寫入 YAML
+### ✉️ 排程與自動寄信
+- **統一排程服務**：`python -m app.scheduler.worker` 長駐執行，依 `app/mailer/mail_config.yaml` 觸發排程
+- **自動報表產生**：寄信前自動產出 CSV 報表為附件，無需手動產生
+- **支援多封不同排程信件**：Heartbeat 心跳、每日/每月收支、活動報名狀況、信眾資料表
+- **寄送紀錄寫入 SQLite**：`email_outbox` 表記錄 SENT / FAILED、保留錯誤訊息以供排查
+- **支援 Gmail App Password（安全機制）**：帳號與密碼透過環境變數讀取且不會將密碼明碼寫入 YAML
 
 
 ## 環境需求與安裝
@@ -150,16 +150,30 @@ rm -rf ./temple_old.db
 
 ### 2-2. 啟動自動發信排程
 
-設定環境變數
+設定環境變數（Gmail App Password）：
 ```bash
-export GMAIL_USER="@gmail.com"
-export GMAIL_APP_PASSWORD=" "
+export GMAIL_USER="your@gmail.com"
+export GMAIL_APP_PASSWORD="your_app_password"
 ```
 
-啟動排程
+啟動排程：
 ```bash
-python -m app.mailer.worker app/mailer/mail_config.yaml
+python -m app.scheduler.worker
 ```
+
+排程設定檔位於 `app/mailer/mail_config.yaml`。以下為預設排程的報表類型與寄送時間：
+
+| 排程 Job | 說明 | 排程時間 | 報表檔名 |
+|----------|------|----------|----------|
+| heartbeat | 心跳信（確認服務運行） | 每日 09:05 | 無附件 |
+| daily_finance_report | 每日收支明細表 | 每日 20:00 | 每日收支明細表_yyyymmdd.csv |
+| monthly_finance_report | 每月收支明細表 | 每月最後一日 20:00 | 每月收支明細表_yyyymm.csv |
+| daily_activity_report | 每日活動報名狀況 | 每日 08:00 | 每日活動報表_yyyymmdd.csv |
+| monthly_believer_report | 每月信眾資料表 | 每月最後一日 10:00 | 每月信眾資料表_yyyymm.csv |
+
+**注意**：
+- 報表產生與寄信皆由排程自動執行，輸出至 `reports/` 目錄
+- `daily_activity_report` 僅於活動期間內寄送；當日若無進行中活動則不產報、不寄信
 
 ### 3. 系統功能導覽
 

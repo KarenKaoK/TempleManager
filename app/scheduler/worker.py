@@ -1,3 +1,8 @@
+"""
+Scheduler worker：統一排程主程式。
+負責載入 mail_config.yaml、註冊 mail jobs、執行排程。
+支援 report 欄位：先產生報表再寄信。
+"""
 from __future__ import annotations
 
 import sys
@@ -9,8 +14,11 @@ import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from .smtp_client import send_email_smtp
-from .outbox_db import connect, ensure_schema, insert_record
+from app.mailer.smtp_client import send_email_smtp
+from app.mailer.outbox_db import connect, ensure_schema, insert_record
+from app.report_generator import activity as report_activity
+from app.report_generator import believer as report_believer
+from app.report_generator import finance as report_finance
 
 
 def load_cfg(path: str) -> Dict[str, Any]:
@@ -44,12 +52,12 @@ def main() -> None:
 
     tz = str(cfg.get("timezone", "Asia/Taipei")).strip() or "Asia/Taipei"
 
-    # ✅ 專案根目錄：TempleManager/
+    # 專案根目錄：TempleManager/
     config_file = Path(config_path).resolve()
     project_root = config_file.parents[2]  # .../TempleManager/app/mailer/mail_config.yaml -> parents[2] = TempleManager
 
     # DB path：相對路徑以專案根目錄解
-    db_path = (cfg.get("db") or {}).get("path", "./database/temple.db")
+    db_path = (cfg.get("db") or {}).get("path", "./app/database/temple.db")
     db_path_resolved = str((project_root / db_path).resolve()) if not Path(db_path).is_absolute() else db_path
 
     sched = BackgroundScheduler(timezone=tz)
@@ -66,7 +74,42 @@ def main() -> None:
         to_emails = [str(x).strip() for x in (job.get("to") or []) if str(x).strip()]
         subject = str(job.get("subject", "")).strip()
         body = str(job.get("body", "")).rstrip()
-        attachments = resolve_paths(project_root, job.get("attachments") or [])
+
+        # 若有 report 欄位，先產生報表再以產出路徑為附件
+        report_type = str(job.get("report", "")).strip() or None
+        if report_type == "daily_finance":
+            try:
+                out_path = report_finance.generate_daily_report(db_path_resolved)
+                attachments = [out_path]
+            except Exception as e:
+                print(f"[ERR] job={job_id} report gen failed: {e}")
+                return
+        elif report_type == "monthly_finance":
+            try:
+                out_path = report_finance.generate_monthly_report(db_path_resolved)
+                attachments = [out_path]
+            except Exception as e:
+                print(f"[ERR] job={job_id} report gen failed: {e}")
+                return
+        elif report_type == "daily_activity":
+            try:
+                out_path = report_activity.generate_daily_activity_report(db_path_resolved)
+                attachments = [out_path]
+            except ValueError as e:
+                print(f"[INFO] job={job_id} skipped (no activities): {e}")
+                return
+            except Exception as e:
+                print(f"[ERR] job={job_id} report gen failed: {e}")
+                return
+        elif report_type == "monthly_believer":
+            try:
+                out_path = report_believer.generate_monthly_believer_report(db_path_resolved)
+                attachments = [out_path]
+            except Exception as e:
+                print(f"[ERR] job={job_id} report gen failed: {e}")
+                return
+        else:
+            attachments = resolve_paths(project_root, job.get("attachments") or [])
 
         if not to_emails:
             print(f"[WARN] job={job_id} Job.to is empty, skipped")
@@ -75,7 +118,7 @@ def main() -> None:
             print(f"[WARN] job={job_id} Job.subject is empty, skipped")
             return
 
-        # ✅ 每次 job 執行都開新的 DB connection（避免 thread error）
+        # 每次 job 執行都開新的 DB connection（避免 thread error）
         conn = connect(db_path_resolved)
         try:
             ensure_schema(conn)
@@ -126,7 +169,7 @@ def main() -> None:
         sched.add_job(run_job, trigger, kwargs={"job_id": job_id}, id=job_id, replace_existing=True)
 
     sched.start()
-    print(f"[START] mailer worker running. config={config_file} db={db_path_resolved} tz={tz}")
+    print(f"[START] scheduler worker running. config={config_file} db={db_path_resolved} tz={tz}")
 
     try:
         while True:
