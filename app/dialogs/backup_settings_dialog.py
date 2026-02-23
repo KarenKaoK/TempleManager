@@ -310,6 +310,7 @@ class BackupSettingsDialog(QDialog):
         self._google_oauth_client_secret_path = ""
         self._google_oauth_token_path = ""
         self._schedule_use_cli = False
+        self._last_run_at_text = ""
         self._backup_thread = None
         self._backup_worker = None
         self._backup_running = False
@@ -394,6 +395,11 @@ class BackupSettingsDialog(QDialog):
         self.lbl_cli_help.setStyleSheet("QLabel { color:#6B7280; }")
         root.addWidget(self.lbl_cli_help)
 
+        self.lbl_runtime_scheduler_status = QLabel("")
+        self.lbl_runtime_scheduler_status.setWordWrap(True)
+        self.lbl_runtime_scheduler_status.setStyleSheet("QLabel { color:#6B7280; }")
+        root.addWidget(self.lbl_runtime_scheduler_status)
+
         row_btn = QHBoxLayout()
         self.btn_save = QPushButton("儲存設定")
         self.btn_backup_now = QPushButton("立即備份")
@@ -474,6 +480,7 @@ class BackupSettingsDialog(QDialog):
             self.btn_help_doc,
             self.btn_close,
             self.lbl_backup_notice,
+            self.lbl_runtime_scheduler_status,
         ]
         for b in controls:
             if hasattr(b, "setMinimumHeight"):
@@ -544,6 +551,7 @@ class BackupSettingsDialog(QDialog):
         self._schedule_weekday = int(s.get("weekday", 1))
         self._schedule_monthday = int(s.get("monthday", 1))
         self._schedule_use_cli = bool(s.get("use_cli_scheduler"))
+        self._last_run_at_text = str(s.get("last_run_at", "") or "")
         self.spin_keep.setValue(int(s.get("keep_latest", 20)))
         self.edt_local_dir.setText(str(s.get("local_dir", "")))
         self.chk_enable_local.setChecked(bool(s.get("enable_local", True)))
@@ -553,6 +561,7 @@ class BackupSettingsDialog(QDialog):
         self._google_drive_folder_id = str(s.get("drive_folder_id", ""))
         self._update_google_summary()
         self._update_schedule_summary()
+        self._update_runtime_scheduler_status()
 
     def _set_combo_data(self, combo: QComboBox, value):
         for i in range(combo.count()):
@@ -582,6 +591,32 @@ class BackupSettingsDialog(QDialog):
         mode_text = "CLI/OS 排程" if self._schedule_use_cli else "程式內建排程"
         self.lbl_schedule_summary.setText(f"{enabled_text}｜{detail}｜{mode_text}")
 
+    @staticmethod
+    def _build_runtime_scheduler_status_text(timer_active: bool, schedule_enabled: bool, last_run_at_text: str) -> str:
+        timer_text = "運作中（主視窗）" if timer_active else "未運作（主視窗排程器未啟動）"
+        enabled_text = "已啟用" if schedule_enabled else "未啟用"
+        last_text = (last_run_at_text or "").strip() or "無"
+        return f"排程器狀態：{timer_text}｜排程設定：{enabled_text}｜上次排程執行：{last_text}"
+
+    def _update_runtime_scheduler_status(self):
+        parent = self.parent()
+        timer_active = False
+        try:
+            timer = getattr(parent, "_backup_timer", None)
+            if timer is not None and hasattr(timer, "isActive"):
+                timer_active = bool(timer.isActive())
+        except Exception:
+            timer_active = False
+
+        text = self._build_runtime_scheduler_status_text(
+            timer_active=timer_active,
+            schedule_enabled=bool(self._schedule_enabled),
+            last_run_at_text=self._last_run_at_text,
+        )
+        if not timer_active:
+            text += "（提示：目前自動備份仍綁在主視窗；登出回登入頁時不會檢查，會在下次主視窗啟用後補跑）"
+        self.lbl_runtime_scheduler_status.setText(text)
+
     def _open_schedule_settings_dialog(self):
         dialog = ScheduleSettingsDialog(
             enabled=self._schedule_enabled,
@@ -602,6 +637,7 @@ class BackupSettingsDialog(QDialog):
         self._schedule_monthday = int(values.get("monthday", 1))
         self._schedule_use_cli = bool(values.get("use_cli_scheduler"))
         self._update_schedule_summary()
+        self._update_runtime_scheduler_status()
 
     def _update_google_summary(self):
         cred_text = "已設定" if (self._google_oauth_client_secret_path or "").strip() else "未設定"
@@ -718,6 +754,11 @@ class BackupSettingsDialog(QDialog):
             self._backup_notice_reset_timer.setSingleShot(True)
             self._backup_notice_reset_timer.timeout.connect(self._clear_backup_notice)
         self._backup_notice_reset_timer.start(8000)
+        try:
+            self._last_run_at_text = str((self.controller.get_backup_settings() or {}).get("last_run_at", "") or "")
+        except Exception:
+            pass
+        self._update_runtime_scheduler_status()
 
     def _clear_backup_notice(self):
         self.lbl_backup_notice.setText("")
