@@ -303,6 +303,7 @@ python -m app.scheduler.worker
 **系統管理（僅管理員）**
 - 帳號管理：新增帳號、重設密碼（手動輸入或系統產生臨時密碼）
 - 帳號狀態：停用/啟用、刪除（至少保留一位管理員）
+- 資料備份與維護：本機/Google Drive 備份、立即備份、排程設定（內建）、備份紀錄查詢
 - 安全設定：密碼提醒天數、閒置自動登出分鐘
 - 封面設定：上傳登入封面照片與設定登入標題
 - 審計紀錄：記錄誰在何時對哪個帳號執行重設/刪除/停用等操作
@@ -322,6 +323,11 @@ python -m app.scheduler.worker
 #### 財務會計（彙整報表）
 - 管理員：可查看摘要與明細、可匯出。
 - 會計：可查看摘要與明細、可匯出。
+- 工作人員：不可使用。
+
+#### 資料備份與維護
+- 管理員：可設定備份目的地與排程、執行立即備份、查看備份紀錄與錯誤訊息。
+- 會計：不可使用。
 - 工作人員：不可使用。
 
 #### 系統管理（帳號管理）
@@ -376,23 +382,50 @@ python -m app.scheduler.worker
    - 列印名單、總品項列印、文疏列印（祝壽/加持）
    - 勾選未繳費名單並輸入經手人後執行繳費
 
+#### 收支管理流程
+1. 進入「收支管理」→ 選擇「收入資料登錄」或「支出資料登錄」
+2. 選擇年度 / 月份（可切換全部、前後月）
+3. 新增收支資料：
+   - 日期（`YYYY/MM/DD`）
+   - 項目代號 / 項目名稱
+   - 金額、經手人、摘要/備註
+4. 儲存後可於列表查詢、右鍵修改/刪除（依角色與當日規則限制）
+5. 收入資料可列印/補印收據（依權限）
+
+#### 財務會計流程
+1. 進入「財務會計」
+2. 選擇時間粒度（日 / 週 / 月 / 年）與起訖日期
+3. 可勾選是否加入項目維度（依項目代號彙整）
+4. 查看摘要（收入、支出、本期收支結餘）與明細
+5. 需要時匯出 Excel 相容 CSV（含摘要與完整明細）
+
+#### 系統管理流程（僅管理員）
+1. 進入「系統管理」
+2. 帳號管理：新增帳號、重設密碼、停用/啟用、刪除帳號
+3. 安全設定：調整密碼提醒天數、閒置自動登出分鐘
+4. 封面設定：上傳登入封面照片與設定登入標題
+5. 資料備份：設定本機/Google Drive（OAuth）、執行立即備份、查看備份紀錄
+
 ## 資料庫架構
 
 ### 主要資料表
 
 #### 使用者管理
 - **users**: 使用者帳號與權限管理
-  - `id`, `username`, `password_hash`, `role`, `created_at`
+  - `id`, `username`, `password_hash`, `role`, `is_active`, `must_change_password`, `password_changed_at`, `last_login_at`, `created_at`, `updated_at`
+
+- **security_logs**: 安全/帳號操作審計紀錄
+  - `id`, `actor_username`, `action`, `target_username`, `detail`, `created_at`
+
+- **app_settings**: 系統設定鍵值（安全設定、備份設定、封面設定等）
+  - `key`, `value`, `updated_at`
+
+- **backup_logs**: 備份執行紀錄（本機 / 雲端結果摘要）
+  - `id`, `created_at`, `trigger_mode`, `status`, `backup_file`, `file_size_bytes`, `error_message`
 
 #### 信眾管理
-- **people**: 個人基本資料
-  - `id`, `name`, `gender`, `birthday_ad`, `birthday_lunar`, `birth_time`, `age`, `age_offset`, `zodiac`, `phone_home`, `phone_mobile`, `address`, `zip_code`, `note`, `joined_at`
-
-- **households**: 戶長資料
-  - `id`, `head_name`, `head_gender`, `head_birthday_ad`, `head_birthday_lunar`, `head_birth_time`, `head_age`, `head_zodiac`, `head_phone_home`, `head_phone_mobile`, `head_email`, `head_address`, `head_zip_code`, `head_identity`, `head_note`, `head_joined_at`, `household_note`
-
-- **household_members**: 戶長與成員關係
-  - `id`, `household_id`, `person_id`, `relationship`
+- **people**: 信眾單表（含戶籍角色/停用狀態）
+  - `id`, `household_id`, `role_in_household`, `status`, `name`, `gender`, `birthday_ad`, `birthday_lunar`, `lunar_is_leap`, `birth_time`, `age`, `age_offset`, `zodiac`, `phone_home`, `phone_mobile`, `address`, `zip_code`, `note`, `joined_at`
 
 #### 財務管理
 - **income_items**: 收入項目設定
@@ -400,6 +433,9 @@ python -m app.scheduler.worker
 
 - **expense_items**: 支出項目設定
   - `id`, `name`, `amount`
+
+- **transactions**: 收支明細（收入/支出共用）
+  - `id`, `date`, `type`, `category_id`, `category_name`, `amount`, `payer_person_id`, `payer_name`, `handler`, `receipt_number`, `note`, `is_deleted`, `created_at`
 
 #### 身份管理
 - **member_identity**: 信眾身份類別
@@ -413,7 +449,7 @@ python -m app.scheduler.worker
   - `id`, `activity_id`, `name`, `items`, `price_type`, `fixed_price`, `suggested_price`, `min_price`, `allow_qty`, `sort_order`, `is_active`, `created_at`, `updated_at`
 
 - **activity_signups**: 活動報名人員
-  - `id`, `activity_id`, `person_id`, `signup_time`, `note`, `total_amount`, `is_paid`, `paid_at`, `payment_txn_id`, `payment_receipt_number`, `created_at`, `updated_at`
+  - `id`, `activity_id`, `person_id`, `signup_time`, `note`, `total_amount`, `created_at`, `updated_at`, `is_paid`, `paid_at`, `payment_txn_id`, `payment_receipt_number`
 
 - **activity_signup_plans**: 報名方案明細
   - `id`, `signup_id`, `plan_id`, `qty`, `unit_price_snapshot`, `amount_override`, `line_total`, `note`
@@ -434,6 +470,7 @@ python -m app.scheduler.worker
 TempleManager/
 ├── app/
 │   ├── __init__.py
+│   ├── backup_runner.py
 │   ├── main.py
 │   ├── config.py
 │   ├── main_window.py
@@ -453,6 +490,7 @@ TempleManager/
 │   │   ├── activity_edit_dialog.py
 │   │   ├── activity_household_signup_dialog.py
 │   │   ├── activity_signup_edit_dialog.py
+│   │   ├── backup_settings_dialog.py
 │   │   ├── base_person_dialog.py
 │   │   ├── cover_settings_dialog.py
 │   │   ├── edit_member_dialog.py
@@ -466,6 +504,12 @@ TempleManager/
 │   │   ├── new_member_dialog.py
 │   │   ├── plan_edit_dialog.py
 │   │   └── transfer_household_dialog.py
+│   ├── mailer/
+│   │   ├── __init__.py
+│   │   ├── mail_config.yaml
+│   │   ├── outbox_db.py
+│   │   ├── smtp_client.py
+│   │   └── worker.py
 │   ├── resources/
 │   │   ├── seal.png
 │   │   └── seal0.png
@@ -486,6 +530,8 @@ TempleManager/
 │       ├── main_page.py
 │       ├── search_bar.py
 │       └── spin_with_arrows.py
+├── reports/
+│   └── finance_report.csv
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py
@@ -496,6 +542,8 @@ TempleManager/
 │   ├── test_activity_signup_page.py
 │   ├── test_activity_wenshu_dialog.py
 │   ├── test_app_controller.py
+│   ├── test_backup_controller.py
+│   ├── test_backup_settings_dialog.py
 │   ├── test_database.py
 │   ├── test_date_utils.py
 │   ├── test_expense_dialog.py
@@ -513,7 +561,6 @@ TempleManager/
 ├── requirements.txt
 ├── README.md
 ├── test.ipynb
-└── temple.db
 ```
 
 ### 架構設計
@@ -605,7 +652,7 @@ TempleManager/
 #### 資料備份與維護
 - 備份設定與執行（本機 / Google Drive）
 - 備份紀錄查詢與失敗訊息檢視
-- 備份排程模式切換（內建 / CLI + OS 排程）
+- 備份排程（內建）
 
 ##### 資料備份
 - 備份目的地：可同時備份到本機 + Google Drive（OAuth）
@@ -614,11 +661,12 @@ TempleManager/
 ##### 實際執行邏輯（避免混淆）：
 1. `啟用自動備份`
    - 代表「允許排程判斷」生效。
-2. `改用 CLI/作業系統排程`
-   - 勾選：由 OS 排程器呼叫 CLI（適合登出或程式未開啟）。
-   - 未勾選：由程式內建排程觸發（程式需開啟）。
-3. CLI 模式下，UI 頻率仍然有效
-   - OS 只是負責「呼叫」，真正是否執行仍依 UI 設定（每日/每週/每月、時間、週幾/幾號）。
+2. `程式內建排程`
+   - 主程式開啟時，依 UI 設定（每日/每週/每月、時間、週幾/幾號）判斷是否執行。
+3. `改用 CLI/作業系統排程（已隱藏）`
+   - 屬相容模式，UI 目前不顯示此選項。
+   - 啟用時：由 OS 排程器呼叫 CLI（適合主程式未開啟）。
+   - CLI 模式下，UI 頻率仍然有效：OS 只負責「呼叫」，真正是否執行仍依 UI 設定（每日/每週/每月、時間、週幾/幾號）。
    - 因此不會打架，是「OS 觸發 + UI 條件判斷」雙層機制。
 4. `立即備份`
    - 按下就執行，不看排程時間。
@@ -626,14 +674,14 @@ TempleManager/
 5. Google Drive 採 OAuth：首次需人工授權一次，後續使用 token 自動續期。
 
 ##### 建議配置：
-- 若希望登出後也能備份：勾選「改用 CLI/作業系統排程」，並在 OS 設定排程。
-- OS 觸發頻率可略高於需求（例如每天固定時間）；最終仍由 UI 條件決定是否真的備份。
+- 目前建議：使用「程式內建排程」（UI 可設定頻率/時間，操作較簡單）。
+- 主程式持續開啟時（即使登出回登入頁），仍可由程式內排程持續執行。
 
 ##### 建議設定流程（上線順序）：
 - 步驟 1：先準備 Google OAuth `credentials.json`（初始不需要 `token.json`）
-- 步驟 2：再設定 CLI/OS 排程（Windows 工作排程器或 macOS launchd）
+- 步驟 2：先完成系統內備份設定與立即備份驗證
 - 步驟 3：最後到系統內「資料備份」填入目的地、JSON 路徑、資料夾 ID 與保留數量
-- 步驟 4：用「立即備份」與 `--run-once` 各驗證一次
+- 步驟 4：用「立即備份」驗證一次
 
 ##### Google Drive（OAuth）設定（詳細）：
 1. 第一步：建立 OAuth 憑證
@@ -660,6 +708,16 @@ TempleManager/
    - 在「系統管理 -> 資料備份」勾選 `Google Drive（OAuth）`
    - 填入 `OAuth 憑證 JSON`、`OAuth Token 檔案` 與 `Drive 資料夾 ID`
    - 可同時勾選本機備份，形成雙寫
+
+##### CLI / OS 排程（相容模式，UI 目前隱藏）
+- 目前 UI 策略：
+  - 備份功能以「程式內建排程」為主（降低操作複雜度）
+  - `CLI/OS 排程` 模式已先從 UI 隱藏
+  - `schema` 與 `controller` 仍保留相容欄位/設定鍵，後續可恢復進階模式
+- 使用時機：
+  - 主程式未開啟也要自動備份時
+- 注意：
+  - OS 排程器只負責呼叫 CLI，是否真的執行仍依 UI 內儲存的頻率/時間設定判斷
 
 ##### Windows（工作排程器）：
 1. 開啟「工作排程器」-> 建立工作
