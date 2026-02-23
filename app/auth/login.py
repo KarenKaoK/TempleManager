@@ -15,6 +15,8 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 class LoginDialog(QDialog):
     """登入視窗"""
+    MIN_PASSWORD_LENGTH = 8
+
     def __init__(self):
         super().__init__()
         self.ui = Ui_Dialog()
@@ -252,8 +254,8 @@ class LoginDialog(QDialog):
                 if not ok:
                     self.reject()
                     return
-                if len(password or "") < 4:
-                    QMessageBox.warning(self, "錯誤", "密碼至少 4 碼")
+                if len(password or "") < self.MIN_PASSWORD_LENGTH:
+                    QMessageBox.warning(self, "錯誤", f"密碼至少 {self.MIN_PASSWORD_LENGTH} 碼")
                     continue
 
                 confirm, ok = QtWidgets.QInputDialog.getText(
@@ -264,6 +266,9 @@ class LoginDialog(QDialog):
                     return
                 if password != confirm:
                     QMessageBox.warning(self, "錯誤", "兩次密碼不一致")
+                    continue
+                if password == username:
+                    QMessageBox.warning(self, "錯誤", "密碼不可與帳號相同")
                     continue
 
                 cur = conn.cursor()
