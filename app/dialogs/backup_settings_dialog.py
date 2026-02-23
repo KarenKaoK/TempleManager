@@ -108,9 +108,11 @@ class ScheduleSettingsDialog(QDialog):
         self.spin_monthday = QSpinBox()
         self.spin_monthday.setRange(1, 31)
         form.addRow("每月日期", self.spin_monthday)
-
+        # 相容模式保留：UI 先隱藏 CLI/OS 排程選項，但仍保留設定值讀寫
         self.chk_use_cli_scheduler = QCheckBox("改用 CLI/作業系統排程（登出或未開啟程式也能備份）")
-        form.addRow("排程模式", self.chk_use_cli_scheduler)
+        self.chk_use_cli_scheduler.hide()
+        self.chk_use_cli_scheduler.setVisible(False)
+        # 不加入 form row，避免在 UI 顯示
 
         root.addLayout(form)
 
@@ -149,7 +151,8 @@ class ScheduleSettingsDialog(QDialog):
             "time": (self.edt_time.text() or "").strip(),
             "weekday": int(self.cmb_weekday.currentData()),
             "monthday": int(self.spin_monthday.value()),
-            "use_cli_scheduler": self.chk_use_cli_scheduler.isChecked(),
+            # UI 已隱藏 CLI 模式，避免舊設定值殘留造成桌面版自動備份被停用
+            "use_cli_scheduler": False,
         }
 
 
@@ -807,36 +810,19 @@ class BackupSettingsDialog(QDialog):
 <h3>1. 備份邏輯</h3>
 <ol>
   <li><b>啟用自動備份</b>：代表允許排程判斷生效。</li>
-  <li><b>改用 CLI/作業系統排程</b>：
-    <ul>
-      <li>勾選：由 OS 排程器呼叫 CLI（登出或程式未開啟也可執行）</li>
-      <li>未勾選：由程式內建排程觸發（程式需開啟）</li>
-    </ul>
-  </li>
-  <li><b>CLI 模式仍會看 UI 頻率</b>：OS 只負責呼叫，是否真的備份仍依 UI 設定（每日/每週/每月、時間、週幾/幾號）。</li>
+  <li><b>程式內建排程</b>：主程式開啟時，由系統依 UI 設定（每日/每週/每月、時間、週幾/幾號）判斷是否執行。</li>
   <li><b>立即備份</b>：按下就執行，不看排程時間，依當下勾選目的地備份（本機 / Drive / 雙寫）。</li>
   <li>Google Drive 採 OAuth 模式：首次需人工授權一次，後續由 token 自動續期。</li>
 </ol>
 
 <h3>2. 建議設定流程（先後順序）</h3>
-<p>
-  若目標是「登出狀態也要自動備份」，建議：
-  1) 先準備 credentials.json 並完成首次 OAuth 授權，
-  2) 再設定 CLI/OS 排程，
-  3) 最後回系統填目的地與參數。
-</p>
 <ol>
   <li>步驟 1：先完成 Google OAuth 設定與首次授權</li>
-  <li>步驟 2：設定 CLI/OS 排程（Windows 工作排程器或 macOS launchd）</li>
-  <li>步驟 3：回到系統內填入 JSON 路徑、資料夾 ID、目的地與保留數量</li>
-  <li>步驟 4：執行「立即備份」與 CLI <code>--run-once</code> 各驗證一次</li>
+  <li>步驟 2：回到系統內填入 JSON 路徑、資料夾 ID、目的地與保留數量</li>
+  <li>步驟 3：執行「立即備份」驗證一次</li>
 </ol>
 
-<h3>3. CLI 指令（給 OS 排程器呼叫）</h3>
-<pre>Module: {cli_module_cmd}
-File:   {cli_file_cmd}</pre>
-
-<h3>4. Google Drive OAuth 設定</h3>
+<h3>3. Google Drive OAuth 設定</h3>
 <p><b>第一步：準備 OAuth 憑證</b></p>
 <ol>
   <li>Google Cloud Console →「API 和服務」→「憑證」</li>
@@ -868,18 +854,12 @@ File:   {cli_file_cmd}</pre>
   <li>確認 Google Drive API 顯示為「已啟用」</li>
 </ol>
 
-<h3>5. Windows（工作排程器）</h3>
+<h3>4. 備份目的地與驗證</h3>
 <ol>
-  <li>開啟「工作排程器」→ 建立工作</li>
-  <li>觸發條件設每日 / 每週 / 每月</li>
-  <li>動作填入：<code>python -m app.backup_runner --run-once</code></li>
-  <li>起始於（Start in）設為專案根目錄（含 <code>app/</code> 的資料夾）</li>
-</ol>
-
-<h3>6. macOS（launchd）</h3>
-<ol>
-  <li>建立 plist 呼叫：<code>python -m app.backup_runner --run-once</code></li>
-  <li>WorkingDirectory 指向專案根目錄</li>
-  <li>以 <code>launchctl load</code> 啟用排程</li>
+  <li>回到系統內設定備份目的地（本機 / Google Drive，可雙寫）</li>
+  <li>設定保留最新備份數</li>
+  <li>按「立即備份」執行一次測試備份</li>
+  <li>確認備份紀錄狀態為 <code>SUCCESS</code></li>
+  <li>若有啟用 Google Drive，確認「檔案」欄位顯示 <code>DRIVE:資料夾名稱/檔名</code></li>
 </ol>
 """
