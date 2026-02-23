@@ -86,3 +86,33 @@ def test_create_and_reset_password_write_security_logs(security_db):
     assert logs[-1][0] == "reset_password"
     assert logs[-1][1] == "admin"
     assert logs[-1][2] == "staff1"
+
+
+def test_create_user_rejects_short_password(security_db):
+    conn = sqlite3.connect(security_db)
+    _insert_user(conn, "U1", "admin", "管理員")
+    conn.close()
+
+    controller = AppController(db_path=str(security_db))
+    with pytest.raises(ValueError, match="at least 8 characters"):
+        controller.create_user_account("admin", "staff1", "1234567", "工作人員")
+
+
+def test_create_user_rejects_password_same_as_username(security_db):
+    conn = sqlite3.connect(security_db)
+    _insert_user(conn, "U1", "admin", "管理員")
+    conn.close()
+
+    controller = AppController(db_path=str(security_db))
+    with pytest.raises(ValueError, match="same as username"):
+        controller.create_user_account("admin", "staff1001", "staff1001", "工作人員")
+
+
+def test_reset_password_rejects_password_same_as_username(security_db):
+    conn = sqlite3.connect(security_db)
+    _insert_user(conn, "U1", "admin", "管理員")
+    _insert_user(conn, "U2", "staff1001", "工作人員")
+    conn.close()
+    controller = AppController(db_path=str(security_db))
+    with pytest.raises(ValueError, match="same as username"):
+        controller.reset_user_password("admin", "staff1001", "staff1001", mode="manual")

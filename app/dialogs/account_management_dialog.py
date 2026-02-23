@@ -136,6 +136,20 @@ class AccountManagementDialog(QDialog):
             return None
         return item.text() == "啟用"
 
+    def _friendly_error_message(self, err: Exception) -> str:
+        text = str(err or "")
+        if "password must be at least" in text:
+            return "密碼至少 8 碼，請重新設定。"
+        if "password must not be the same as username" in text:
+            return "密碼不可與帳號相同，請重新設定。"
+        if "username already exists" in text:
+            return "帳號已存在，請更換帳號名稱。"
+        if "username is required" in text:
+            return "帳號不可空白。"
+        if "target user not found" in text:
+            return "找不到指定帳號。"
+        return text
+
     def create_user(self):
         username, ok = QInputDialog.getText(self, "新增帳號", "帳號")
         if not ok:
@@ -169,7 +183,7 @@ class AccountManagementDialog(QDialog):
                 QMessageBox.information(self, "成功", f"已建立帳號：{username}")
             self.reload_users()
         except Exception as e:
-            QMessageBox.warning(self, "失敗", str(e))
+            QMessageBox.warning(self, "失敗", self._friendly_error_message(e))
 
     def _generate_temp_password(self, length: int = 8) -> str:
         chars = string.ascii_letters + string.digits
@@ -198,7 +212,7 @@ class AccountManagementDialog(QDialog):
                 QMessageBox.information(self, "重設成功", f"帳號：{username}\n密碼已更新。")
             self.reload_users()
         except Exception as e:
-            QMessageBox.warning(self, "失敗", str(e))
+            QMessageBox.warning(self, "失敗", self._friendly_error_message(e))
 
     def toggle_active(self):
         username = self._selected_username()

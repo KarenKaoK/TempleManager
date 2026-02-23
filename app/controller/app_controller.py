@@ -39,6 +39,8 @@ class AppController:
     def _uuid(self) -> str:
         return str(uuid.uuid4())
     
+    MIN_PASSWORD_LENGTH = 8
+
     def _now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -705,13 +707,20 @@ class AppController:
         )
         return [dict(r) for r in cur.fetchall()]
 
+    def _validate_password_policy(self, username: str, password: str):
+        username = (username or "").strip()
+        password = str(password or "")
+        if len(password) < self.MIN_PASSWORD_LENGTH:
+            raise ValueError(f"password must be at least {self.MIN_PASSWORD_LENGTH} characters")
+        if username and password == username:
+            raise ValueError("password must not be the same as username")
+
     def create_user_account(self, actor_username: str, username: str, password: str, role: str):
         username = (username or "").strip()
         role = (role or "").strip()
         if not username:
             raise ValueError("username is required")
-        if len(password or "") < 4:
-            raise ValueError("password is too short")
+        self._validate_password_policy(username, password)
         cur = self.conn.cursor()
         cur.execute("SELECT 1 FROM users WHERE username=?", (username,))
         if cur.fetchone():
@@ -731,8 +740,8 @@ class AppController:
         self.log_security_event(actor_username, "create_user", username, f"role={role}")
 
     def reset_user_password(self, actor_username: str, target_username: str, new_password: str, mode: str = "manual"):
-        if len(new_password or "") < 4:
-            raise ValueError("password is too short")
+        target_username = (target_username or "").strip()
+        self._validate_password_policy(target_username, new_password)
         cur = self.conn.cursor()
         cur.execute("SELECT username FROM users WHERE username=?", (target_username,))
         if not cur.fetchone():
