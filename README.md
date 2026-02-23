@@ -85,8 +85,6 @@ temple_venv\Scripts\activate       # Windows
 pip install --upgrade pip
 pip install --only-binary=:all: -r requirements.txt
 ```
-說明：`lunardate` 已包含在 `requirements.txt`，不需另外單獨安裝。
-
 `--only-binary=:all:` 說明：
 - 強制 pip 只安裝預編譯 wheel，不從原始碼編譯套件。
 - 可避免 PyQt5 在某些環境（例如缺少 `qmake`）安裝失敗。
