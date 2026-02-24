@@ -14,6 +14,8 @@ class ActivityManagePage(QWidget):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
+        self._current_username = ""
+        self._current_user_role = ""
         self._build_ui()
 
     def _build_ui(self):
@@ -109,3 +111,15 @@ class ActivityManagePage(QWidget):
     def on_activity_deleted(self, activity_id: str):
         # 刷新左側清單；ActivityListPanel 會 auto_select_first=True
         self.activity_list_panel.refresh_current_filters()
+
+    def set_current_username(self, username: str):
+        self._current_username = (username or "").strip()
+        detail = getattr(self, "activity_detail_panel", None)
+        if detail is not None and hasattr(detail, "set_default_payment_handler"):
+            detail.set_default_payment_handler(self._current_username)
+
+    def set_current_user_role(self, role: str):
+        self._current_user_role = (role or "").strip()
+        detail = getattr(self, "activity_detail_panel", None)
+        if detail is not None and hasattr(detail, "set_current_user_role"):
+            detail.set_current_user_role(self._current_user_role)

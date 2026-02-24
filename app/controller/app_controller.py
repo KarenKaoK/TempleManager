@@ -132,6 +132,8 @@ class AppController:
                 cur.execute("ALTER TABLE users ADD COLUMN password_changed_at TEXT")
             if not self._column_exists("users", "is_active"):
                 cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
+            if not self._column_exists("users", "display_name"):
+                cur.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
             if not self._column_exists("users", "updated_at"):
                 cur.execute("ALTER TABLE users ADD COLUMN updated_at TEXT")
                 cur.execute("UPDATE users SET updated_at = ? WHERE updated_at IS NULL", (self._now(),))
@@ -699,7 +701,8 @@ class AppController:
         cur = self.conn.cursor()
         cur.execute(
             """
-            SELECT username, role, COALESCE(is_active, 1) AS is_active,
+            SELECT username, COALESCE(NULLIF(display_name,''), username) AS display_name,
+                   role, COALESCE(is_active, 1) AS is_active,
                    password_changed_at, created_at, last_login_at
             FROM users
             ORDER BY username COLLATE NOCASE ASC
@@ -715,11 +718,14 @@ class AppController:
         if username and password == username:
             raise ValueError("password must not be the same as username")
 
-    def create_user_account(self, actor_username: str, username: str, password: str, role: str):
+    def create_user_account(self, actor_username: str, username: str, password: str, role: str, display_name: str = ""):
         username = (username or "").strip()
+        display_name = (display_name or "").strip()
         role = (role or "").strip()
         if not username:
             raise ValueError("username is required")
+        if not display_name:
+            raise ValueError("display_name is required")
         self._validate_password_policy(username, password)
         cur = self.conn.cursor()
         cur.execute("SELECT 1 FROM users WHERE username=?", (username,))
@@ -731,13 +737,13 @@ class AppController:
         now = self._now()
         cur.execute(
             """
-            INSERT INTO users (id, username, password_hash, role, created_at, updated_at, is_active, password_changed_at, must_change_password)
-            VALUES (?, ?, ?, ?, ?, ?, 1, ?, 0)
+            INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at, is_active, password_changed_at, must_change_password)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 0)
             """,
-            (self._uuid(), username, pw_hash, role, now, now, now),
+            (self._uuid(), username, display_name, pw_hash, role, now, now, now),
         )
         self.conn.commit()
-        self.log_security_event(actor_username, "create_user", username, f"role={role}")
+        self.log_security_event(actor_username, "create_user", username, f"role={role},display_name={display_name}")
 
     def reset_user_password(self, actor_username: str, target_username: str, new_password: str, mode: str = "manual"):
         target_username = (target_username or "").strip()

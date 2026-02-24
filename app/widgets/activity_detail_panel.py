@@ -261,6 +261,8 @@ class ActivityDetailPanel(QWidget):
         self._signups: List[SignupRow] = []
 
         self._current_activity_id = None
+        self._default_payment_handler = ""
+        self._current_user_role = ""
 
         self._build_ui()
         
@@ -489,6 +491,7 @@ class ActivityDetailPanel(QWidget):
         self.btn_print_signup_list = QPushButton("列印名單")
         self.edt_payment_handler = QLineEdit()
         self.edt_payment_handler.setPlaceholderText("經手人（必填）")
+        self._apply_payment_handler_editable_state()
         self.btn_mark_paid.setEnabled(False)
         self.btn_show_all_signups.clicked.connect(self._on_show_all_signups)
         self.btn_show_unpaid_signups.clicked.connect(self._on_show_unpaid_signups)
@@ -508,6 +511,7 @@ class ActivityDetailPanel(QWidget):
         row_btn_1.addStretch(1)
         row_btn_1.addWidget(self.btn_print_signup_list)
         g1.addLayout(row_btn_1)
+        self._apply_default_payment_handler_if_needed()
 
         layout.addWidget(grp_detail, 1)
 
@@ -550,6 +554,35 @@ class ActivityDetailPanel(QWidget):
             self.tbl_plans.setItem(r, 3, QTableWidgetItem(amt_text))
 
         self.tbl_plans.resizeRowsToContents()
+
+    def set_default_payment_handler(self, username: str):
+        self._default_payment_handler = (username or "").strip()
+        self._apply_default_payment_handler_if_needed()
+
+    def set_current_user_role(self, role: str):
+        self._current_user_role = (role or "").strip()
+        self._apply_payment_handler_editable_state()
+
+    def _can_edit_payment_handler(self) -> bool:
+        return (self._current_user_role or "").strip() in {"管理員", "管理者", "會計", "會計人員"}
+
+    def _apply_payment_handler_editable_state(self):
+        if not hasattr(self, "edt_payment_handler"):
+            return
+        editable = self._can_edit_payment_handler()
+        self.edt_payment_handler.setReadOnly(not editable)
+        if editable:
+            self.edt_payment_handler.setToolTip("")
+        else:
+            self.edt_payment_handler.setToolTip("僅管理員與會計可修改經手人")
+
+    def _apply_default_payment_handler_if_needed(self):
+        if not hasattr(self, "edt_payment_handler"):
+            return
+        if (self.edt_payment_handler.text() or "").strip():
+            return
+        if self._default_payment_handler:
+            self.edt_payment_handler.setText(self._default_payment_handler)
 
 
     def _render_signup_stats(self):

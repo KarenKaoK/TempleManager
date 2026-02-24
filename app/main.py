@@ -237,8 +237,11 @@ def run_app():
 
         username = login_dialog.username
         role = login_dialog.role
+        display_name = (getattr(login_dialog, "display_name", None) or "").strip()
+        operator_name = f"{display_name}({username})" if display_name and display_name != username else username
         controller = AppController()
         main_window = MainWindow(username, role, controller)
+        main_window.operator_name = operator_name
         main_window._is_logout = False
         main_window.showMaximized()
         app.exec_()
