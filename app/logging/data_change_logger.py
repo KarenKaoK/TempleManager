@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from .system_logger import get_logger
 
@@ -10,14 +9,15 @@ from .system_logger import get_logger
 _logger = get_logger("data_change")
 
 
-def _make_serializable(value: Any) -> Any:
+def _format_value(value: Any) -> str:
     """
-    確保可以被 JSON 序列化；若不行則改用 repr。
+    將值轉成適合寫入文字 log 的字串。
     """
+    if value is None:
+        return "NULL"
     try:
-        json.dumps(value)
-        return value
-    except TypeError:
+        return str(value)
+    except Exception:
         return repr(value)
 
 
@@ -35,35 +35,62 @@ def log_data_change(
     """
     資料新增 / 刪除 / 異動 log。
 
-    寫入位置與一般系統 log 相同（log.log），但內容為單行 JSON 方便後續搜尋/分析。
+    寫入格式採用人眼友善的中文敘述，例如：
 
-    典型用法（例如新增/修改/刪除戶長）：
-
-        log_data_change(
-            user_id=current_user_id,
-            action="HOUSEHOLDER.CREATE",
-            entity="householder",
-            entity_id=str(new_id),
-            before=None,
-            after={"name": name, "phone": phone},
-        )
+        2026-02-24 15:01:12 [INFO] [DATA] data_change 登入更新最後登入時間變更，變更前：last_login_at=2026-02-23 21:59:07，變更後：last_login_at=2026-02-24 21:15:59
     """
-    event: Dict[str, Any] = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "kind": "data_change",
-        "user_id": user_id,
-        "action": action,
-        "entity": entity,
-        "entity_id": entity_id,
-        "before": before,
-        "after": after,
-        "extra": extra,
-        "error": error,
-    }
+    _ = datetime.now(timezone.utc)  # 保留時間物件以便未來需要擴充
 
-    serializable_event = {
-        key: _make_serializable(value) for key, value in event.items()
-    }
+    # 開頭固定為標籤與 logger 名稱
+    segments = ["[DATA]", "data_change"]
 
-    _logger.info(json.dumps(serializable_event, ensure_ascii=False))
+    # 動作描述
+    if action:
+        segments.append(f"{_format_value(action)}變更")
+
+    # 使用者 / 實體資訊（若有）
+    middle_parts = []
+    if user_id is not None:
+        middle_parts.append(f"使用者={_format_value(user_id)}")
+    if entity or entity_id is not None:
+        entity_str = _format_value(entity) if entity else ""
+        if entity_id is not None:
+            entity_str = (entity_str + " ").strip()
+            entity_str += f"ID={_format_value(entity_id)}"
+        if entity_str:
+            middle_parts.append(f"實體={entity_str}")
+    if middle_parts:
+        segments.append(" ".join(middle_parts))
+
+    # 變更前 / 變更後欄位
+    before_parts = []
+    if before:
+        for key, value in before.items():
+            before_parts.append(f"{key}={_format_value(value)}")
+
+    after_parts = []
+    if after:
+        for key, value in after.items():
+            after_parts.append(f"{key}={_format_value(value)}")
+
+    if before_parts:
+        segments.append("變更前：" + " ".join(before_parts))
+    if after_parts:
+        segments.append("變更後：" + " ".join(after_parts))
+
+    if extra:
+        for key, value in extra.items():
+            segments.append(f"額外_{key}={_format_value(value)}")
+    if error:
+        segments.append(f"錯誤={_format_value(error)}")
+
+    # 使用全形逗號將語句片段串起來，更貼近自然語氣
+    message = "，".join(segments[:3]) if len(segments) >= 3 else "，".join(segments)
+    if len(segments) > 3:
+        # 第 3 片段之後（變更前/後等）改用空白分隔，避免逗號過多
+        tail = " ".join(segments[3:])
+        if tail:
+            message = f"{message} {tail}"
+
+    _logger.info(message)
 

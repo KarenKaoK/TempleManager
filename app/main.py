@@ -5,6 +5,11 @@ from app.controller.app_controller import AppController
 from app.auth.login import LoginDialog
 from app.main_window import MainWindow
 from app.utils.font_manager import GlobalFontManager
+from app.logging import get_logger
+
+
+_login_logger = get_logger("login")
+
 
 def run_app():
     app = QApplication(sys.argv)
@@ -233,6 +238,9 @@ def run_app():
     while True:
         login_dialog = LoginDialog()
         if login_dialog.exec_() != QDialog.Accepted:
+            _login_logger.info(
+                "[SYSTEM] login - 登入視窗關閉 使用者未登入"
+            )
             break  # 使用者取消登入 → 結束程式
 
         username = login_dialog.username

@@ -1,6 +1,15 @@
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QAction, QMessageBox, QWidget, QStackedWidget, QDialog,
-    QHBoxLayout, QPushButton, QVBoxLayout, QFrame
+    QApplication,
+    QMainWindow,
+    QAction,
+    QMessageBox,
+    QWidget,
+    QStackedWidget,
+    QDialog,
+    QHBoxLayout,
+    QPushButton,
+    QVBoxLayout,
+    QFrame,
 )
 from PyQt5.QtCore import Qt, QEvent, QTimer, QObject, QThread, pyqtSignal
 import time
@@ -19,6 +28,10 @@ from app.dialogs.account_management_dialog import AccountManagementDialog
 from app.dialogs.cover_settings_dialog import CoverSettingsDialog
 from app.dialogs.backup_settings_dialog import BackupSettingsDialog
 from app.controller.app_controller import AppController
+from app.logging import get_logger
+
+
+_session_logger = get_logger("session")
 
 
 class ScheduledBackupWorker(QObject):
@@ -490,6 +503,9 @@ class MainWindow(QMainWindow):
             # 不跳阻塞式彈窗，避免卡住流程與關閉時潛在 crash
             if hasattr(self, "_idle_timer") and self._idle_timer is not None:
                 self._idle_timer.stop()
+            _session_logger.info(
+                f"[SYSTEM] session - 閒置自動登出 使用者={self.username} 角色={self.role} 閒置分鐘={minutes}"
+            )
             self._is_logout = True
             self.close()
 
@@ -525,6 +541,9 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply == QMessageBox.Yes:
+            _session_logger.info(
+                f"[SYSTEM] session - 手動登出 使用者={self.username} 角色={self.role}"
+            )
             self._is_logout = True
             self.close()
 
@@ -535,5 +554,8 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply == QMessageBox.Yes:
+            _session_logger.info(
+                f"[SYSTEM] session - 關閉程式 使用者={self.username} 角色={self.role}"
+            )
             self._is_logout = False
             self.close()

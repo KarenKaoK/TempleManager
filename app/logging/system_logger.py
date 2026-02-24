@@ -38,8 +38,10 @@ def _configure_base_logger() -> logging.Logger:
         backupCount=3,
         encoding="utf-8",
     )
+    # 統一由 message 自行帶上 [SYSTEM] / [DATA] 等標籤與模組名稱。
+    # 這裡 formatter 只負責時間與等級。
     formatter = logging.Formatter(
-        fmt="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+        fmt="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     handler.setFormatter(formatter)
@@ -64,14 +66,20 @@ def get_logger(name: str | None = None) -> logging.Logger:
 def log_info(message: str, **context: Any) -> None:
     logger = get_logger()
     if context:
-        message = f"{message} | {context}"
+        parts = [message]
+        for key, value in context.items():
+            parts.append(f"{key}={value}")
+        message = " ".join(parts)
     logger.info(message)
 
 
 def log_warning(message: str, **context: Any) -> None:
     logger = get_logger()
     if context:
-        message = f"{message} | {context}"
+        parts = [message]
+        for key, value in context.items():
+            parts.append(f"{key}={value}")
+        message = " ".join(parts)
     logger.warning(message)
 
 
@@ -82,7 +90,10 @@ def log_error(message: str, **context: Any) -> None:
     """
     logger = get_logger()
     if context:
-        message = f"{message} | {context}"
+        parts = [message]
+        for key, value in context.items():
+            parts.append(f"{key}={value}")
+        message = " ".join(parts)
     logger.error(message)
 
 
@@ -97,6 +108,9 @@ def log_exception(message: str, **context: Any) -> None:
     """
     logger = get_logger()
     if context:
-        message = f"{message} | {context}"
+        parts = [message]
+        for key, value in context.items():
+            parts.append(f"{key}={value}")
+        message = " ".join(parts)
     logger.exception(message)
 

@@ -3,14 +3,20 @@ import bcrypt
 import os
 from PyQt5.QtWidgets import QDialog, QMessageBox
 from PyQt5 import QtWidgets, QtCore, QtGui
-from app.dialogs.login_ui import Ui_Dialog  
+from app.dialogs.login_ui import Ui_Dialog
 from app.config import DB_NAME
 from datetime import datetime
 from uuid import uuid4
 
+from app.logging import get_logger, log_data_change
+
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+
+
+_login_logger = get_logger("login")
 
 
 class LoginDialog(QDialog):
@@ -300,56 +306,119 @@ class LoginDialog(QDialog):
         username = self.ui.lineEditUsername.text()
         password = self.ui.lineEditPassword.text()
 
+        _login_logger.info(f"[SYSTEM] login - 嘗試登入 使用者={username}")
+
         conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        has_active = self._column_exists(conn, "users", "is_active")
-        has_pwd_changed = self._column_exists(conn, "users", "password_changed_at")
-        has_last_login = self._column_exists(conn, "users", "last_login_at")
-        has_created = self._column_exists(conn, "users", "created_at")
-        has_display_name = self._column_exists(conn, "users", "display_name")
+        try:
+            cursor = conn.cursor()
+            has_active = self._column_exists(conn, "users", "is_active")
+            has_pwd_changed = self._column_exists(conn, "users", "password_changed_at")
+            has_last_login = self._column_exists(conn, "users", "last_login_at")
+            has_created = self._column_exists(conn, "users", "created_at")
+            has_display_name = self._column_exists(conn, "users", "display_name")
 
-        select_fields = ["password_hash", "role"]
-        select_fields.append("COALESCE(NULLIF(display_name,''), '') AS display_name" if has_display_name else "'' AS display_name")
-        select_fields.append("created_at" if has_created else "CURRENT_TIMESTAMP AS created_at")
-        if has_active:
-            select_fields.append("is_active")
-        if has_pwd_changed:
-            select_fields.append("password_changed_at")
-        cursor.execute(f"SELECT {', '.join(select_fields)} FROM users WHERE username = ?", (username,))
-        user = cursor.fetchone()
+            select_fields = ["password_hash", "role"]
+            select_fields.append(
+                "COALESCE(NULLIF(display_name,''), '') AS display_name"
+                if has_display_name
+                else "'' AS display_name"
+            )
+            select_fields.append(
+                "created_at" if has_created else "CURRENT_TIMESTAMP AS created_at"
+            )
+            if has_active:
+                select_fields.append("is_active")
+            if has_pwd_changed:
+                select_fields.append("password_changed_at")
+            if has_last_login:
+                select_fields.append("last_login_at")
 
-        if user:
-            stored_hash = user[0]
-            if isinstance(stored_hash, str):
-                stored_hash = stored_hash.encode("utf-8")
+            cursor.execute(
+                f"SELECT {', '.join(select_fields)} FROM users WHERE username = ?",
+                (username,),
+            )
+            user = cursor.fetchone()
 
-            if bcrypt.checkpw(password.encode(), stored_hash):
-                display_name = (user[2] if len(user) > 2 else "") or ""
-                created_at = user[3] if len(user) > 3 else None
-                idx = 4
-                is_active = 1
-                if has_active and len(user) > idx:
-                    is_active = user[idx]
-                    idx += 1
-                password_changed_at = None
-                if has_pwd_changed and len(user) > idx:
-                    password_changed_at = user[idx]
-                if has_active and int(is_active or 0) != 1:
-                    conn.close()
-                    QMessageBox.warning(self, "登入失敗", "此帳號已停用，請聯絡管理員")
+            if user:
+                stored_hash = user[0]
+                if isinstance(stored_hash, str):
+                    stored_hash = stored_hash.encode("utf-8")
+
+                if bcrypt.checkpw(password.encode(), stored_hash):
+                    display_name = (user[2] if len(user) > 2 else "") or ""
+                    created_at = user[3] if len(user) > 3 else None
+                    idx = 4
+                    is_active = 1
+                    if has_active and len(user) > idx:
+                        is_active = user[idx]
+                        idx += 1
+                    password_changed_at = None
+                    if has_pwd_changed and len(user) > idx:
+                        password_changed_at = user[idx]
+                        idx += 1
+                    last_login_at_before = None
+                    if has_last_login and len(user) > idx:
+                        last_login_at_before = user[idx]
+
+                    if has_active and int(is_active or 0) != 1:
+                        QMessageBox.warning(
+                            self,
+                            "登入失敗",
+                            "此帳號已停用，請聯絡管理員",
+                        )
+                        _login_logger.warning(
+                            f"[SYSTEM] login - 登入失敗 使用者={username} 原因=帳號已停用"
+                        )
+                        return
+
+                    self.username = username
+                    self.role = user[1]
+                    self.display_name = str(display_name).strip() or username
+
+                    if has_last_login:
+                        login_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        cursor.execute(
+                            "UPDATE users SET last_login_at = ? WHERE username=?",
+                            (login_now, username),
+                        )
+                        conn.commit()
+                        log_data_change(
+                            user_id=username,
+                            action="登入更新最後登入時間",
+                            entity="user",
+                            entity_id=username,
+                            before={"last_login_at": last_login_at_before},
+                            after={"last_login_at": login_now},
+                            extra={"source": "login_dialog"},
+                        )
+
+                    reminder = self._build_password_reminder(
+                        conn, password_changed_at, created_at
+                    )
+
+                    _login_logger.info(
+                        f"[SYSTEM] login - 登入成功 使用者={username} 角色={self.role}"
+                    )
+                    QMessageBox.information(
+                        self,
+                        "登入成功",
+                        f"登入成功，歡迎 {self.role} 使用！{reminder}",
+                    )
+                    self.accept()  # 關閉登入視窗
                     return
-                self.username = username
-                self.role = user[1]
-                self.display_name = str(display_name).strip() or username
-                if has_last_login:
-                    login_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    cursor.execute("UPDATE users SET last_login_at = ? WHERE username=?", (login_now, username))
-                    conn.commit()
-                reminder = self._build_password_reminder(conn, password_changed_at, created_at)
-                conn.close()
-                QMessageBox.information(self, "登入成功", f"登入成功，歡迎 {self.role} 使用！{reminder}")
-                self.accept()  # 關閉登入視窗
-                return
 
-        conn.close()
-        QMessageBox.warning(self, "登入失敗", "帳號或密碼錯誤")
+            _login_logger.warning(
+                f"[SYSTEM] login - 登入失敗 使用者={username} 原因=帳號或密碼錯誤"
+            )
+            QMessageBox.warning(self, "登入失敗", "帳號或密碼錯誤")
+        except Exception:
+            _login_logger.exception(
+                f"[SYSTEM] login - 登入流程發生錯誤 使用者={username}"
+            )
+            QMessageBox.critical(
+                self,
+                "登入錯誤",
+                "登入時發生系統錯誤，請稍後再試或聯絡管理員。",
+            )
+        finally:
+            conn.close()
