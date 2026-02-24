@@ -69,8 +69,9 @@ class FinanceReportDialog(QDialog):
         self.export_btn = QPushButton("匯出 Excel(CSV)")
         self.export_btn.clicked.connect(self.export_csv)
 
-        filter_row.addWidget(QLabel("彙整粒度:"))
-        filter_row.addWidget(self.granularity_combo)
+        # UI 已移除「彙整粒度」控制項；目前固定沿用預設值（日彙整）
+        self.granularity_combo.setCurrentIndex(0)
+        self.granularity_combo.hide()
         filter_row.addWidget(self.include_category_checkbox)
         filter_row.addWidget(QLabel("起日:"))
         filter_row.addWidget(self.start_date)
