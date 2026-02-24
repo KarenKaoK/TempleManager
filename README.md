@@ -50,6 +50,41 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 - **權限控制**：依角色限制收支作業、類別維護與停用資料恢復
 - **帳號管理**：僅管理員可新增/重設/停用啟用/刪除帳號，並保留審計紀錄
 
+### 🧾 系統 Log 與資料異動 Log
+
+系統內建兩種層級的 log，統一寫入專案根目錄的 `log.log` 檔案：
+
+- **系統 log（System Log）**：記錄登入/登出、排程與備份、錯誤訊息等系統行為與例外狀況
+- **資料異動 log（Data Change Log）**：記錄重要資料表的新增 / 修改 / 刪除操作，作為日後排錯與輔助還原資料的依據
+
+Log 採用人眼友善、易於 grep 的 `key=value` 格式，基本結構為：
+
+```text
+YYYY-MM-DD HH:MM:SS [LEVEL] [TAG] logger_name - key1=value1 key2=value2 ...
+```
+
+- `LEVEL`：常見為 `INFO` / `WARN` / `ERROR`
+- `TAG`：`[SYSTEM]` 或 `[DATA]`
+- `logger_name`：模組名稱（例如 `login`, `backup`, `data_change`）
+
+#### 系統 Log 範例
+
+```text
+2026-02-24 14:20:31 [INFO]  [SYSTEM] login - user=admin action=LOGIN_SUCCESS role=管理員
+2026-02-24 14:21:05 [WARN]  [SYSTEM] login - user=guest action=LOGIN_FAILED reason=WRONG_PASSWORD
+2026-02-24 14:22:10 [ERROR] [SYSTEM] backup - action=BACKUP_RUN status=FAILED error="disk full"
+```
+
+#### 資料異動 Log 範例
+
+```text
+2026-02-24 15:01:12 [INFO]  [DATA]  data_change - kind=DATA_CHANGE action=HOUSEHOLDER.CREATE user_id=admin entity=household entity_id=123 name="張三" phone_mobile="0912345678"
+2026-02-24 15:03:45 [INFO]  [DATA]  data_change - kind=DATA_CHANGE action=PERSON.UPDATE user_id=admin entity=person entity_id=456 changed_fields=name,phone_mobile before.name="張三" after.name="張三豐"
+2026-02-24 15:05:00 [INFO]  [DATA]  data_change - kind=DATA_CHANGE action=INCOME.DELETE user_id=cashier entity=income entity_id=789 amount=5000 date=2026-02-01
+```
+
+後端透過 `app/logging/system_logger.py` 與 `app/logging/data_change_logger.py` 統一寫入上述格式，未來若需改為更結構化（例如 JSON）格式，只要調整這兩個模組即可，呼叫端程式碼可以維持不變。
+
 ### 🔤 UI 與日期規範
 - **全域字體大小切換**：主頁可選擇小/中/大，並套用到各頁面與主要對話框
 - **日期格式統一**：畫面日期輸入與顯示統一為 `YYYY/MM/DD`
