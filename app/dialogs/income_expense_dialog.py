@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
     QComboBox, QDateEdit, QTabWidget, QWidget, QMessageBox, QFormLayout,
-    QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QFrame, QListView
+    QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QFrame, QListView, QAbstractSpinBox
 )
 from PyQt5.QtCore import QDate, Qt
 from datetime import date
@@ -273,8 +273,12 @@ class TransactionTab(QWidget):
         # 日期
         self.date_input = QDateEdit()
         self.date_input.setDate(QDate.currentDate())
-        self.date_input.setCalendarPopup(True)
+        self.date_input.setCalendarPopup(False)
         self.date_input.setDisplayFormat("yyyy/MM/dd")
+        self.date_input.setReadOnly(True)
+        self.date_input.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.date_input.lineEdit().setReadOnly(True)
+        self.date_input.setFocusPolicy(Qt.NoFocus)
         
         # 收據號碼 (唯讀，自動產生)
         self.receipt_input = QLineEdit()

@@ -785,8 +785,8 @@ class PrintHelper:
         draw_v_text(f"{payer_name}  大德捐獻", 35, Y_BODY_START + 5, FONT_BODY, bold=True)
         
         # 5. 項目 (43%)
-        item_name = data.get('category_name', '油香')
-        draw_v_text(f"本宮{item_name}建設", 43, Y_BODY_START, FONT_BODY)
+        # item_name = data.get('category_name', '油香')
+        draw_v_text(f"本宮油香建設", 43, Y_BODY_START, FONT_BODY)
         
         # 6. 金額 (51%)
         amount_text_full = f"新台幣  {amount_chinese}  元整"
