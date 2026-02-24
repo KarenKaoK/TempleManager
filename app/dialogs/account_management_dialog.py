@@ -35,8 +35,8 @@ class AccountManagementDialog(QDialog):
         root = QVBoxLayout(self)
 
         root.addWidget(QLabel("帳號列表"))
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["帳號", "角色", "狀態", "建立時間", "最近改密碼", "最近登入"])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["帳號", "姓名", "角色", "狀態", "建立時間", "最近改密碼", "最近登入"])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -46,11 +46,12 @@ class AccountManagementDialog(QDialog):
         self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.setMinimumHeight(360)
         self.table.setColumnWidth(0, 180)
-        self.table.setColumnWidth(1, 120)
-        self.table.setColumnWidth(2, 100)
-        self.table.setColumnWidth(3, 220)
+        self.table.setColumnWidth(1, 160)
+        self.table.setColumnWidth(2, 120)
+        self.table.setColumnWidth(3, 100)
         self.table.setColumnWidth(4, 220)
         self.table.setColumnWidth(5, 220)
+        self.table.setColumnWidth(6, 220)
         root.addWidget(self.table, 3)
 
         action_row = QHBoxLayout()
@@ -100,6 +101,7 @@ class AccountManagementDialog(QDialog):
             status_text = "啟用" if int(u.get("is_active") or 0) == 1 else "停用"
             values = [
                 str(u.get("username") or ""),
+                str(u.get("display_name") or ""),
                 str(u.get("role") or ""),
                 status_text,
                 str(u.get("created_at") or ""),
@@ -146,6 +148,8 @@ class AccountManagementDialog(QDialog):
             return "帳號已存在，請更換帳號名稱。"
         if "username is required" in text:
             return "帳號不可空白。"
+        if "display_name is required" in text:
+            return "姓名不可空白。"
         if "target user not found" in text:
             return "找不到指定帳號。"
         return text
@@ -158,6 +162,13 @@ class AccountManagementDialog(QDialog):
         if not username:
             QMessageBox.warning(self, "錯誤", "帳號不可空白")
             return
+        display_name, ok = QInputDialog.getText(self, "新增帳號", "姓名（經手人顯示名稱）")
+        if not ok:
+            return
+        display_name = (display_name or "").strip()
+        if not display_name:
+            QMessageBox.warning(self, "錯誤", "姓名不可空白")
+            return
         role, ok = QInputDialog.getItem(self, "新增帳號", "角色", ["會計", "工作人員", "管理員"], 0, False)
         if not ok:
             return
@@ -169,7 +180,7 @@ class AccountManagementDialog(QDialog):
         try:
             if mode == "系統產生臨時密碼":
                 password = self._generate_temp_password()
-                self.controller.create_user_account(self.actor_username, username, password, role)
+                self.controller.create_user_account(self.actor_username, username, password, role, display_name=display_name)
                 QMessageBox.information(
                     self,
                     "成功",
@@ -179,7 +190,7 @@ class AccountManagementDialog(QDialog):
                 password, ok = QInputDialog.getText(self, "新增帳號", "初始密碼", QLineEdit.Password)
                 if not ok:
                     return
-                self.controller.create_user_account(self.actor_username, username, password, role)
+                self.controller.create_user_account(self.actor_username, username, password, role, display_name=display_name)
                 QMessageBox.information(self, "成功", f"已建立帳號：{username}")
             self.reload_users()
         except Exception as e:

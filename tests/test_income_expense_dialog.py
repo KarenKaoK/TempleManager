@@ -1,7 +1,7 @@
 import pytest
 import sqlite3
 from unittest.mock import patch, MagicMock
-from PyQt5.QtWidgets import QDialog, QMessageBox
+from PyQt5.QtWidgets import QDialog, QMessageBox, QWidget
 from PyQt5.QtCore import QDate, Qt
 from datetime import date, timedelta
 from app.dialogs.income_expense_dialog import IncomeExpenseDialog
@@ -345,3 +345,51 @@ def test_admin_delete_non_today_is_allowed(qtbot, temp_db):
          patch("app.dialogs.income_expense_dialog.QMessageBox.information"):
         tab.delete_transaction(row_data)
         mock_delete.assert_called_once_with("T-ADMIN-DEL")
+
+
+def test_handler_input_prefills_operator_name_account(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    parent = QWidget()
+    parent.operator_name = "王小明(admin01)"
+    qtbot.addWidget(parent)
+
+    dlg = IncomeExpenseDialog(controller, parent=parent)
+
+    assert dlg.income_tab.handler_input.text() == "王小明(admin01)"
+    assert dlg.expense_tab.handler_input.text() == "王小明(admin01)"
+
+
+def test_handler_input_is_readonly_for_non_admin(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    parent = QWidget()
+    parent.operator_name = "王小明(admin01)"
+    qtbot.addWidget(parent)
+
+    dlg = IncomeExpenseDialog(controller, parent=parent, user_role="工作人員")
+
+    assert dlg.income_tab.handler_input.isReadOnly() is True
+    assert dlg.expense_tab.handler_input.isReadOnly() is True
+
+
+def test_handler_input_is_editable_for_admin(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    parent = QWidget()
+    parent.operator_name = "王小明(admin01)"
+    qtbot.addWidget(parent)
+
+    dlg = IncomeExpenseDialog(controller, parent=parent, user_role="管理員")
+
+    assert dlg.income_tab.handler_input.isReadOnly() is False
+    assert dlg.expense_tab.handler_input.isReadOnly() is False
+
+
+def test_handler_input_is_editable_for_accountant(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    parent = QWidget()
+    parent.operator_name = "王小明(account01)"
+    qtbot.addWidget(parent)
+
+    dlg = IncomeExpenseDialog(controller, parent=parent, user_role="會計")
+
+    assert dlg.income_tab.handler_input.isReadOnly() is False
+    assert dlg.expense_tab.handler_input.isReadOnly() is False

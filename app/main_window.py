@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.username = username
         self.role = role
+        self.operator_name = username
         self.controller = controller
         self.font_manager = getattr(QApplication.instance(), "font_manager", None)
         self._last_activity_ts = time.monotonic()
@@ -306,6 +307,10 @@ class MainWindow(QMainWindow):
             # 從管理頁跳到報名頁（ActivityManagePage 要有 request_open_signup signal）
             if hasattr(self.activity_manage_page, "request_open_signup"):
                 self.activity_manage_page.request_open_signup.connect(self.open_activity_signup)
+        if hasattr(self.activity_manage_page, "set_current_username"):
+            self.activity_manage_page.set_current_username(self.operator_name)
+        if hasattr(self.activity_manage_page, "set_current_user_role"):
+            self.activity_manage_page.set_current_user_role(self.role)
 
         self._show_page(self.activity_manage_page)
 

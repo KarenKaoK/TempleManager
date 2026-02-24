@@ -84,7 +84,6 @@ class _ActivityCard(QFrame):
                 border: 1px solid rgba(251,191,36,0.35);
                 color: #7a4a00;
                 font-weight: 800;
-                font-size: 12px;
             }
         """)
 
@@ -98,10 +97,10 @@ class _ActivityCard(QFrame):
         if code:
             self.lbl_title.setText(
                 f"""
-                <span style="font-size:14px; font-weight:900; color:#111;">
+                <span style="font-weight:900; color:#111;">
                     {title}
                 </span>
-                <span style="font-size:11px; color:#9CA3AF; margin-left:6px;">
+                <span style="color:#9CA3AF; margin-left:6px;">
                     （{code}）
                 </span>
                 """
@@ -114,7 +113,7 @@ class _ActivityCard(QFrame):
 
 
         self.lbl_meta = QLabel(date_range)
-        self.lbl_meta.setStyleSheet("color:#666666; font-size: 12px;")
+        self.lbl_meta.setStyleSheet("color:#666666;")
 
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
@@ -156,7 +155,6 @@ class _ActivityCard(QFrame):
                     border: 1px solid rgba(107,114,128,0.25);
                     color: #374151;
                     font-weight: 800;
-                    font-size: 12px;
                 }
             """)
         elif status_key == "not_started":
@@ -169,7 +167,6 @@ class _ActivityCard(QFrame):
                     border: 1px solid rgba(59,130,246,0.25);
                     color: #1E3A8A;                      /* 深藍字 */
                     font-weight: 800;
-                    font-size: 12px;
                 }
             """)
         else:
@@ -182,7 +179,6 @@ class _ActivityCard(QFrame):
                     border: 1px solid rgba(251,191,36,0.35);
                     color: #7a4a00;
                     font-weight: 800;
-                    font-size: 12px;
                 }
             """)
 
@@ -426,6 +422,7 @@ class ActivitySignupPage(QWidget):
         self.activity_scroll = QScrollArea()
         self.activity_scroll.setWidgetResizable(True)
         self.activity_scroll.setFrameShape(QFrame.NoFrame)
+        self.activity_scroll.setMinimumHeight(80)
 
         self.activity_scroll_content = QWidget()
         self.activity_grid = QGridLayout(self.activity_scroll_content)

@@ -71,7 +71,7 @@ def test_create_and_reset_password_write_security_logs(security_db):
     conn.close()
 
     controller = AppController(db_path=str(security_db))
-    controller.create_user_account("admin", "staff1", "abcd1234", "工作人員")
+    controller.create_user_account("admin", "staff1", "abcd1234", "工作人員", display_name="王小明")
     controller.reset_user_password("admin", "staff1", "temp5678", mode="manual")
 
     cur = controller.conn.cursor()
@@ -88,6 +88,18 @@ def test_create_and_reset_password_write_security_logs(security_db):
     assert logs[-1][2] == "staff1"
 
 
+def test_create_user_stores_display_name(security_db):
+    conn = sqlite3.connect(security_db)
+    _insert_user(conn, "U1", "admin", "管理員")
+    conn.close()
+
+    controller = AppController(db_path=str(security_db))
+    controller.create_user_account("admin", "staff1001", "abcd1234", "工作人員", display_name="王小明")
+    rows = controller.list_users()
+    staff = next(r for r in rows if r["username"] == "staff1001")
+    assert staff["display_name"] == "王小明"
+
+
 def test_create_user_rejects_short_password(security_db):
     conn = sqlite3.connect(security_db)
     _insert_user(conn, "U1", "admin", "管理員")
@@ -95,7 +107,7 @@ def test_create_user_rejects_short_password(security_db):
 
     controller = AppController(db_path=str(security_db))
     with pytest.raises(ValueError, match="at least 8 characters"):
-        controller.create_user_account("admin", "staff1", "1234567", "工作人員")
+        controller.create_user_account("admin", "staff1", "1234567", "工作人員", display_name="王小明")
 
 
 def test_create_user_rejects_password_same_as_username(security_db):
@@ -105,7 +117,7 @@ def test_create_user_rejects_password_same_as_username(security_db):
 
     controller = AppController(db_path=str(security_db))
     with pytest.raises(ValueError, match="same as username"):
-        controller.create_user_account("admin", "staff1001", "staff1001", "工作人員")
+        controller.create_user_account("admin", "staff1001", "staff1001", "工作人員", display_name="王小明")
 
 
 def test_reset_password_rejects_password_same_as_username(security_db):

@@ -61,6 +61,10 @@ class IncomeExpenseDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self.user_role = user_role
+        self.current_operator_name = (
+            (getattr(parent, "operator_name", "") or getattr(parent, "username", "") or "").strip()
+            if parent is not None else ""
+        )
         self.setWindowTitle("收支管理作業")
         self.resize(1200, 800) # 加大視窗以容納左右分割
         self.setup_ui(initial_tab)
@@ -71,11 +75,11 @@ class IncomeExpenseDialog(QDialog):
         self.tabs = QTabWidget()
         
         # 收入頁面
-        self.income_tab = TransactionTab(self.controller, "income", self, self.user_role)
+        self.income_tab = TransactionTab(self.controller, "income", self, self.user_role, self.current_operator_name)
         self.tabs.addTab(self.income_tab, "收入資料登錄作業")
         
         # 支出頁面
-        self.expense_tab = TransactionTab(self.controller, "expense", self, self.user_role)
+        self.expense_tab = TransactionTab(self.controller, "expense", self, self.user_role, self.current_operator_name)
         self.tabs.addTab(self.expense_tab, "支出資料登錄作業")
         
         self.tabs.setCurrentIndex(initial_tab)
@@ -183,12 +187,13 @@ class PersonSearchDialog(QDialog):
         self.accept()
 
 class TransactionTab(QWidget):
-    def __init__(self, controller, transaction_type, parent_dialog, user_role=None):
+    def __init__(self, controller, transaction_type, parent_dialog, user_role=None, current_operator_name=""):
         super().__init__()
         self.controller = controller
         self.t_type = transaction_type # "income" or "expense"
         self.parent_dialog = parent_dialog
         self.user_role = user_role
+        self.current_operator_name = (current_operator_name or "").strip()
         
         # 用於暫存選擇的信徒 ID (僅 Income 用到)
         self.selected_person_id = None
@@ -278,6 +283,9 @@ class TransactionTab(QWidget):
         
         # 經手人
         self.handler_input = QLineEdit()
+        if self.current_operator_name:
+            self.handler_input.setText(self.current_operator_name)
+        self._apply_handler_editable_state()
         
         # 項目 (Category)
         self.category_combo = CategoryComboBox()
@@ -583,6 +591,19 @@ class TransactionTab(QWidget):
     def _can_edit_any_date(self):
         # 支援新舊角色名稱：會計 / 會計人員
         return (self.user_role or "").strip() in {"管理員", "會計", "會計人員"}
+
+    def _can_edit_handler(self):
+        return (self.user_role or "").strip() in {"管理員", "管理者", "會計", "會計人員"}
+
+    def _apply_handler_editable_state(self):
+        if not hasattr(self, "handler_input"):
+            return
+        editable = self._can_edit_handler()
+        self.handler_input.setReadOnly(not editable)
+        if editable:
+            self.handler_input.setToolTip("")
+        else:
+            self.handler_input.setToolTip("僅管理員與會計可修改經手人")
 
     def _is_editable_today(self, data):
         if not data:

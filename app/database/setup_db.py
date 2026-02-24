@@ -13,6 +13,7 @@ def create_users_table(db_name=DB_NAME):
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
+        display_name TEXT,
         password_hash TEXT NOT NULL,
         role TEXT CHECK(role IN {USER_ROLES}) NOT NULL,
         is_active INTEGER DEFAULT 1,
@@ -160,8 +161,8 @@ def add_default_users(db_name=DB_NAME):
         cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
         if cursor.fetchone() is None:  # 🔹 確保帳號不存在才建立
             hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode("utf-8")
-            cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", 
-                           (username, hashed_pw, role))
+            cursor.execute("INSERT INTO users (username, display_name, password_hash, role) VALUES (?, ?, ?, ?)", 
+                           (username, username, hashed_pw, role))
             print(f"✅ 已建立帳號 {username}（{role}）")
         else:
             print(f"⚠️ 帳號 {username} 已存在，跳過")

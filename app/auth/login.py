@@ -31,6 +31,7 @@ class LoginDialog(QDialog):
         # 初始化登入結果
         self.username = None
         self.role = None
+        self.display_name = None
         self._ensure_admin_bootstrap()
 
     def _setup_cover_ui(self):
@@ -192,7 +193,7 @@ class LoginDialog(QDialog):
             # 測試或舊環境尚未建表時，不阻擋登入視窗初始化
             return True
 
-    def _insert_admin_user(self, conn, username: str, password: str):
+    def _insert_admin_user(self, conn, username: str, password: str, display_name: str = ""):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
         cols = []
@@ -210,6 +211,8 @@ class LoginDialog(QDialog):
 
         add("id", str(uuid4()))
         add("username", username)
+        if "display_name" in table_cols:
+            add("display_name", (display_name or "").strip() or username)
         add("password_hash", pw_hash)
         add("role", "管理員")
         if "is_active" in table_cols:
@@ -248,6 +251,15 @@ class LoginDialog(QDialog):
                     QMessageBox.warning(self, "錯誤", "帳號不可空白")
                     continue
 
+                display_name, ok = QtWidgets.QInputDialog.getText(self, "建立管理員", "管理員姓名（經手人顯示名稱）")
+                if not ok:
+                    self.reject()
+                    return
+                display_name = (display_name or "").strip()
+                if not display_name:
+                    QMessageBox.warning(self, "錯誤", "姓名不可空白")
+                    continue
+
                 password, ok = QtWidgets.QInputDialog.getText(
                     self, "建立管理員", "管理員密碼", QtWidgets.QLineEdit.Password
                 )
@@ -277,7 +289,7 @@ class LoginDialog(QDialog):
                     QMessageBox.warning(self, "錯誤", "帳號已存在，請更換")
                     continue
 
-                self._insert_admin_user(conn, username, password)
+                self._insert_admin_user(conn, username, password, display_name)
                 QMessageBox.information(self, "成功", "管理員帳號建立完成，請使用新帳號登入。")
                 return
         finally:
@@ -294,8 +306,10 @@ class LoginDialog(QDialog):
         has_pwd_changed = self._column_exists(conn, "users", "password_changed_at")
         has_last_login = self._column_exists(conn, "users", "last_login_at")
         has_created = self._column_exists(conn, "users", "created_at")
+        has_display_name = self._column_exists(conn, "users", "display_name")
 
         select_fields = ["password_hash", "role"]
+        select_fields.append("COALESCE(NULLIF(display_name,''), '') AS display_name" if has_display_name else "'' AS display_name")
         select_fields.append("created_at" if has_created else "CURRENT_TIMESTAMP AS created_at")
         if has_active:
             select_fields.append("is_active")
@@ -310,8 +324,9 @@ class LoginDialog(QDialog):
                 stored_hash = stored_hash.encode("utf-8")
 
             if bcrypt.checkpw(password.encode(), stored_hash):
-                created_at = user[2] if len(user) > 2 else None
-                idx = 3
+                display_name = (user[2] if len(user) > 2 else "") or ""
+                created_at = user[3] if len(user) > 3 else None
+                idx = 4
                 is_active = 1
                 if has_active and len(user) > idx:
                     is_active = user[idx]
@@ -325,6 +340,7 @@ class LoginDialog(QDialog):
                     return
                 self.username = username
                 self.role = user[1]
+                self.display_name = str(display_name).strip() or username
                 if has_last_login:
                     login_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     cursor.execute("UPDATE users SET last_login_at = ? WHERE username=?", (login_now, username))
