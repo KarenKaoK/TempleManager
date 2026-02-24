@@ -67,14 +67,21 @@ class LoginDialog(QDialog):
         title_y = cover_top + cover_h + 10
         self.title_label.setGeometry(margin, title_y, content_w, 48)
 
-        label_x = margin + 30
-        field_x = label_x + 80
+        label_w = 60
+        label_gap = 20
         field_w = max(220, min(360, content_w - 140))
+        form_w = label_w + label_gap + field_w
+        form_left = margin + max(0, (content_w - form_w) // 2)
+        label_x = form_left
+        field_x = label_x + label_w + label_gap
         form_top = title_y + 48 + 22
 
-        self.ui.labelUsername.setGeometry(label_x, form_top, 60, 24)
+        self.ui.labelUsername.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.ui.labelPassword.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+
+        self.ui.labelUsername.setGeometry(label_x, form_top, label_w, 24)
         self.ui.lineEditUsername.setGeometry(field_x, form_top - 3, field_w, 30)
-        self.ui.labelPassword.setGeometry(label_x, form_top + 47, 60, 24)
+        self.ui.labelPassword.setGeometry(label_x, form_top + 47, label_w, 24)
         self.ui.lineEditPassword.setGeometry(field_x, form_top + 44, field_w, 30)
 
         btn_w = 113

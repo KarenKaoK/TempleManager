@@ -1,7 +1,7 @@
 from typing import Optional
 
-from PyQt5.QtCore import QObject, QEvent, QTimer
-from PyQt5.QtWidgets import QDialog, QPushButton, QApplication
+from PyQt5.QtCore import QObject, QEvent
+from PyQt5.QtWidgets import QDialog, QPushButton, QApplication, QMessageBox, QInputDialog, QFileDialog
 
 
 _BUTTON_TEXT_MAP = {
@@ -47,16 +47,19 @@ class DialogButtonLocalizer(QObject):
     """
 
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.Show and isinstance(obj, QDialog):
-            self._localize_dialog_buttons(obj)
-            # 部分平台/樣式在 show 後才完成按鈕建構，再補一次
-            QTimer.singleShot(0, lambda o=obj: self._safe_localize(o))
+        if event.type() == QEvent.Show and self._is_supported_dialog(obj):
+            self._safe_localize(obj)
         return super().eventFilter(obj, event)
+
+    @staticmethod
+    def _is_supported_dialog(obj) -> bool:
+        # 僅處理 Qt 標準彈窗，避免干擾自訂 QDialog（例如登入視窗）造成平台穩定性問題
+        return isinstance(obj, (QMessageBox, QInputDialog, QFileDialog))
 
     def _safe_localize(self, dialog):
         try:
             self._localize_dialog_buttons(dialog)
-        except RuntimeError:
+        except (RuntimeError, TypeError):
             pass
 
     def _localize_dialog_buttons(self, dialog: QDialog):
