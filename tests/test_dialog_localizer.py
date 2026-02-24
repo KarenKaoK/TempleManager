@@ -1,4 +1,7 @@
+from PyQt5.QtWidgets import QDialog, QMessageBox, QInputDialog, QFileDialog
+
 from app.utils.dialog_localizer import translate_dialog_button_text
+from app.utils.dialog_localizer import DialogButtonLocalizer
 
 
 def test_translate_dialog_button_text_basic():
@@ -18,3 +21,10 @@ def test_translate_dialog_button_text_unknown_returns_none():
     assert translate_dialog_button_text("重新整理") is None
     assert translate_dialog_button_text("") is None
     assert translate_dialog_button_text(None) is None
+
+
+def test_dialog_localizer_only_targets_standard_dialogs():
+    assert DialogButtonLocalizer._is_supported_dialog(QMessageBox()) is True
+    assert DialogButtonLocalizer._is_supported_dialog(QInputDialog()) is True
+    assert DialogButtonLocalizer._is_supported_dialog(QFileDialog()) is True
+    assert DialogButtonLocalizer._is_supported_dialog(QDialog()) is False
