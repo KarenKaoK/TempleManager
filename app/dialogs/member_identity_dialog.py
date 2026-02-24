@@ -182,8 +182,6 @@ class MemberIdentityDialog(QDialog):
         msg_box.setWindowTitle("確認刪除")
         msg_box.setText(f"確定要刪除身份名稱 '{current_name}' 嗎？")
         msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        msg_box.button(QMessageBox.StandardButton.Yes).setText("是")
-        msg_box.button(QMessageBox.StandardButton.No).setText("否")
 
         reply = msg_box.exec_()
         if reply == QMessageBox.StandardButton.Yes:

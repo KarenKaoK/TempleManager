@@ -322,11 +322,10 @@ class IncomeSetupDialog(QDialog):
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle(f"確認{action}")
         msg_box.setText(f"確定要{action}收入項目「{current_id}: {current_name}」嗎？")
-        btn_yes = msg_box.addButton("是", QMessageBox.ButtonRole.AcceptRole)
-        btn_no = msg_box.addButton("否", QMessageBox.ButtonRole.RejectRole)
-        msg_box.exec_()
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
 
-        if msg_box.clickedButton() == btn_yes:  # ✅ 如果按下的是「是」
+        if msg_box.exec_() == QMessageBox.StandardButton.Yes:
             cursor.execute("UPDATE income_items SET is_active = ? WHERE id = ?", (next_active, current_id))
             conn.commit()
             self.load_data()  # ✅ 重新載入資料，確保 UI 更新

@@ -268,13 +268,7 @@ def test_income_dialog_delete_success(qtbot, temp_income_db):
     dialog.table.selectRow(0)
 
     # 準備模擬 QMessageBox
-    mock_box = MagicMock()
-    mock_box.exec_.return_value = QMessageBox.Yes
-    mock_yes_button = object()
-    mock_box.clickedButton.return_value = mock_yes_button
-    mock_box.addButton.side_effect = lambda label, role: mock_yes_button if label == "是" else object()
-
-    with patch("app.dialogs.income_dialog.QMessageBox", return_value=mock_box), \
+    with patch("PyQt5.QtWidgets.QMessageBox.exec_", return_value=QMessageBox.StandardButton.Yes), \
          patch("app.dialogs.income_dialog.QMessageBox.information") as mock_info:
 
         dialog.delete_income_item()

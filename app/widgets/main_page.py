@@ -436,13 +436,12 @@ class MainPageWidget(QWidget):
         box.setWindowTitle("確認刪除戶長")
         box.setText(msg)
 
-        btn_yes = box.addButton("是", QMessageBox.AcceptRole)
-        btn_no = box.addButton("否", QMessageBox.RejectRole)
-        box.setDefaultButton(btn_no)  # 預設選「否」避免誤刪
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)  # 預設選「否」避免誤刪
 
         box.exec_()
 
-        if box.clickedButton() != btn_yes:
+        if box.standardButton(box.clickedButton()) != QMessageBox.StandardButton.Yes:
             return
 
 
@@ -928,14 +927,12 @@ class MainPageWidget(QWidget):
         box.setWindowTitle("確認刪除")
         box.setText(f"確定要刪除成員 {name} 嗎？")
 
-        btn_yes = box.addButton("是", QMessageBox.AcceptRole)
-        btn_no = box.addButton("否", QMessageBox.RejectRole)
-
-        box.setDefaultButton(btn_no)  # 預設選「否」避免誤刪
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)  # 預設選「否」避免誤刪
 
         box.exec_()
 
-        if box.clickedButton() == btn_yes:
+        if box.standardButton(box.clickedButton()) == QMessageBox.StandardButton.Yes:
             self.controller.deactivate_person(person_id, allow_head=False)
             self._load_household(self.selected_household_id, self.selected_head_person_id)
 
@@ -964,14 +961,12 @@ class MainPageWidget(QWidget):
             "此動作會建立一個新的戶長，並將此人移到新戶長。"
         )
 
-        btn_yes = box.addButton("是", QMessageBox.AcceptRole)
-        btn_no = box.addButton("否", QMessageBox.RejectRole)
-
-        box.setDefaultButton(btn_no)  # 預設選「否」避免誤操作
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)  # 預設選「否」避免誤操作
 
         box.exec_()
 
-        if box.clickedButton() != btn_yes:
+        if box.standardButton(box.clickedButton()) != QMessageBox.StandardButton.Yes:
             return
 
 
