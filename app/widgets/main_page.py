@@ -1,9 +1,24 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QTableWidget, QSplitter, QGroupBox, QFormLayout,
-    QLineEdit, QTextEdit, QLabel, QHBoxLayout, QPushButton, QGridLayout,
+    QWidget,
+    QVBoxLayout,
+    QTableWidget,
+    QSplitter,
+    QGroupBox,
+    QFormLayout,
+    QLineEdit,
+    QTextEdit,
+    QLabel,
+    QHBoxLayout,
+    QPushButton,
+    QGridLayout,
     QComboBox,
-    QTabWidget, QTableWidgetItem, QMessageBox, QDialog, QSizePolicy, QHeaderView,
-    QAbstractScrollArea
+    QTabWidget,
+    QTableWidgetItem,
+    QMessageBox,
+    QDialog,
+    QSizePolicy,
+    QHeaderView,
+    QAbstractScrollArea,
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -13,6 +28,10 @@ from app.dialogs.new_member_dialog import NewMemberDialog
 from app.dialogs.edit_member_dialog import EditMemberDialog
 from app.dialogs.transfer_household_dialog import TransferHouseholdDialog
 from app.utils.date_utils import normalize_ymd_text
+from app.logging import get_logger, log_data_change, person_snapshot_for_log
+
+
+_household_logger = get_logger("household")
 
 
 class MainPageWidget(QWidget):
@@ -458,7 +477,23 @@ class MainPageWidget(QWidget):
             else:
                 QMessageBox.information(self, "完成", f"已刪除戶長：{head_name}")
 
-            # ✅ 刷新整頁：戶長清單 + 預設選第一戶
+                # 資料異動 log：刪除戶長（含完整欄位）
+                actor = getattr(self, "operator_name", None)
+                before = person_snapshot_for_log(head) if head else {}
+                before["status"] = before.get("status") or "ACTIVE"
+                after = dict(before)
+                after["status"] = "INACTIVE"
+                log_data_change(
+                    user_id=actor,
+                    action="刪除戶長",
+                    entity="person",
+                    entity_id=head_person_id,
+                    before=before,
+                    after=after,
+                    extra={"source": "main_page_delete_head"},
+                )
+
+            # 刷新整頁：戶長清單 + 預設選第一戶
             self.refresh_all_panels()
 
             # 若刷新後完全沒戶長，順便把刪除鈕關掉
@@ -466,6 +501,9 @@ class MainPageWidget(QWidget):
                 self.delete_btn.setEnabled(False)
 
         except Exception as e:
+            _household_logger.warning(
+                f"[SYSTEM] household - 刪除戶長失敗 戶長ID={head_person_id} 錯誤={e}"
+            )
             QMessageBox.warning(self, "刪除失敗", str(e))
 
     def open_restore_people_dialog(self):
@@ -555,7 +593,25 @@ class MainPageWidget(QWidget):
                 return
 
             try:
+                actor = getattr(self, "operator_name", None)
+
+                before = person_snapshot_for_log(person)
+                before["status"] = "INACTIVE"
+
                 self.controller.reactivate_person(person.get("id"))
+
+                after = person_snapshot_for_log(person)
+                after["status"] = "ACTIVE"
+                log_data_change(
+                    user_id=actor,
+                    action="恢復停用資料",
+                    entity="person",
+                    entity_id=person.get("id"),
+                    before=before,
+                    after=after,
+                    extra={"source": "main_page_restore_person"},
+                )
+
                 QMessageBox.information(dialog, "完成", f"已恢復：{name}")
 
                 household_id = person.get("household_id")
@@ -576,6 +632,9 @@ class MainPageWidget(QWidget):
 
                 _reload_inactive(search_input.text())
             except Exception as e:
+                _household_logger.warning(
+                    f"[SYSTEM] household - 恢復停用資料失敗 人員ID={person.get('id')} 錯誤={e}"
+                )
                 QMessageBox.warning(dialog, "恢復失敗", str(e))
 
         restore_btn.clicked.connect(_restore_selected)
@@ -880,14 +939,32 @@ class MainPageWidget(QWidget):
             member_data = dialog.get_data()  # 若你的 dialog 叫 get_payload，就改成 get_payload()
 
             try:
-                self.controller.create_people(head_person_id, member_data)
+                new_person_id = self.controller.create_people(head_person_id, member_data)
                 # 新增後需要同步刷新上方「信眾戶長戶員資料」與下方明細
                 self.refresh_all_panels(
                     select_household_id=self.selected_household_id,
-                    select_head_person_id=head_person_id
+                    select_head_person_id=head_person_id,
+                )
+
+                # 資料異動 log：新增家庭成員（含完整欄位）
+                actor = getattr(self, "operator_name", None)
+                after = person_snapshot_for_log(member_data)
+                after["role_in_household"] = "MEMBER"
+                after["household_id"] = self.selected_household_id
+                log_data_change(
+                    user_id=actor,
+                    action="新增家庭成員",
+                    entity="person",
+                    entity_id=new_person_id,
+                    before=None,
+                    after=after,
+                    extra={"source": "main_page_add_member"},
                 )
 
             except Exception as e:
+                _household_logger.exception(
+                    f"[SYSTEM] household - 新增家庭成員失敗 戶長ID={head_person_id} 錯誤={e}"
+                )
                 QMessageBox.critical(self, "❌ 錯誤", f"新增成員時發生錯誤：{e}")
 
     def on_edit_member_clicked(self):
@@ -902,6 +979,8 @@ class MainPageWidget(QWidget):
             return
 
         dialog = EditMemberDialog(self.controller, person, self)
+        # 傳遞經手人名稱供 log 使用
+        setattr(dialog, "operator_name", getattr(self, "operator_name", None))
         if dialog.exec_() == QDialog.Accepted:
             # 用新流程刷新（不要用 refresh_member_table）
             self.refresh_all_panels(
@@ -936,7 +1015,31 @@ class MainPageWidget(QWidget):
         box.exec_()
 
         if box.clickedButton() == btn_yes:
-            self.controller.deactivate_person(person_id, allow_head=False)
+            actor = getattr(self, "operator_name", None)
+            before = person_snapshot_for_log(person) if person else {}
+            if not before.get("status"):
+                before["status"] = "ACTIVE"
+            try:
+                self.controller.deactivate_person(person_id, allow_head=False)
+                # 資料異動 log：停用成員（含完整欄位）
+                after = dict(before)
+                after["status"] = "INACTIVE"
+                log_data_change(
+                    user_id=actor,
+                    action="停用成員",
+                    entity="person",
+                    entity_id=person_id,
+                    before=before,
+                    after=after,
+                    extra={"source": "main_page_delete_member"},
+                )
+            except Exception as e:
+                _household_logger.warning(
+                    f"[SYSTEM] household - 停用成員失敗 人員ID={person_id} 錯誤={e}"
+                )
+                QMessageBox.warning(self, "刪除失敗", str(e))
+                return
+
             self._load_household(self.selected_household_id, self.selected_head_person_id)
 
 
@@ -974,10 +1077,29 @@ class MainPageWidget(QWidget):
         if box.clickedButton() != btn_yes:
             return
 
+        actor = getattr(self, "operator_name", None)
 
         try:
-            # ✅ controller 會回傳 new_household_id
+            # controller 會回傳 new_household_id
+            old_household_id = self.selected_household_id
             new_household_id = self.controller.split_member_to_new_household(person_id)
+
+            # 資料異動 log：分戶成新戶長（含完整欄位）
+            before = person_snapshot_for_log(person)
+            before["household_id"] = old_household_id
+            before["role_in_household"] = "MEMBER"
+            after = person_snapshot_for_log(person)
+            after["household_id"] = new_household_id
+            after["role_in_household"] = "HEAD"
+            log_data_change(
+                user_id=actor,
+                action="分戶成新戶長",
+                entity="person",
+                entity_id=person_id,
+                before=before,
+                after=after,
+                extra={"source": "main_page_split_member"},
+            )
 
             # ✅ 分戶後：刷新戶長清單 + 直接切到新戶長（新戶長就是 person_id）
             self.refresh_all_panels(
@@ -988,6 +1110,9 @@ class MainPageWidget(QWidget):
             QMessageBox.information(self, "完成", f"已分戶：{name} 已成為新戶長")
 
         except Exception as e:
+            _household_logger.warning(
+                f"[SYSTEM] household - 分戶成新戶長失敗 人員ID={person_id} 錯誤={e}"
+            )
             QMessageBox.critical(self, "❌ 分戶失敗", f"{e}")
 
 
@@ -1042,6 +1167,24 @@ class MainPageWidget(QWidget):
                 require_active=True
             )
 
+            # 資料異動 log：變更戶長（成員轉移戶籍，含完整欄位）
+            actor = getattr(self, "operator_name", None)
+            before = person_snapshot_for_log(member)
+            before["household_id"] = current_head.get("household_id")
+            before["role_in_household"] = "MEMBER"
+            after = person_snapshot_for_log(member)
+            after["household_id"] = target_household_id
+            after["role_in_household"] = "MEMBER"
+            log_data_change(
+                user_id=actor,
+                action="變更戶長",
+                entity="person",
+                entity_id=member_person_id,
+                before=before,
+                after=after,
+                extra={"source": "main_page_transfer_household"},
+            )
+
             # 4) 刷新，並切到新戶長戶員（讓使用者立即看到結果）
             self.refresh_all_panels(
                 select_household_id=target_household_id,
@@ -1051,6 +1194,9 @@ class MainPageWidget(QWidget):
             QMessageBox.information(self, "完成", f"變更戶長完成：{name} 已移至目標戶長底下")
 
         except Exception as e:
+            _household_logger.warning(
+                f"[SYSTEM] household - 變更戶長失敗 成員ID={member_person_id} 錯誤={e}"
+            )
             QMessageBox.critical(self, "❌ 變更失敗", str(e))
 
 

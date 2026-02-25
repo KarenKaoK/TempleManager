@@ -1,7 +1,12 @@
 # edit_member_dialog.py
 from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
+
 from .base_person_dialog import BasePersonDialog
 from app.utils.date_utils import normalize_ymd_text
+from app.logging import get_logger, log_data_change, person_snapshot_for_log
+
+
+_household_logger = get_logger("household")
 
 class EditMemberDialog(BasePersonDialog):
     def __init__(self, controller, person: dict, parent=None):
@@ -39,9 +44,36 @@ class EditMemberDialog(BasePersonDialog):
 
     def on_save_clicked(self):
         payload = self.get_data()
+        before_dict = dict(self.person or {})
         try:
             self.controller.update_person(self.person_id, payload)
+            actor = getattr(self, "operator_name", None)
+
+            # 完整欄位 before/after（含國曆生日、農曆生日、時辰、年紀、生肖等）
+            before = person_snapshot_for_log(before_dict)
+            after = person_snapshot_for_log(payload)
+            # payload 不含 role/household/status，從 before 補齊
+            if "role_in_household" in before_dict:
+                after["role_in_household"] = before_dict["role_in_household"]
+            if "household_id" in before_dict:
+                after["household_id"] = before_dict["household_id"]
+            if "status" in before_dict:
+                after["status"] = before_dict["status"]
+
+            log_data_change(
+                user_id=actor,
+                action="修改信眾資料",
+                entity="person",
+                entity_id=self.person_id,
+                before=before,
+                after=after,
+                extra={"source": "edit_member_dialog"},
+            )
+
             QMessageBox.information(self, "成功", "資料已更新")
             self.accept()
         except Exception as e:
+            _household_logger.warning(
+                f"[SYSTEM] household - 修改信眾資料失敗 人員ID={self.person_id} 錯誤={e}"
+            )
             QMessageBox.warning(self, "錯誤", f"更新失敗：{e}")

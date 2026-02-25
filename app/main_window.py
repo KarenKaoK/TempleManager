@@ -260,6 +260,8 @@ class MainWindow(QMainWindow):
             self.main_page.search_bar.search_triggered.connect(self.perform_search)
             self.main_page.search_bar.show_all_triggered.connect(lambda: self.main_page.refresh_all_panels())
             self.main_page.new_household_triggered.connect(self.open_new_household_dialog)
+            # 提供經手人名稱給戶籍頁面，用於資料異動 log
+            setattr(self.main_page, "operator_name", getattr(self, "operator_name", self.username))
 
         self._show_page(self.main_page)
 

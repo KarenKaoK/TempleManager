@@ -507,6 +507,10 @@ class TransactionTab(QWidget):
 
     def open_new_person_dialog(self):
         dialog = NewHouseholdDialog(self.controller, self)
+        # 嘗試帶入經手人名稱供新增戶長 log 使用
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "operator_name"):
+            setattr(dialog, "operator_name", getattr(parent, "operator_name", None))
         # 用 save_data 後這裡一樣會是 Accepted (如果成功)
         if dialog.exec_() == QDialog.Accepted:
             if hasattr(dialog, 'created_person_id'):

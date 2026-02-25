@@ -8,6 +8,44 @@ from .system_logger import get_logger
 
 _logger = get_logger("data_change")
 
+# 信眾/戶籍 log 要記錄的欄位（依序）
+_PERSON_LOG_KEYS = [
+    "name",
+    "gender",
+    "birthday_ad",
+    "birthday_lunar",
+    "birth_time",
+    "age",
+    "zodiac",
+    "phone_home",
+    "phone_mobile",
+    "address",
+    "zip_code",
+    "note",
+    "lunar_is_leap",
+    "role_in_household",
+    "household_id",
+    "status",
+]
+
+
+def person_snapshot_for_log(data: Optional[Mapping[str, Any]]) -> dict:
+    """
+    從 person 或 form data 擷取要寫入 log 的欄位，僅保留有值的欄位。
+    用於新增戶長、新增成員、修改信眾、刪除/停用、恢復等資料異動 log。
+    """
+    if not data:
+        return {}
+    out = {}
+    for k in _PERSON_LOG_KEYS:
+        v = data.get(k)
+        if v is None:
+            continue
+        if isinstance(v, str) and v.strip() == "":
+            continue
+        out[k] = v
+    return out
+
 
 def _format_value(value: Any) -> str:
     """
