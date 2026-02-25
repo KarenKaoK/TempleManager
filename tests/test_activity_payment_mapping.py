@@ -142,3 +142,22 @@ def test_mark_activity_paid_maps_category_and_note(controller_with_payment_db):
     assert row["category_name"] == "活動收入"
     assert row["note"].startswith("[2026/02/28 虎爺聖誕]")
     assert "雙虎祝壽×2" in row["note"]
+
+
+def test_mark_activity_paid_writes_data_change_log(controller_with_payment_db, monkeypatch):
+    calls = []
+    def fake_log(**kw):
+        calls.append(kw)
+    monkeypatch.setattr("app.controller.app_controller.log_data_change", fake_log)
+
+    c = controller_with_payment_db
+    result = c.mark_activity_signups_paid("A1", ["S1"], handler="櫃台A", actor="cashier")
+    assert result["paid_count"] == 1
+    assert any(call.get("action") == "活動報名繳費" for call in calls), f"logs: {calls}"
+    assert any(call.get("entity") == "activity_signup" for call in calls), f"logs: {calls}"
+    pay_logs = [call for call in calls if call.get("action") == "活動報名繳費"]
+    assert pay_logs, f"logs: {calls}"
+    after = pay_logs[-1].get("after") or {}
+    assert after.get("person_name") == "王小明", f"logs: {calls}"
+    assert after.get("activity_name") == "虎爺聖誕", f"logs: {calls}"
+    assert "雙虎祝壽" in str(after.get("plan_fee_detail", "")), f"logs: {calls}"

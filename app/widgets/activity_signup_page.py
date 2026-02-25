@@ -14,6 +14,10 @@ from app.utils.id_utils import (
     compute_display_status,
     parse_date_str_to_qdate,
 )
+from app.logging import get_logger
+
+
+_activity_signup_logger = get_logger("activity_signup")
 
 
 # -----------------------------
@@ -243,6 +247,7 @@ class ActivitySignupPage(QWidget):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
+        self._current_username = ""
 
         self.activity_data = None            # 目前選中的活動 dict
         self._activity_list = []             # 所有活動（list[dict]）
@@ -256,6 +261,9 @@ class ActivitySignupPage(QWidget):
         self._lock_signup_area(True)
 
         self._wire_person_panel()
+
+    def set_current_username(self, username: str):
+        self._current_username = (username or "").strip()
 
     # =========================
     # 左下：人員面板接線（搜尋 / 顯示結果）
@@ -290,6 +298,7 @@ class ActivitySignupPage(QWidget):
         try:
             people = self.controller.search_people_unified_dedup_name_birthday(kw)
         except Exception as e:
+            _activity_signup_logger.exception(f"[SYSTEM] activity_signup - 搜尋人員失敗 keyword={kw} error={e}")
             QMessageBox.warning(self, "搜尋失敗", f"搜尋人員資料時發生錯誤：\n{e}")
             people = []
 
@@ -321,6 +330,7 @@ class ActivitySignupPage(QWidget):
         try:
             household_people = self.controller.get_household_people_by_person_id(person_id, status="ACTIVE")
         except Exception as e:
+            _activity_signup_logger.exception(f"[SYSTEM] activity_signup - 載入整戶失敗 person_id={person_id} error={e}")
             QMessageBox.warning(self, "載入失敗", f"讀取整戶人員資料時發生錯誤：\n{e}")
             return
 
@@ -354,15 +364,19 @@ class ActivitySignupPage(QWidget):
             try:
                 old_signup_id = (self.controller.get_activity_signup_id_by_person(activity_id, pid) or "").strip()
                 if old_signup_id:
-                    self.controller.delete_activity_signup(old_signup_id)
+                    self.controller.delete_activity_signup(old_signup_id, actor=self._current_username or None)
                 self.controller.create_activity_signup(
                     activity_id=activity_id,
                     person_id=pid,
                     selected_plans=plans,
                     note=note,
+                    actor=self._current_username or None,
                 )
                 success.append(pname)
             except Exception as e:
+                _activity_signup_logger.exception(
+                    f"[SYSTEM] activity_signup - 整戶報名處理失敗 activity_id={activity_id} person_id={pid} error={e}"
+                )
                 failed.append(f"{pname}：{e}")
 
         msg = f"整戶報名完成\n成功：{len(success)} 人"
@@ -538,7 +552,10 @@ class ActivitySignupPage(QWidget):
             return
         try:
             rows = self.controller.get_activity_signups(self.activity_data.get("id"))
-        except Exception:
+        except Exception as e:
+            _activity_signup_logger.exception(
+                f"[SYSTEM] activity_signup - 讀取報名統計失敗 activity_id={self.activity_data.get('id')} error={e}"
+            )
             rows = []
         count = len(rows or [])
         total = sum(int((r or {}).get("total_amount", 0) or 0) for r in (rows or []))
@@ -587,6 +604,7 @@ class ActivitySignupPage(QWidget):
             QMessageBox.information(self, "請先選擇", "請先在右側已報名明細選擇一筆資料")
             return
         dlg = ActivitySignupEditDialog(self.controller, sid, self)
+        setattr(dlg, "operator_name", self._current_username or None)
         if dlg.exec_() == QDialog.Accepted:
             self._refresh_signup_stats()
 
@@ -603,8 +621,9 @@ class ActivitySignupPage(QWidget):
         if ok != QMessageBox.Yes:
             return
         try:
-            deleted = self.controller.delete_activity_signup(sid)
+            deleted = self.controller.delete_activity_signup(sid, actor=self._current_username or None)
         except Exception as e:
+            _activity_signup_logger.exception(f"[SYSTEM] activity_signup - 刪除報名失敗 signup_id={sid} error={e}")
             QMessageBox.critical(self, "刪除失敗", f"刪除報名失敗：\n{e}")
             return
         if not deleted:
@@ -619,7 +638,8 @@ class ActivitySignupPage(QWidget):
     def _load_activities(self):
         try:
             activities = self.controller.list_activities_for_signup()
-        except Exception:
+        except Exception as e:
+            _activity_signup_logger.exception(f"[SYSTEM] activity_signup - 載入活動卡片失敗 error={e}")
             activities = []
 
         self._activity_list = activities or []
