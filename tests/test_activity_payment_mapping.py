@@ -99,6 +99,11 @@ def controller_with_payment_db(tmp_path):
             handler TEXT,
             receipt_number TEXT,
             note TEXT,
+            source_type TEXT,
+            source_id TEXT,
+            adjustment_kind TEXT,
+            adjusts_txn_id INTEGER,
+            is_system_generated INTEGER DEFAULT 0,
             is_deleted INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )

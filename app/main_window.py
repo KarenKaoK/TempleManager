@@ -13,8 +13,10 @@ from app.dialogs.new_household_dialog import NewHouseholdDialog
 from app.widgets.main_page import MainPageWidget
 from app.widgets.activity_manage_page import ActivityManagePage
 from app.widgets.activity_signup_page import ActivitySignupPage
+from app.widgets.lighting_signup_page import LightingSignupPage
 from app.dialogs.income_expense_dialog import IncomeExpenseDialog
 from app.dialogs.finance_report_dialog import FinanceReportDialog
+from app.dialogs.lighting_setup_dialog import LightingSetupDialog
 from app.dialogs.account_management_dialog import AccountManagementDialog
 from app.dialogs.cover_settings_dialog import CoverSettingsDialog
 from app.dialogs.backup_settings_dialog import BackupSettingsDialog
@@ -122,6 +124,7 @@ class MainWindow(QMainWindow):
         self.main_page = None
         self.activity_manage_page = None
         self.activity_signup_page = None
+        self.lighting_signup_page = None
         self.finance_report_action = None
 
         # ✅ 空白頁
@@ -147,7 +150,7 @@ class MainWindow(QMainWindow):
 
     def _sync_bottom_bar_visibility(self, page: QWidget):
         """活動頁改用頁內「關閉返回」，隱藏全域底部列避免重複操作。"""
-        hide_for_activity_pages = page in (self.activity_manage_page, self.activity_signup_page)
+        hide_for_activity_pages = page in (self.activity_manage_page, self.activity_signup_page, self.lighting_signup_page)
         self.bottom_bar.setVisible(not hide_for_activity_pages)
 
     def _back_to_blank(self):
@@ -185,6 +188,17 @@ class MainWindow(QMainWindow):
 
         activity_menu.addAction(activity_manage_action)
         activity_menu.addAction(activity_signup_action)
+
+        # -------------------------
+        # 安燈管理（插在活動頁面與收支管理之間）
+        # -------------------------
+        lighting_menu = menu_bar.addMenu("安燈管理")
+        lighting_setup_action = QAction("安燈設定", self)
+        lighting_signup_action = QAction("安燈報名", self)
+        lighting_setup_action.triggered.connect(self.open_lighting_setup)
+        lighting_signup_action.triggered.connect(self.open_lighting_signup)
+        lighting_menu.addAction(lighting_setup_action)
+        lighting_menu.addAction(lighting_signup_action)
 
         # -------------------------
         # 收支管理
@@ -316,9 +330,20 @@ class MainWindow(QMainWindow):
 
     def open_activity_signup(self, activity_data=None):
         if self.activity_signup_page is None:
-            self.activity_signup_page = ActivitySignupPage(self.controller)
+            self.activity_signup_page = ActivitySignupPage(
+                self.controller,
+                operator_name=getattr(self, "operator_name", "") or self.username,
+                user_role=self.role,
+            )
             self.activity_signup_page.request_back_to_manage.connect(self.open_activity_manage)
             self.activity_signup_page.request_close.connect(self.open_household_entry)
+        else:
+            if hasattr(self.activity_signup_page, "set_default_payment_handler"):
+                self.activity_signup_page.set_default_payment_handler(
+                    getattr(self, "operator_name", "") or self.username
+                )
+            if hasattr(self.activity_signup_page, "set_current_user_role"):
+                self.activity_signup_page.set_current_user_role(self.role)
 
         if activity_data:
             self.activity_signup_page.set_activity(activity_data)
@@ -329,6 +354,37 @@ class MainWindow(QMainWindow):
         # 0=Income, 1=Expense
         dialog = IncomeExpenseDialog(self.controller, self, initial_tab, self.role)
         dialog.exec_()
+
+    def open_lighting_setup(self):
+        dialog = LightingSetupDialog(self.controller, self, user_role=self.role)
+        dialog.exec_()
+
+    def open_lighting_signup(self):
+        if self.lighting_signup_page is None:
+            self.lighting_signup_page = LightingSignupPage(
+                self.controller,
+                self,
+                operator_name=getattr(self, "operator_name", "") or self.username,
+                user_role=self.role,
+            )
+            self.lighting_signup_page.request_close.connect(self.open_household_entry)
+        else:
+            if hasattr(self.lighting_signup_page, "operator_name"):
+                self.lighting_signup_page.operator_name = getattr(self, "operator_name", "") or self.username
+            if hasattr(self.lighting_signup_page, "user_role"):
+                self.lighting_signup_page.user_role = self.role
+            if hasattr(self.lighting_signup_page, "edt_payment_handler"):
+                self.lighting_signup_page.edt_payment_handler.setText(getattr(self, "operator_name", "") or self.username)
+            if hasattr(self.lighting_signup_page, "_apply_payment_handler_permissions"):
+                self.lighting_signup_page._apply_payment_handler_permissions()
+            if hasattr(self.lighting_signup_page, "lbl_operator"):
+                self.lighting_signup_page.lbl_operator.setText(
+                    f"目前經手人預設：{(getattr(self, 'operator_name', '') or self.username) or '（未取得）'}"
+                )
+            if hasattr(self.lighting_signup_page, "_reload_all"):
+                self.lighting_signup_page._reload_all()
+
+        self._show_page(self.lighting_signup_page)
 
     def _can_access_finance_report(self):
         role = (self.role or "").strip()

@@ -4,7 +4,9 @@ from app.database.setup_db import (
     create_users_table,
     create_income_items_table,
     create_expense_items_table,
-    create_member_identity_table
+    create_member_identity_table,
+    create_lighting_items_table,
+    create_lighting_signup_tables,
 )
 
 @pytest.fixture
@@ -53,3 +55,25 @@ def test_create_member_identity_table(test_db):
     result = cursor.fetchone()
     conn.close()
     assert result is not None, "member_identity 表未成功建立"
+
+def test_create_lighting_items_table(test_db):
+    """測試 lighting_items 表是否能成功建立"""
+    create_lighting_items_table(test_db)
+    conn = sqlite3.connect(test_db)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='lighting_items';")
+    result = cursor.fetchone()
+    conn.close()
+    assert result is not None, "lighting_items 表未成功建立"
+
+def test_create_lighting_signup_tables(test_db):
+    create_lighting_signup_tables(test_db)
+    conn = sqlite3.connect(test_db)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='lighting_signups';")
+    result1 = cursor.fetchone()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='lighting_signup_items';")
+    result2 = cursor.fetchone()
+    conn.close()
+    assert result1 is not None, "lighting_signups 表未成功建立"
+    assert result2 is not None, "lighting_signup_items 表未成功建立"

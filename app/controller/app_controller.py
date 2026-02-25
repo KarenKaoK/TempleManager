@@ -21,7 +21,20 @@ class AppController:
         ("90", "活動收入"),
         ("91", "點燈收入"),
     )
+    SYSTEM_EXPENSE_ITEMS = (
+        ("90R", "活動退費"),
+        ("91R", "安燈退費"),
+    )
     ACTIVITY_INCOME_ITEM_ID = "90"
+    LIGHTING_INCOME_ITEM_ID = "91"
+    ACTIVITY_REFUND_EXPENSE_ITEM_ID = "90R"
+    LIGHTING_REFUND_EXPENSE_ITEM_ID = "91R"
+    SYSTEM_LIGHTING_ITEMS = (
+        ("L01", "太歲燈", 600, "TAI_SUI", 1),
+        ("L02", "光明燈", 600, "BRIGHT", 2),
+        ("L03", "吉祥如意燈", 600, "GENERAL", 3),
+        ("L04", "祭改", 800, "JI_GAI", 4),
+    )
 
     def __init__(self, db_path=DB_NAME):
         self.db_path = db_path
@@ -31,7 +44,10 @@ class AppController:
         self._ensure_backup_schema()
         self._ensure_people_schema()
         self._ensure_activity_signup_schema()
+        self._ensure_lighting_schema()
+        self._ensure_lighting_signup_schema()
         self._ensure_system_income_items()
+        self._ensure_system_expense_items()
 
     # -------------------------
     # Helpers 
@@ -205,6 +221,900 @@ class AppController:
         if changed:
             self.conn.commit()
 
+    def _ensure_lighting_schema(self):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lighting_items (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                fee INTEGER NOT NULL DEFAULT 0,
+                kind TEXT NOT NULL DEFAULT 'GENERAL',
+                sort_order INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+            """
+        )
+        self.conn.commit()
+        self._ensure_default_lighting_items()
+
+    def _ensure_default_lighting_items(self):
+        cur = self.conn.cursor()
+        changed = False
+        for item_id, name, fee, kind, sort_order in self.SYSTEM_LIGHTING_ITEMS:
+            row = cur.execute(
+                "SELECT id FROM lighting_items WHERE id = ? LIMIT 1",
+                (item_id,),
+            ).fetchone()
+            if row:
+                continue
+            now_text = self._now()
+            cur.execute(
+                """
+                INSERT INTO lighting_items
+                (id, name, fee, kind, sort_order, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (item_id, name, int(fee), kind, int(sort_order), now_text, now_text),
+            )
+            changed = True
+        if changed:
+            self.conn.commit()
+
+    def _next_lighting_item_id(self) -> str:
+        cur = self.conn.cursor()
+        rows = cur.execute("SELECT id FROM lighting_items").fetchall()
+        max_num = 0
+        for (raw_id,) in rows:
+            sid = str(raw_id or "").strip().upper()
+            m = re.match(r"^L(\d+)$", sid)
+            if m:
+                max_num = max(max_num, int(m.group(1)))
+        return f"L{max_num + 1:02d}"
+
+    def list_lighting_items(self, include_inactive: bool = True) -> List[Dict[str, Any]]:
+        cur = self.conn.cursor()
+        sql = """
+            SELECT id, name, fee, kind, sort_order, COALESCE(is_active, 1) AS is_active,
+                   created_at, updated_at
+            FROM lighting_items
+        """
+        params: List[Any] = []
+        if not include_inactive:
+            sql += " WHERE COALESCE(is_active, 1) = 1"
+        sql += " ORDER BY COALESCE(sort_order, 0), id"
+        rows = cur.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def create_lighting_item(self, name: str, fee: int, kind: str = "GENERAL") -> str:
+        name = (name or "").strip()
+        kind = (kind or "GENERAL").strip().upper()
+        if not name:
+            raise ValueError("lighting name is required")
+        try:
+            fee_value = int(fee or 0)
+        except Exception:
+            fee_value = 0
+        item_id = self._next_lighting_item_id()
+        now_text = self._now()
+        cur = self.conn.cursor()
+        next_sort = cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM lighting_items").fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO lighting_items
+            (id, name, fee, kind, sort_order, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            """,
+            (item_id, name, fee_value, kind, int(next_sort or 1), now_text, now_text),
+        )
+        self.conn.commit()
+        return item_id
+
+    def update_lighting_item(self, item_id: str, name: str, fee: int, kind: str = "GENERAL") -> bool:
+        name = (name or "").strip()
+        kind = (kind or "GENERAL").strip().upper()
+        if not name:
+            raise ValueError("lighting name is required")
+        fee_value = int(fee or 0)
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            UPDATE lighting_items
+            SET name = ?, fee = ?, kind = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, fee_value, kind, self._now(), item_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def toggle_lighting_item_active(self, item_id: str) -> bool:
+        cur = self.conn.cursor()
+        row = cur.execute("SELECT COALESCE(is_active, 1) FROM lighting_items WHERE id = ?", (item_id,)).fetchone()
+        if not row:
+            return False
+        next_active = 0 if int(row[0] or 0) == 1 else 1
+        cur.execute(
+            "UPDATE lighting_items SET is_active = ?, updated_at = ? WHERE id = ?",
+            (next_active, self._now(), item_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def _ensure_lighting_signup_schema(self):
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lighting_signups (
+                id TEXT PRIMARY KEY,
+                signup_year INTEGER NOT NULL,
+                person_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                signup_kind TEXT NOT NULL DEFAULT 'INITIAL',
+                total_amount INTEGER NOT NULL DEFAULT 0,
+                note TEXT,
+                is_paid INTEGER DEFAULT 0,
+                paid_at TEXT,
+                payment_txn_id INTEGER,
+                payment_receipt_number TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lighting_signup_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signup_id TEXT NOT NULL,
+                lighting_item_id TEXT NOT NULL,
+                lighting_item_name TEXT NOT NULL,
+                fee_snapshot INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                UNIQUE(signup_id, lighting_item_id)
+            )
+            """
+        )
+        self.conn.commit()
+
+    def list_lighting_signups(self, signup_year: int, keyword: str = "", unpaid_only: bool = False) -> List[Dict[str, Any]]:
+        year_value = int(signup_year)
+        kw = (keyword or "").strip()
+        cur = self.conn.cursor()
+        sql = """
+            SELECT
+                s.id AS signup_id,
+                s.signup_year,
+                s.person_id,
+                COALESCE(s.group_id, s.id) AS group_id,
+                COALESCE(s.signup_kind, 'INITIAL') AS signup_kind,
+                p.name AS person_name,
+                COALESCE(p.phone_mobile, '') AS person_phone,
+                COALESCE(s.total_amount, 0) AS total_amount,
+                COALESCE(s.is_paid, 0) AS is_paid,
+                s.paid_at,
+                s.payment_receipt_number,
+                GROUP_CONCAT(i.lighting_item_name, '、') AS lighting_summary
+            FROM lighting_signups s
+            JOIN people p ON p.id = s.person_id
+            LEFT JOIN lighting_signup_items i ON i.signup_id = s.id
+            WHERE s.signup_year = ?
+        """
+        params: List[Any] = [year_value]
+        if unpaid_only:
+            sql += " AND COALESCE(s.is_paid, 0) = 0"
+        if kw:
+            sql += " AND (p.name LIKE ? OR COALESCE(p.phone_mobile,'') LIKE ?)"
+            like_kw = f"%{kw}%"
+            params.extend([like_kw, like_kw])
+        sql += """
+            GROUP BY s.id
+            ORDER BY
+                COALESCE(s.group_id, s.id) ASC,
+                CASE COALESCE(s.signup_kind, 'INITIAL')
+                  WHEN 'INITIAL' THEN 0
+                  WHEN 'APPEND' THEN 1
+                  ELSE 9
+                END ASC,
+                datetime(replace(COALESCE(s.created_at,''), '/', '-')) ASC,
+                s.id ASC
+        """
+        rows = cur.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
+    def _prepare_lighting_signup_payload(self, person_id: str, lighting_item_ids: List[str]) -> Dict[str, Any]:
+        pid = str(person_id or "").strip()
+        if not pid:
+            raise ValueError("person_id 為必填")
+
+        normalized_item_ids: List[str] = []
+        seen = set()
+        for x in (lighting_item_ids or []):
+            iid = str(x or "").strip()
+            if not iid or iid in seen:
+                continue
+            seen.add(iid)
+            normalized_item_ids.append(iid)
+        if not normalized_item_ids:
+            raise ValueError("至少選擇一個燈別")
+
+        active_items = self.list_lighting_items(include_inactive=False)
+        active_map = {str(r.get("id") or "").strip(): r for r in active_items}
+        invalid = [iid for iid in normalized_item_ids if iid not in active_map]
+        if invalid:
+            raise ValueError(f"含無效或未啟用燈別：{', '.join(invalid)}")
+
+        cur = self.conn.cursor()
+        person_row = cur.execute("SELECT id FROM people WHERE id = ? LIMIT 1", (pid,)).fetchone()
+        if not person_row:
+            raise ValueError("找不到人員資料")
+
+        total_amount = sum(int(active_map[iid].get("fee") or 0) for iid in normalized_item_ids)
+        return {
+            "person_id": pid,
+            "item_ids": normalized_item_ids,
+            "active_map": active_map,
+            "total_amount": int(total_amount),
+        }
+
+    def get_lighting_signup_item_totals(self, signup_year: int, keyword: str = "") -> List[Dict[str, Any]]:
+        """
+        依燈別彙總報名人數與金額。
+        keyword 會套用在姓名/手機（與明細搜尋一致）。
+        """
+        year_value = int(signup_year)
+        kw = (keyword or "").strip()
+        cur = self.conn.cursor()
+        sql = """
+            SELECT
+                i.lighting_item_id,
+                i.lighting_item_name,
+                COUNT(DISTINCT s.id) AS signup_count,
+                COALESCE(SUM(i.fee_snapshot), 0) AS total_amount
+            FROM lighting_signups s
+            JOIN people p ON p.id = s.person_id
+            JOIN lighting_signup_items i ON i.signup_id = s.id
+            WHERE s.signup_year = ?
+        """
+        params: List[Any] = [year_value]
+        if kw:
+            like_kw = f"%{kw}%"
+            sql += " AND (p.name LIKE ? OR COALESCE(p.phone_mobile,'') LIKE ?)"
+            params.extend([like_kw, like_kw])
+        sql += """
+            GROUP BY i.lighting_item_id, i.lighting_item_name
+            ORDER BY i.lighting_item_id ASC
+        """
+        rows = cur.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_lighting_signup_selected_item_ids(self, signup_year: int, person_ids: List[str]) -> Dict[str, List[str]]:
+        """
+        回傳指定人員在該年度已勾選燈別：
+        {person_id: [lighting_item_id, ...]}
+        """
+        normalized_ids = []
+        seen = set()
+        for x in (person_ids or []):
+            pid = str(x or "").strip()
+            if not pid or pid in seen:
+                continue
+            seen.add(pid)
+            normalized_ids.append(pid)
+        if not normalized_ids:
+            return {}
+
+        cur = self.conn.cursor()
+        q_marks = ",".join(["?"] * len(normalized_ids))
+        sql = f"""
+            SELECT s.person_id, i.lighting_item_id
+            FROM lighting_signups s
+            JOIN lighting_signup_items i ON i.signup_id = s.id
+            WHERE s.signup_year = ? AND s.person_id IN ({q_marks})
+            ORDER BY s.person_id ASC, i.lighting_item_id ASC
+        """
+        rows = cur.execute(sql, (int(signup_year), *normalized_ids)).fetchall()
+        result: Dict[str, List[str]] = {pid: [] for pid in normalized_ids}
+        for r in rows:
+            pid = str(r["person_id"] or "").strip()
+            iid = str(r["lighting_item_id"] or "").strip()
+            if pid and iid:
+                result.setdefault(pid, []).append(iid)
+        return result
+
+    def upsert_lighting_signup(
+        self,
+        signup_year: int,
+        person_id: str,
+        lighting_item_ids: List[str],
+        note: str = "",
+        allow_paid_update: bool = False,
+    ) -> str:
+        """
+        建立或更新（覆蓋）某人某年度安燈報名。
+        - 若既有資料已繳費，預設拒絕修改（allow_paid_update=True 可放寬，供業務頁差額流程使用）
+        - 僅接受目前啟用中的燈別
+        """
+        year_value = int(signup_year)
+        payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        pid = str(payload["person_id"])
+        normalized_item_ids = list(payload["item_ids"])
+        active_map = dict(payload["active_map"])
+        total_amount = int(payload["total_amount"])
+        cur = self.conn.cursor()
+        now = self._now()
+        note_text = (note or "").strip() or None
+
+        try:
+            cur.execute("BEGIN;")
+            existing = cur.execute(
+                """
+                SELECT id, COALESCE(is_paid, 0) AS is_paid
+                FROM lighting_signups
+                WHERE signup_year = ? AND person_id = ?
+                ORDER BY
+                    CASE COALESCE(signup_kind, 'INITIAL')
+                      WHEN 'INITIAL' THEN 0
+                      WHEN 'APPEND' THEN 1
+                      ELSE 9
+                    END ASC,
+                    datetime(replace(COALESCE(created_at,''), '/', '-')) ASC,
+                    id ASC
+                LIMIT 1
+                """,
+                (year_value, pid),
+            ).fetchone()
+
+            if existing:
+                signup_id = str(existing["id"] or "")
+                if int(existing["is_paid"] or 0) == 1 and not bool(allow_paid_update):
+                    raise ValueError("此筆安燈報名已繳費，不可直接修改")
+                cur.execute(
+                    """
+                    UPDATE lighting_signups
+                    SET total_amount = ?, note = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (int(total_amount), note_text, now, signup_id),
+                )
+                cur.execute("DELETE FROM lighting_signup_items WHERE signup_id = ?", (signup_id,))
+            else:
+                signup_id = self._uuid()
+                cur.execute(
+                    """
+                    INSERT INTO lighting_signups (
+                        id, signup_year, person_id, group_id, signup_kind, total_amount, note, is_paid, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 'INITIAL', ?, ?, 0, ?, ?)
+                    """,
+                    (signup_id, year_value, pid, signup_id, int(total_amount), note_text, now, now),
+                )
+
+            for iid in normalized_item_ids:
+                item = active_map[iid]
+                cur.execute(
+                    """
+                    INSERT INTO lighting_signup_items (
+                        signup_id, lighting_item_id, lighting_item_name, fee_snapshot
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        signup_id,
+                        iid,
+                        str(item.get("name") or ""),
+                        int(item.get("fee") or 0),
+                    ),
+                )
+
+            cur.execute("COMMIT;")
+            return signup_id
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+
+    def create_lighting_signup_append(self, signup_year: int, person_id: str, lighting_item_ids: List[str], note: str = "") -> Dict[str, Any]:
+        """
+        新規則（安燈）：
+        已繳費後不修改原單，改為新增一筆「追加」紀錄。
+        """
+        year_value = int(signup_year)
+        payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        pid = str(payload["person_id"])
+        normalized_item_ids = list(payload["item_ids"])
+        active_map = dict(payload["active_map"])
+        total_amount = int(payload["total_amount"])
+        note_text = (note or "").strip() or None
+        now = self._now()
+        cur = self.conn.cursor()
+
+        existing_rows = cur.execute(
+            """
+            SELECT id, COALESCE(group_id, id) AS group_id
+            FROM lighting_signups
+            WHERE signup_year = ? AND person_id = ?
+            ORDER BY
+                CASE COALESCE(signup_kind, 'INITIAL')
+                  WHEN 'INITIAL' THEN 0
+                  WHEN 'APPEND' THEN 1
+                  ELSE 9
+                END ASC,
+                datetime(replace(COALESCE(created_at,''), '/', '-')) ASC,
+                id ASC
+            """,
+            (year_value, pid),
+        ).fetchall()
+        if existing_rows:
+            group_id = str(existing_rows[0]["group_id"] or existing_rows[0]["id"] or "").strip()
+            signup_kind = "APPEND"
+        else:
+            group_id = ""
+            signup_kind = "INITIAL"
+
+        signup_id = self._uuid()
+        if not group_id:
+            group_id = signup_id
+
+        try:
+            cur.execute("BEGIN;")
+            cur.execute(
+                """
+                INSERT INTO lighting_signups (
+                    id, signup_year, person_id, group_id, signup_kind, total_amount, note, is_paid, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                """,
+                (signup_id, year_value, pid, group_id, signup_kind, total_amount, note_text, now, now),
+            )
+            for iid in normalized_item_ids:
+                item = active_map[iid]
+                cur.execute(
+                    """
+                    INSERT INTO lighting_signup_items (
+                        signup_id, lighting_item_id, lighting_item_name, fee_snapshot
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (signup_id, iid, str(item.get("name") or ""), int(item.get("fee") or 0)),
+                )
+            cur.execute("COMMIT;")
+            return {"signup_id": signup_id, "group_id": group_id, "signup_kind": signup_kind}
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+
+    def update_lighting_signup_items_by_signup_id(
+        self,
+        signup_id: str,
+        lighting_item_ids: List[str],
+        note: str = "",
+        allow_paid_update: bool = False,
+    ) -> str:
+        sid = str(signup_id or "").strip()
+        if not sid:
+            raise ValueError("signup_id 為必填")
+        cur = self.conn.cursor()
+        row = cur.execute(
+            """
+            SELECT id, person_id, COALESCE(is_paid, 0) AS is_paid
+            FROM lighting_signups
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (sid,),
+        ).fetchone()
+        if not row:
+            raise ValueError("找不到安燈報名資料")
+        if int(row["is_paid"] or 0) == 1 and not bool(allow_paid_update):
+            raise ValueError("此筆安燈報名已繳費，不可直接修改")
+
+        payload = self._prepare_lighting_signup_payload(str(row["person_id"] or ""), lighting_item_ids)
+        normalized_item_ids = list(payload["item_ids"])
+        active_map = dict(payload["active_map"])
+        total_amount = int(payload["total_amount"])
+        now = self._now()
+        note_text = (note or "").strip() or None
+
+        try:
+            cur.execute("BEGIN;")
+            cur.execute(
+                """
+                UPDATE lighting_signups
+                SET total_amount = ?, note = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (total_amount, note_text, now, sid),
+            )
+            cur.execute("DELETE FROM lighting_signup_items WHERE signup_id = ?", (sid,))
+            for iid in normalized_item_ids:
+                item = active_map[iid]
+                cur.execute(
+                    """
+                    INSERT INTO lighting_signup_items (
+                        signup_id, lighting_item_id, lighting_item_name, fee_snapshot
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (sid, iid, str(item.get("name") or ""), int(item.get("fee") or 0)),
+                )
+            cur.execute("COMMIT;")
+            return sid
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+
+    def delete_lighting_signup(self, signup_year: int, signup_id: str) -> bool:
+        """
+        刪除指定年度的安燈報名。
+        若已繳費：刪除當前選取業務紀錄前，將對應交易標記為作廢（is_voided=1）。
+        """
+        sid = str(signup_id or "").strip()
+        if not sid:
+            return False
+        year_value = int(signup_year)
+        cur = self.conn.cursor()
+        row = cur.execute(
+            """
+            SELECT id, COALESCE(is_paid, 0) AS is_paid
+            FROM lighting_signups
+            WHERE signup_year = ? AND id = ?
+            LIMIT 1
+            """,
+            (year_value, sid),
+        ).fetchone()
+        if not row:
+            return False
+        try:
+            cur.execute("BEGIN;")
+            if int(row["is_paid"] or 0) == 1 and self._table_exists("transactions"):
+                cols = self._table_columns("transactions")
+                if "is_voided" in cols:
+                    cur.execute(
+                        """
+                        UPDATE transactions
+                        SET is_voided = 1
+                        WHERE (is_deleted = 0 OR is_deleted IS NULL)
+                          AND COALESCE(source_type, '') = 'LIGHTING_SIGNUP'
+                          AND COALESCE(source_id, '') = ?
+                        """,
+                        (sid,),
+                    )
+            cur.execute("DELETE FROM lighting_signup_items WHERE signup_id = ?", (sid,))
+            cur.execute("DELETE FROM lighting_signups WHERE id = ? AND signup_year = ?", (sid, year_value))
+            cur.execute("COMMIT;")
+            return True
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+
+    def _resolve_lighting_income_item(self) -> Optional[Dict[str, Any]]:
+        if not self._table_exists("income_items"):
+            return None
+        cur = self.conn.cursor()
+        cols = self._table_columns("income_items")
+        has_is_active = "is_active" in cols
+        if has_is_active:
+            cur.execute(
+                "SELECT * FROM income_items WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1",
+                (self.LIGHTING_INCOME_ITEM_ID,),
+            )
+        else:
+            cur.execute("SELECT * FROM income_items WHERE id = ? LIMIT 1", (self.LIGHTING_INCOME_ITEM_ID,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def _resolve_lighting_refund_expense_item(self) -> Optional[Dict[str, Any]]:
+        if not self._table_exists("expense_items"):
+            return None
+        cur = self.conn.cursor()
+        row = cur.execute("SELECT * FROM expense_items WHERE id = ? LIMIT 1", (self.LIGHTING_REFUND_EXPENSE_ITEM_ID,)).fetchone()
+        return dict(row) if row else None
+
+    def get_lighting_zodiac_suggestions(self, year: Optional[int] = None) -> Dict[str, Any]:
+        target_year = int(year or date.today().year)
+        zodiac_order = ["鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬"]
+        idx = (target_year - 4) % 12
+        current_zodiac = zodiac_order[idx]
+        # 12 神煞（以當年太歲生肖為起點，依序每項往前一個生肖）
+        star_order = [
+            "太歲", "太陽", "喪門", "太陰", "五鬼", "死符",
+            "歲破", "龍德", "白虎", "福德", "天狗", "病符",
+        ]
+        star_zodiac_map: Dict[str, str] = {}
+        star_positions: List[Dict[str, Any]] = []
+        for offset, star_name in enumerate(star_order):
+            zodiac = zodiac_order[(idx - offset) % 12]
+            star_zodiac_map[star_name] = zodiac
+            star_positions.append({
+                "order": offset + 1,
+                "star": star_name,
+                "zodiac": zodiac,
+            })
+
+        tai_sui_stars = ["太歲", "歲破"]
+        ji_gai_stars = ["喪門", "太陰", "五鬼", "死符", "白虎", "天狗", "病符"]
+        tai_sui_group = [star_zodiac_map[s] for s in tai_sui_stars]
+        ji_gai_group = [star_zodiac_map[s] for s in ji_gai_stars]
+
+        tai_sui_hint = "犯太歲：" + "、".join(
+            [f"{star_zodiac_map[s]}（{s}）" for s in tai_sui_stars]
+        )
+        ji_gai_hint = "祭改：" + "、".join(
+            [f"{star_zodiac_map[s]}（{s}）" for s in ji_gai_stars]
+        )
+        return {
+            "year": target_year,
+            "year_zodiac": current_zodiac,
+            "annual_star_zodiac_map": star_zodiac_map,
+            "annual_star_positions": star_positions,
+            "tai_sui_zodiacs": tai_sui_group,
+            "ji_gai_zodiacs": ji_gai_group,
+            "tai_sui_hint": tai_sui_hint,
+            "ji_gai_hint": ji_gai_hint,
+        }
+
+    def _default_lighting_hint_texts(self, year: Optional[int] = None) -> Dict[str, str]:
+        info = self.get_lighting_zodiac_suggestions(year)
+        return {
+            "year": str(info.get("year") or date.today().year),
+            "tai_sui_text": str(info.get("tai_sui_hint") or ""),
+            "ji_gai_text": str(info.get("ji_gai_hint") or ""),
+        }
+
+    def get_lighting_hint_settings(self) -> Dict[str, str]:
+        defaults = self._default_lighting_hint_texts()
+        year_text = self.get_setting("lighting/hint_year", defaults["year"]).strip() or defaults["year"]
+        tai_sui_text = self.get_setting("lighting/hint_tai_sui_text", defaults["tai_sui_text"]).strip() or defaults["tai_sui_text"]
+        ji_gai_text = self.get_setting("lighting/hint_ji_gai_text", defaults["ji_gai_text"]).strip() or defaults["ji_gai_text"]
+        return {
+            "year": year_text,
+            "tai_sui_text": tai_sui_text,
+            "ji_gai_text": ji_gai_text,
+        }
+
+    def save_lighting_hint_settings(self, year: int, tai_sui_text: str, ji_gai_text: str):
+        self.set_setting("lighting/hint_year", str(int(year)))
+        self.set_setting("lighting/hint_tai_sui_text", (tai_sui_text or "").strip())
+        self.set_setting("lighting/hint_ji_gai_text", (ji_gai_text or "").strip())
+
+    def mark_lighting_signups_paid(self, signup_year: int, signup_ids: List[str], handler: str = "") -> Dict[str, Any]:
+        normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
+        if not normalized_ids:
+            return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
+        handler_text = (handler or "").strip()
+        if not handler_text:
+            raise ValueError("經手人為必填")
+
+        income_item = self._resolve_lighting_income_item()
+        if not income_item:
+            raise ValueError("找不到可用的點燈收入項目（91 點燈收入），請先確認類別設定")
+
+        cur = self.conn.cursor()
+        q_marks = ",".join(["?"] * len(normalized_ids))
+        sql = f"""
+            SELECT
+                s.id AS signup_id,
+                s.person_id,
+                COALESCE(s.signup_kind, 'INITIAL') AS signup_kind,
+                COALESCE(s.total_amount, 0) AS total_amount,
+                COALESCE(s.is_paid, 0) AS is_paid,
+                p.name AS person_name,
+                GROUP_CONCAT(i.lighting_item_name, '、') AS lighting_summary
+            FROM lighting_signups s
+            JOIN people p ON p.id = s.person_id
+            LEFT JOIN lighting_signup_items i ON i.signup_id = s.id
+            WHERE s.signup_year = ? AND s.id IN ({q_marks})
+            GROUP BY s.id
+        """
+        cur.execute(sql, (int(signup_year), *normalized_ids))
+        rows = [dict(r) for r in cur.fetchall()]
+        if not rows:
+            return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
+
+        category_id = str(income_item.get("id") or "").strip()
+        category_name = str(income_item.get("name") or "點燈收入").strip() or "點燈收入"
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = self._now()
+        paid_count = 0
+        skipped_count = 0
+        receipts: List[str] = []
+        try:
+            cur.execute("BEGIN;")
+            for row in rows:
+                if int(row.get("is_paid") or 0) == 1:
+                    skipped_count += 1
+                    continue
+                signup_kind = str(row.get("signup_kind") or "INITIAL").strip().upper()
+                adjustment_kind = "SUPPLEMENT" if signup_kind == "APPEND" else "PRIMARY"
+                receipt = self.generate_receipt_number(today)
+                note = f"[{signup_year}安燈] {str(row.get('lighting_summary') or '').strip()}".strip()
+                cur.execute(
+                    """
+                    INSERT INTO transactions (
+                        date, type, category_id, category_name, amount,
+                        payer_person_id, payer_name, handler, receipt_number, note,
+                        source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        today, category_id, category_name, int(row.get("total_amount") or 0),
+                        str(row.get("person_id") or ""), str(row.get("person_name") or ""),
+                        handler_text, receipt, note,
+                        "LIGHTING_SIGNUP", str(row.get("signup_id") or ""), adjustment_kind, None, 1,
+                    ),
+                )
+                txn_id = cur.lastrowid
+                cur.execute(
+                    "UPDATE lighting_signups SET is_paid = 1, paid_at = ?, payment_txn_id = ?, payment_receipt_number = ?, updated_at = ? WHERE id = ?",
+                    (now, int(txn_id or 0), receipt, now, str(row.get("signup_id") or "")),
+                )
+                paid_count += 1
+                receipts.append(receipt)
+            cur.execute("COMMIT;")
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+        return {"paid_count": paid_count, "skipped_count": skipped_count, "receipt_numbers": receipts}
+
+    def update_paid_lighting_signup_with_adjustment(
+        self,
+        signup_year: int,
+        person_id: str,
+        lighting_item_ids: List[str],
+        handler: str = "",
+        note: str = "",
+    ) -> Dict[str, Any]:
+        """
+        Phase 3（安燈先）backend：
+        已繳費安燈報名修改後，自動建立差額交易（補繳/退費）。
+        - 補繳：income / 91 點燈收入
+        - 退費：expense / 91R 安燈退費
+        """
+        pid = str(person_id or "").strip()
+        if not pid:
+            raise ValueError("person_id 為必填")
+        handler_text = (handler or "").strip()
+        if not handler_text:
+            raise ValueError("經手人為必填")
+
+        cur = self.conn.cursor()
+        existing = cur.execute(
+            """
+            SELECT
+                s.id AS signup_id,
+                s.person_id,
+                COALESCE(s.total_amount, 0) AS total_amount,
+                COALESCE(s.is_paid, 0) AS is_paid,
+                s.payment_txn_id,
+                p.name AS person_name
+            FROM lighting_signups s
+            JOIN people p ON p.id = s.person_id
+            WHERE s.signup_year = ? AND s.person_id = ?
+            LIMIT 1
+            """,
+            (int(signup_year), pid),
+        ).fetchone()
+        if not existing:
+            raise ValueError("找不到安燈報名資料")
+
+        old_total = int(existing["total_amount"] or 0)
+        is_paid = int(existing["is_paid"] or 0) == 1
+        signup_id = str(existing["signup_id"] or "")
+        base_txn_id = existing["payment_txn_id"]
+        person_name = str(existing["person_name"] or "")
+
+        updated_signup_id = self.upsert_lighting_signup(
+            signup_year,
+            pid,
+            lighting_item_ids,
+            note=note,
+            allow_paid_update=is_paid,
+        )
+        if updated_signup_id != signup_id:
+            signup_id = updated_signup_id
+
+        updated = cur.execute(
+            "SELECT COALESCE(total_amount, 0) AS total_amount FROM lighting_signups WHERE id = ? LIMIT 1",
+            (signup_id,),
+        ).fetchone()
+        new_total = int((updated["total_amount"] if updated else 0) or 0)
+        delta = new_total - old_total
+
+        if (not is_paid) or delta == 0:
+            return {
+                "signup_id": signup_id,
+                "old_total": old_total,
+                "new_total": new_total,
+                "delta": delta,
+                "adjustment_txn_id": None,
+                "adjustment_type": None,
+                "receipt_number": None,
+                "is_paid": is_paid,
+            }
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        adjustment_txn_id = None
+        adjustment_type = None
+        receipt_number = None
+
+        try:
+            cur.execute("BEGIN;")
+            if delta > 0:
+                income_item = self._resolve_lighting_income_item()
+                if not income_item:
+                    raise ValueError("找不到可用的點燈收入項目（91 點燈收入）")
+                receipt_number = self.generate_receipt_number(today)
+                cur.execute(
+                    """
+                    INSERT INTO transactions (
+                        date, type, category_id, category_name, amount,
+                        payer_person_id, payer_name, handler, receipt_number, note,
+                        source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        today,
+                        str(income_item.get("id") or ""),
+                        str(income_item.get("name") or "點燈收入"),
+                        int(delta),
+                        pid,
+                        person_name,
+                        handler_text,
+                        receipt_number,
+                        f"[{int(signup_year)}安燈差額補繳]",
+                        "LIGHTING_SIGNUP",
+                        signup_id,
+                        "SUPPLEMENT",
+                        int(base_txn_id) if base_txn_id else None,
+                        1,
+                    ),
+                )
+                adjustment_type = "SUPPLEMENT"
+            else:
+                refund_item = self._resolve_lighting_refund_expense_item()
+                if not refund_item:
+                    raise ValueError("找不到可用的安燈退費項目（91R 安燈退費）")
+                cur.execute(
+                    """
+                    INSERT INTO transactions (
+                        date, type, category_id, category_name, amount,
+                        payer_person_id, payer_name, handler, receipt_number, note,
+                        source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
+                    ) VALUES (?, 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        today,
+                        str(refund_item.get("id") or ""),
+                        str(refund_item.get("name") or "安燈退費"),
+                        int(abs(delta)),
+                        pid,
+                        person_name,
+                        handler_text,
+                        None,
+                        f"[{int(signup_year)}安燈差額退費]",
+                        "LIGHTING_SIGNUP",
+                        signup_id,
+                        "REFUND",
+                        int(base_txn_id) if base_txn_id else None,
+                        1,
+                    ),
+                )
+                adjustment_type = "REFUND"
+
+            adjustment_txn_id = cur.lastrowid
+            cur.execute("COMMIT;")
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+
+        return {
+            "signup_id": signup_id,
+            "old_total": old_total,
+            "new_total": new_total,
+            "delta": delta,
+            "adjustment_txn_id": int(adjustment_txn_id) if adjustment_txn_id else None,
+            "adjustment_type": adjustment_type,
+            "receipt_number": receipt_number,
+            "is_paid": is_paid,
+        }
+
     def _ensure_system_income_items(self):
         """
         啟動時自動 upsert 系統保留收入項目：
@@ -233,6 +1143,22 @@ class AppController:
                     cur.execute("INSERT INTO income_items (id, name, amount, is_active) VALUES (?, ?, ?, 1)", (item_id, item_name, 0))
                 else:
                     cur.execute("INSERT INTO income_items (id, name, amount) VALUES (?, ?, ?)", (item_id, item_name, 0))
+                changed = True
+        if changed:
+            self.conn.commit()
+
+    def _ensure_system_expense_items(self):
+        if not self._table_exists("expense_items"):
+            return
+        cur = self.conn.cursor()
+        changed = False
+        for item_id, item_name in self.SYSTEM_EXPENSE_ITEMS:
+            row = cur.execute("SELECT id FROM expense_items WHERE id = ? LIMIT 1", (item_id,)).fetchone()
+            if row:
+                cur.execute("UPDATE expense_items SET name = ? WHERE id = ?", (item_name, item_id))
+                changed = True
+            else:
+                cur.execute("INSERT INTO expense_items (id, name, amount) VALUES (?, ?, ?)", (item_id, item_name, 0))
                 changed = True
         if changed:
             self.conn.commit()
@@ -2711,6 +3637,13 @@ class AppController:
         row = cur.fetchone()
         return dict(row) if row else None
 
+    def _resolve_activity_refund_expense_item(self) -> Optional[Dict[str, Any]]:
+        if not self._table_exists("expense_items"):
+            return None
+        cur = self.conn.cursor()
+        row = cur.execute("SELECT * FROM expense_items WHERE id = ? LIMIT 1", (self.ACTIVITY_REFUND_EXPENSE_ITEM_ID,)).fetchone()
+        return dict(row) if row else None
+
     def mark_activity_signups_paid(self, activity_id: str, signup_ids: List[str], handler: str = "") -> Dict[str, Any]:
         aid = (activity_id or "").strip()
         normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
@@ -2787,8 +3720,9 @@ class AppController:
                     """
                     INSERT INTO transactions (
                         date, type, category_id, category_name, amount,
-                        payer_person_id, payer_name, handler, receipt_number, note
-                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?)
+                        payer_person_id, payer_name, handler, receipt_number, note,
+                        source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today,
@@ -2800,6 +3734,11 @@ class AppController:
                         handler_text,
                         receipt,
                         note,
+                        "ACTIVITY_SIGNUP",
+                        str(row.get("signup_id") or ""),
+                        "PRIMARY",
+                        None,
+                        1,
                     ),
                 )
                 txn_id = cur.lastrowid
@@ -2827,6 +3766,173 @@ class AppController:
             "paid_count": paid_count,
             "skipped_count": skipped_count,
             "receipt_numbers": receipt_numbers,
+        }
+
+    def update_paid_activity_signup_with_adjustment(
+        self,
+        signup_id: str,
+        qty_by_plan_id: dict,
+        free_amount_by_plan_id: dict,
+        handler: str = "",
+    ) -> Dict[str, Any]:
+        """
+        Phase 3（活動 backend）：
+        已繳費活動報名修改後，自動建立差額交易（補繳/退費）。
+        - 補繳：income / 90 活動收入
+        - 退費：expense / 90R 活動退費
+        """
+        sid = str(signup_id or "").strip()
+        if not sid:
+            raise ValueError("signup_id 為必填")
+        handler_text = (handler or "").strip()
+        if not handler_text:
+            raise ValueError("經手人為必填")
+
+        cur = self.conn.cursor()
+        existing = cur.execute(
+            """
+            SELECT
+                s.id AS signup_id,
+                s.activity_id,
+                s.person_id,
+                COALESCE(s.total_amount, 0) AS total_amount,
+                COALESCE(s.is_paid, 0) AS is_paid,
+                s.payment_txn_id,
+                p.name AS person_name,
+                a.name AS activity_name,
+                a.activity_end_date
+            FROM activity_signups s
+            JOIN people p ON p.id = s.person_id
+            LEFT JOIN activities a ON a.id = s.activity_id
+            WHERE s.id = ?
+            LIMIT 1
+            """,
+            (sid,),
+        ).fetchone()
+        if not existing:
+            raise ValueError("找不到活動報名資料")
+
+        old_total = int(existing["total_amount"] or 0)
+        is_paid = int(existing["is_paid"] or 0) == 1
+        base_txn_id = existing["payment_txn_id"]
+        person_id = str(existing["person_id"] or "")
+        person_name = str(existing["person_name"] or "")
+        activity_name = str(existing["activity_name"] or "")
+        activity_end_date = str(existing["activity_end_date"] or "")
+        activity_label = f"{activity_end_date} {activity_name}".strip() if activity_end_date else activity_name
+
+        ok = self.update_activity_signup_items(sid, qty_by_plan_id or {}, free_amount_by_plan_id or {})
+        if not ok:
+            raise ValueError("報名資料未更新")
+
+        updated = cur.execute(
+            """
+            SELECT COALESCE(total_amount, 0) AS total_amount
+            FROM activity_signups
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (sid,),
+        ).fetchone()
+        new_total = int((updated["total_amount"] if updated else 0) or 0)
+        delta = new_total - old_total
+
+        if (not is_paid) or delta == 0:
+            return {
+                "signup_id": sid,
+                "old_total": old_total,
+                "new_total": new_total,
+                "delta": delta,
+                "adjustment_txn_id": None,
+                "adjustment_type": None,
+                "receipt_number": None,
+                "is_paid": is_paid,
+            }
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        adjustment_txn_id = None
+        adjustment_type = None
+        receipt_number = None
+
+        try:
+            cur.execute("BEGIN;")
+            if delta > 0:
+                income_item = self._resolve_activity_income_item()
+                if not income_item:
+                    raise ValueError("找不到可用的活動收入項目（90 活動收入）")
+                receipt_number = self.generate_receipt_number(today)
+                cur.execute(
+                    """
+                    INSERT INTO transactions (
+                        date, type, category_id, category_name, amount,
+                        payer_person_id, payer_name, handler, receipt_number, note,
+                        source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        today,
+                        str(income_item.get("id") or ""),
+                        str(income_item.get("name") or "活動收入"),
+                        int(delta),
+                        person_id,
+                        person_name,
+                        handler_text,
+                        receipt_number,
+                        f"[{activity_label}差額補繳]",
+                        "ACTIVITY_SIGNUP",
+                        sid,
+                        "SUPPLEMENT",
+                        int(base_txn_id) if base_txn_id else None,
+                        1,
+                    ),
+                )
+                adjustment_type = "SUPPLEMENT"
+            else:
+                refund_item = self._resolve_activity_refund_expense_item()
+                if not refund_item:
+                    raise ValueError("找不到可用的活動退費項目（90R 活動退費）")
+                cur.execute(
+                    """
+                    INSERT INTO transactions (
+                        date, type, category_id, category_name, amount,
+                        payer_person_id, payer_name, handler, receipt_number, note,
+                        source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
+                    ) VALUES (?, 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        today,
+                        str(refund_item.get("id") or ""),
+                        str(refund_item.get("name") or "活動退費"),
+                        int(abs(delta)),
+                        person_id,
+                        person_name,
+                        handler_text,
+                        None,
+                        f"[{activity_label}差額退費]",
+                        "ACTIVITY_SIGNUP",
+                        sid,
+                        "REFUND",
+                        int(base_txn_id) if base_txn_id else None,
+                        1,
+                    ),
+                )
+                adjustment_type = "REFUND"
+
+            adjustment_txn_id = cur.lastrowid
+            cur.execute("COMMIT;")
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+
+        return {
+            "signup_id": sid,
+            "old_total": old_total,
+            "new_total": new_total,
+            "delta": delta,
+            "adjustment_txn_id": int(adjustment_txn_id) if adjustment_txn_id else None,
+            "adjustment_type": adjustment_type,
+            "receipt_number": receipt_number,
+            "is_paid": is_paid,
         }
 
 
@@ -3193,6 +4299,14 @@ class AppController:
 
     def delete_activity_signup(self, signup_id: str) -> bool:
         cur = self.conn.cursor()
+        row = cur.execute(
+            "SELECT COALESCE(is_paid, 0) AS is_paid FROM activity_signups WHERE id = ? LIMIT 1",
+            (signup_id,),
+        ).fetchone()
+        if not row:
+            return False
+        if int(row["is_paid"] or 0) == 1:
+            raise ValueError("此筆活動報名已繳費，不可刪除")
         try:
             cur.execute("BEGIN;")
             cur.execute("DELETE FROM activity_signup_plans WHERE signup_id = ?", (signup_id,))
@@ -3541,8 +4655,9 @@ class AppController:
         cursor.execute("""
             INSERT INTO transactions (
                 date, type, category_id, category_name, amount, 
-                payer_person_id, payer_name, handler, receipt_number, note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                payer_person_id, payer_name, handler, receipt_number, note,
+                source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.get("date"),
             data.get("type"),
@@ -3553,9 +4668,15 @@ class AppController:
             data.get("payer_name"),
             data.get("handler"),
             data.get("receipt_number"),
-            data.get("note")
+            data.get("note"),
+            data.get("source_type"),
+            data.get("source_id"),
+            data.get("adjustment_kind"),
+            data.get("adjusts_txn_id"),
+            int(data.get("is_system_generated") or 0),
         ))
         self.conn.commit()
+        return cursor.lastrowid
     
     def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None):
         cursor = self.conn.cursor()
@@ -3589,11 +4710,61 @@ class AppController:
         cursor.execute(query, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
-    def get_income_transactions_by_person(self, person_id: str) -> List[Dict]:
-        """依信眾取得添油香（收入）交易紀錄。"""
+    def list_transactions_by_source(self, source_type: str, source_id: str) -> List[Dict[str, Any]]:
+        """
+        依業務來源讀取交易鏈（主收款 / 補繳 / 退費）。
+        用於業務頁摘要顯示，不含 UI 視覺分組邏輯。
+        """
+        stype = str(source_type or "").strip()
+        sid = str(source_id or "").strip()
+        if not stype or not sid:
+            return []
+        if not self._table_exists("transactions"):
+            return []
+
         cursor = self.conn.cursor()
         cursor.execute(
             """
+            SELECT
+                t.id,
+                t.date,
+                t.type,
+                t.category_id,
+                t.category_name,
+                t.amount,
+                t.payer_person_id,
+                t.payer_name,
+                t.handler,
+                t.receipt_number,
+                t.note,
+                t.source_type,
+                t.source_id,
+                t.adjustment_kind,
+                t.adjusts_txn_id,
+                COALESCE(t.is_system_generated, 0) AS is_system_generated,
+                t.created_at
+            FROM transactions t
+            WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
+              AND COALESCE(t.source_type, '') = ?
+              AND COALESCE(t.source_id, '') = ?
+            ORDER BY
+              CASE COALESCE(t.adjustment_kind, '')
+                WHEN 'PRIMARY' THEN 0
+                WHEN 'SUPPLEMENT' THEN 1
+                WHEN 'REFUND' THEN 2
+                ELSE 9
+              END ASC,
+              t.id ASC
+            """,
+            (stype, sid),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_income_transactions_by_person(self, person_id: str) -> List[Dict]:
+        """依信眾取得添油香（收入）交易紀錄。"""
+        cursor = self.conn.cursor()
+        cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+        sql = """
             SELECT
                 t.id,
                 t.date,
@@ -3607,10 +4778,11 @@ class AppController:
             WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
               AND t.type = 'income'
               AND t.payer_person_id = ?
-            ORDER BY t.date DESC, t.created_at DESC
-            """,
-            (person_id,),
-        )
+        """
+        if "is_voided" in cols:
+            sql += " AND COALESCE(t.is_voided, 0) = 0"
+        sql += " ORDER BY t.date DESC, t.created_at DESC"
+        cursor.execute(sql, (person_id,))
         return [dict(row) for row in cursor.fetchall()]
 
     def _period_expr(self, granularity: str) -> str:

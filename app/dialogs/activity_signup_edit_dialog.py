@@ -13,10 +13,12 @@ class ActivitySignupEditDialog(QDialog):
     - 顯示基本資料（唯讀）
     - 只能修改方案 qty（FIXED）
     """
-    def __init__(self, controller, signup_id: str, parent=None):
+    def __init__(self, controller, signup_id: str, parent=None, is_paid: bool = False, payment_handler: str = ""):
         super().__init__(parent)
         self.controller = controller
         self.signup_id = signup_id
+        self.is_paid = bool(is_paid)
+        self.payment_handler = (payment_handler or "").strip()
         self._data = None
         self._row_plan_id = {}  # row -> plan_id
         self.setWindowTitle("修改報名")
@@ -208,6 +210,7 @@ class ActivitySignupEditDialog(QDialog):
             total += subtotal
 
         self.lbl_total.setText(f"合計：{total}")
+        return total
 
     def _on_save(self):
         qty_map = {}
@@ -239,18 +242,66 @@ class ActivitySignupEditDialog(QDialog):
             if enabled:
                 qty_map[plan_id] = int(sp_qty.spinbox.value()) if hasattr(sp_qty, "spinbox") else int(sp_qty.value())
 
-        try:
-            ok = self.controller.update_activity_signup_items(
-                self.signup_id,
-                qty_map,
-                free_amount_map
+        old_total = 0
+        for it in (self._data or {}).get("items", []) or []:
+            old_total += int((it or {}).get("line_total", 0) or 0)
+        new_total = int(self._recalc_total() or 0)
+        delta = new_total - old_total
+
+        if self.is_paid and not self.payment_handler:
+            QMessageBox.warning(self, "欄位不足", "已繳費修改需填寫經手人（用於差額交易）。")
+            return
+
+        if self.is_paid and delta != 0:
+            if delta > 0:
+                diff_text = f"此筆報名已繳費，修改後需補繳 {delta} 元。"
+            else:
+                diff_text = f"此筆報名已繳費，修改後可退費 {abs(delta)} 元。"
+            ans = QMessageBox.question(
+                self,
+                "確認修改（已繳費）",
+                diff_text + "\n\n系統將自動建立補繳/退費差額交易。\n\n是否仍要儲存？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
             )
+            if ans != QMessageBox.Yes:
+                return
+
+        try:
+            result = None
+            if self.is_paid:
+                result = self.controller.update_paid_activity_signup_with_adjustment(
+                    self.signup_id,
+                    qty_map,
+                    free_amount_map,
+                    handler=self.payment_handler,
+                )
+                ok = True
+            else:
+                ok = self.controller.update_activity_signup_items(
+                    self.signup_id,
+                    qty_map,
+                    free_amount_map
+                )
 
             if not ok:
                 QMessageBox.warning(self, "儲存失敗", "報名資料未更新")
                 return
 
-            QMessageBox.information(self, "儲存完成", "報名資料已更新")
+            if self.is_paid and delta != 0:
+                adj_type = str((result or {}).get("adjustment_type") or "")
+                receipt_no = str((result or {}).get("receipt_number") or "").strip()
+                if adj_type == "SUPPLEMENT":
+                    msg = f"報名資料已更新，已自動建立補繳交易（{abs(delta)} 元）。"
+                    if receipt_no:
+                        msg += f"\n收據號碼：{receipt_no}"
+                elif adj_type == "REFUND":
+                    msg = f"報名資料已更新，已自動建立退費交易（{abs(delta)} 元）。"
+                else:
+                    msg = "報名資料已更新。"
+                QMessageBox.information(self, "儲存完成", msg)
+            else:
+                QMessageBox.information(self, "儲存完成", "報名資料已更新")
             self.accept()   # ✅ 關閉 dialog，回到上一層
 
         except Exception as e:

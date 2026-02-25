@@ -479,13 +479,14 @@ class ActivityDetailPanel(QWidget):
         search_row.addStretch(1)
         g1.addLayout(search_row)
 
-        self.tbl_signups = QTableWidget(0, 5)
-        self.tbl_signups.setHorizontalHeaderLabels(["繳費", "姓名", "電話", "方案", "金額"])
+        self.tbl_signups = QTableWidget(0, 6)
+        self.tbl_signups.setHorizontalHeaderLabels(["繳費", "收據號", "姓名", "電話", "方案", "金額"])
         self.tbl_signups.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_signups.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_signups.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.tbl_signups.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl_signups.setSelectionMode(QTableWidget.MultiSelection)
         self.tbl_signups.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -493,17 +494,8 @@ class ActivityDetailPanel(QWidget):
         g1.addWidget(self.tbl_signups, 1)
 
         row_btn_1 = QHBoxLayout()
-        self.btn_mark_paid = QPushButton("按此繳費")
         self.btn_print_signup_list = QPushButton("列印名單")
-        self.edt_payment_handler = QLineEdit()
-        self.edt_payment_handler.setPlaceholderText("經手人（必填）")
-        self._apply_payment_handler_editable_state()
-        self.btn_mark_paid.setEnabled(False)
-        self.btn_mark_paid.clicked.connect(self._on_mark_signup_paid)
-        self.edt_payment_handler.textChanged.connect(self._sync_mark_paid_enabled)
         self.btn_print_signup_list.clicked.connect(self._on_print_signup_list)
-        row_btn_1.addWidget(self.btn_mark_paid)
-        row_btn_1.addWidget(self.edt_payment_handler, 1)
         self.btn_open_item_stats_dialog = QPushButton("總品項列印")
         self.btn_open_item_stats_dialog.clicked.connect(self._open_item_stats_dialog)
         row_btn_1.addWidget(self.btn_open_item_stats_dialog)
@@ -513,7 +505,6 @@ class ActivityDetailPanel(QWidget):
         row_btn_1.addStretch(1)
         row_btn_1.addWidget(self.btn_print_signup_list)
         g1.addLayout(row_btn_1)
-        self._apply_default_payment_handler_if_needed()
 
         layout.addWidget(grp_detail, 1)
 
@@ -765,24 +756,22 @@ class ActivityDetailPanel(QWidget):
             self.tbl_signups.insertRow(row)
             paid_item = QTableWidgetItem("")
             paid = int(r.get("is_paid") or 0) == 1
-            if paid:
-                paid_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-                paid_item.setCheckState(Qt.Checked)
-            else:
-                paid_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
-                paid_item.setCheckState(Qt.Unchecked)
+            # 報名統計與列印：保留勾勾顯示，但不提供操作（Phase 2A）
+            paid_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            paid_item.setCheckState(Qt.Checked if paid else Qt.Unchecked)
             self.tbl_signups.setItem(row, 0, paid_item)
-            self.tbl_signups.setItem(row, 1, QTableWidgetItem(str(r.get("person_name", ""))))
-            self.tbl_signups.setItem(row, 2, QTableWidgetItem(str(r.get("person_phone", ""))))
-            self.tbl_signups.setItem(row, 3, QTableWidgetItem(str(r.get("plan_summary", ""))))
-            self.tbl_signups.setItem(row, 4, QTableWidgetItem(str(int(r.get("total_amount", 0) or 0))))
+            receipt_no = str(r.get("payment_receipt_number", "") or "")
+            self.tbl_signups.setItem(row, 1, QTableWidgetItem(receipt_no))
+            self.tbl_signups.setItem(row, 2, QTableWidgetItem(str(r.get("person_name", ""))))
+            self.tbl_signups.setItem(row, 3, QTableWidgetItem(str(r.get("person_phone", ""))))
+            self.tbl_signups.setItem(row, 4, QTableWidgetItem(str(r.get("plan_summary", ""))))
+            self.tbl_signups.setItem(row, 5, QTableWidgetItem(str(int(r.get("total_amount", 0) or 0))))
             sid = str(r.get("signup_id", ""))
-            for c in range(5):
+            for c in range(6):
                 it = self.tbl_signups.item(row, c)
                 if it:
                     it.setData(Qt.UserRole, sid)
                     it.setData(Qt.UserRole + 1, 1 if paid else 0)
-            receipt_no = str(r.get("payment_receipt_number", "") or "")
             if receipt_no:
                 self.tbl_signups.item(row, 0).setToolTip(f"已繳費，收據號碼：{receipt_no}")
         self.tbl_signups.resizeRowsToContents()
@@ -806,7 +795,7 @@ class ActivityDetailPanel(QWidget):
         if not rows:
             QMessageBox.information(self, "列印名單", "沒有可列印內容")
             return
-        PrintHelper.print_table_report("報名名單（明細）", ["繳費", "姓名", "電話", "方案", "金額"], rows)
+        PrintHelper.print_table_report("報名名單（明細）", ["繳費", "姓名", "電話", "方案", "金額"], rows, landscape=True)
 
     def _on_show_all_signups(self):
         self._signup_filter_mode = "all"

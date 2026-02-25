@@ -353,6 +353,12 @@ def create_transactions_table(db_name=DB_NAME):
         handler TEXT, -- 經手人
         receipt_number TEXT, -- 收據號碼
         note TEXT,
+        is_voided INTEGER DEFAULT 0, -- 作廢標記 (0=正常, 1=作廢)
+        source_type TEXT, -- 來源類型：LIGHTING_SIGNUP / ACTIVITY_SIGNUP / MANUAL
+        source_id TEXT, -- 來源主鍵（例如 lighting_signups.id）
+        adjustment_kind TEXT, -- PRIMARY / SUPPLEMENT / REFUND
+        adjusts_txn_id INTEGER, -- 若為調整單，指向原交易 id
+        is_system_generated INTEGER DEFAULT 0, -- 系統自動產生
         is_deleted INTEGER DEFAULT 0, -- 軟刪除標記 (0=正常, 1=已刪除)
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         
@@ -364,6 +370,67 @@ def create_transactions_table(db_name=DB_NAME):
     conn.commit()
     conn.close()
     print("✅ `transactions` 資料表檢查完成")
+
+def create_lighting_items_table(db_name=DB_NAME):
+    """建立 lighting_items 表（安燈設定）"""
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS lighting_items (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        fee INTEGER NOT NULL DEFAULT 0,
+        kind TEXT NOT NULL DEFAULT 'GENERAL', -- TAI_SUI / BRIGHT / GENERAL / JI_GAI
+        sort_order INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+    print("✅ `lighting_items` 資料表檢查完成")
+
+def create_lighting_signup_tables(db_name=DB_NAME):
+    """建立安燈報名主檔與明細表"""
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS lighting_signups (
+        id TEXT PRIMARY KEY,
+        signup_year INTEGER NOT NULL,
+        person_id TEXT NOT NULL,
+        group_id TEXT NOT NULL,
+        signup_kind TEXT NOT NULL DEFAULT 'INITIAL', -- INITIAL / APPEND
+        total_amount INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
+        is_paid INTEGER DEFAULT 0,
+        paid_at TEXT,
+        payment_txn_id INTEGER,
+        payment_receipt_number TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS lighting_signup_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signup_id TEXT NOT NULL,
+        lighting_item_id TEXT NOT NULL,
+        lighting_item_name TEXT NOT NULL,
+        fee_snapshot INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        UNIQUE(signup_id, lighting_item_id)
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+    print("✅ `lighting_signups` / `lighting_signup_items` 資料表檢查完成")
 
 def create_activity_signup_plans_table(db_name=DB_NAME):
     """建立 activity_signup_plans 表"""
@@ -411,6 +478,8 @@ if __name__ == "__main__":
     create_member_identity_table()
     # 第二階段：不再建立預設帳號，改由首次啟動建立管理員
     create_people_table() # 所有人的基本資料表
+    create_lighting_items_table() # 安燈設定
+    create_lighting_signup_tables() # 安燈報名
     create_activities_table() # 活動主檔
     create_activity_plans_table() # 活動方案
     create_activity_signups_table() # 活動報名
