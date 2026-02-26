@@ -131,19 +131,21 @@ class PrintHelper:
         return max(10, app_pt), max(14, app_pt + 4)
 
     @staticmethod
-    def print_table_report(title, headers, rows):
+    def print_table_report(title, headers, rows, landscape: bool = False):
         """
         列印表格式報表（Excel 風格格線）
         - title: str
         - headers: List[str]
         - rows: List[List[Any]]
+        - landscape: bool (True = A4 橫式)
         """
         printer = QPrinter(QPrinter.HighResolution)
         printer.setPageSize(QPageSize(QPageSize.A4))
-        printer.setOrientation(QPrinter.Portrait)
+        printer.setOrientation(QPrinter.Landscape if landscape else QPrinter.Portrait)
 
         font_family = PrintHelper._get_compatible_font_family()
         body_pt, title_pt = PrintHelper._report_font_sizes()
+        table_pt = max(9, body_pt - 2)
 
         def esc(v):
             s = "" if v is None else str(v)
@@ -165,6 +167,9 @@ class PrintHelper:
         <head>
           <meta charset="utf-8">
           <style>
+            @page {{
+              margin: 12mm;
+            }}
             body {{
               font-family: '{font_family}', 'sans-serif';
               font-size: {body_pt}pt;
@@ -180,12 +185,17 @@ class PrintHelper:
               border-collapse: collapse;
               width: 100%;
               table-layout: auto;
+              font-size: {table_pt}pt;
             }}
             th, td {{
               border: 1px solid #666;
-              padding: 6px 8px;
+              padding: 4px 6px;
               vertical-align: middle;
-              word-wrap: break-word;
+              line-height: 1.35;
+              white-space: nowrap;
+            }}
+            tr {{
+              page-break-inside: avoid;
             }}
             th {{
               background: #f3f3f3;

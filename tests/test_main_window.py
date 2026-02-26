@@ -51,7 +51,7 @@ class FakeActivitySignupPage(QWidget):
     request_back_to_manage = pyqtSignal()
     request_close = pyqtSignal()
 
-    def __init__(self, controller):
+    def __init__(self, controller, parent=None, *args, **kwargs):
         super().__init__()
         self.controller = controller
 

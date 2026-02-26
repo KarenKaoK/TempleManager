@@ -123,3 +123,27 @@ class ActivityManagePage(QWidget):
         detail = getattr(self, "activity_detail_panel", None)
         if detail is not None and hasattr(detail, "set_current_user_role"):
             detail.set_current_user_role(self._current_user_role)
+
+    def refresh_after_signup_changes(self):
+        """
+        從活動報名頁返回管理頁時使用：
+        - 刷新左側活動清單（含報名數）
+        - 儘量保留目前選取活動
+        - 讓右側「報名統計與列印」重新載入最新資料
+        """
+        list_panel = getattr(self, "activity_list_panel", None)
+        detail_panel = getattr(self, "activity_detail_panel", None)
+        if list_panel is None:
+            return
+
+        current_id = ""
+        if detail_panel is not None:
+            current_id = str(getattr(detail_panel, "_current_activity_id", "") or "").strip()
+        if not current_id:
+            current_id = str(getattr(list_panel, "_selected_id", "") or "").strip()
+
+        list_panel.refresh_current_filters()
+
+        if current_id:
+            # 重新選取會 emit activity_selected，右側 detail panel 會 load_activity() 並刷新報名統計 tab
+            list_panel.set_selected(current_id)

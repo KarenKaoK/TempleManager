@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QFrame, QListView, QAbstractSpinBox
 )
 from PyQt5.QtCore import QDate, Qt
+from PyQt5.QtGui import QColor
 from datetime import date
 
 from app.utils.print_helper import PrintHelper
@@ -411,7 +412,7 @@ class TransactionTab(QWidget):
         action_row.addWidget(self.btn_del_row)
         
         self.table = QTableWidget()
-        cols = ["日期", "單號", "項目", "對象", "金額", "經手人", "摘要"]
+        cols = ["日期", "單號", "項目", "對象", "金額", "經手人", "作廢", "類型", "摘要"]
         self.table.setColumnCount(len(cols))
         self.table.setHorizontalHeaderLabels(cols)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
@@ -425,9 +426,20 @@ class TransactionTab(QWidget):
         self.table.setColumnWidth(3, 180)  # 對象
         self.table.setColumnWidth(4, 110)  # 金額
         self.table.setColumnWidth(5, 120)  # 經手人
-        self.table.setColumnWidth(6, 420)  # 摘要
+        self.table.setColumnWidth(6, 70)   # 作廢
+        self.table.setColumnWidth(7, 100)  # 類型
+        self.table.setColumnWidth(8, 320)  # 摘要
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setStyleSheet(
+            """
+            QTableWidget::item:selected {
+                background: #D9ECFF;
+                color: #1F2937;
+                border: 1px solid #8CB8E8;
+            }
+            """
+        )
         
         # 右鍵選單
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -577,11 +589,100 @@ class TransactionTab(QWidget):
             self.table.setItem(i, 3, QTableWidgetItem(row['payer_name']))
             self.table.setItem(i, 4, QTableWidgetItem(str(row['amount'])))
             self.table.setItem(i, 5, QTableWidgetItem(row['handler']))
-            self.table.setItem(i, 6, QTableWidgetItem(row['note']))
+            self.table.setItem(i, 6, QTableWidgetItem("作廢" if int((row or {}).get("is_voided") or 0) == 1 else ""))
+            self.table.setItem(i, 7, QTableWidgetItem(self._format_adjustment_kind_label(row)))
+            self.table.setItem(i, 8, QTableWidgetItem(row['note']))
             
             # 將整筆資料存入第一欄的 UserRole，供修改/刪除/列印使用
             self.table.item(i, 0).setData(Qt.UserRole, row)
+            self._apply_source_group_row_style(i, row)
         self._sync_row_action_buttons()
+
+    def _format_adjustment_kind_label(self, row_data):
+        source_type = str((row_data or {}).get("source_type") or "").strip().upper()
+        kind = str((row_data or {}).get("adjustment_kind") or "").strip().upper()
+        # 類型欄位對齊業務頁語意（初始 / 追加）。
+        # REFUND 由「作廢」欄位表達，不在類型欄顯示。
+        if source_type in {"LIGHTING_SIGNUP", "ACTIVITY_SIGNUP"}:
+            if kind == "PRIMARY":
+                return "初始"
+            if kind == "SUPPLEMENT":
+                return "追加"
+            return ""
+        mapping = {
+            "PRIMARY": "初始",
+            "SUPPLEMENT": "追加",
+        }
+        return mapping.get(kind, "")
+
+    def _adjustment_kind_sort_priority(self, row_data):
+        kind = str((row_data or {}).get("adjustment_kind") or "").strip().upper()
+        return {"PRIMARY": 0, "SUPPLEMENT": 1, "REFUND": 2}.get(kind, 9)
+
+    def _source_group_key(self, row_data):
+        stype = str((row_data or {}).get("source_type") or "").strip()
+        sid = str((row_data or {}).get("source_id") or "").strip()
+        if not stype or not sid:
+            return ""
+        return f"{stype}:{sid}"
+
+    def _group_rows_by_source_for_display(self, rows):
+        src_rows = list(rows or [])
+        if not src_rows:
+            return src_rows
+
+        first_pos_by_group = {}
+        for idx, row in enumerate(src_rows):
+            key = self._source_group_key(row)
+            if key and key not in first_pos_by_group:
+                first_pos_by_group[key] = idx
+
+        indexed_rows = list(enumerate(src_rows))
+
+        def _sort_key(pair):
+            idx, row = pair
+            key = self._source_group_key(row)
+            if not key:
+                return (idx, 1, 0, idx)
+            return (
+                first_pos_by_group.get(key, idx),
+                0,
+                self._adjustment_kind_sort_priority(row),
+                idx,
+            )
+
+        indexed_rows.sort(key=_sort_key)
+        return [row for _, row in indexed_rows]
+
+    def _source_group_color(self, row_data):
+        """
+        同來源（source_type + source_id）套用同一淡底色，提升主收款/補繳/退費關聯可讀性。
+        """
+        key = self._source_group_key(row_data)
+        if not key:
+            return None
+        # 只使用兩種底色：白色 + 主題色
+        palette = [
+            "#FFFFFF",
+            "#FFF3E3",
+        ]
+        if not hasattr(self, "_source_group_color_cache"):
+            self._source_group_color_cache = {}
+            self._source_group_color_next_idx = 0
+        if key not in self._source_group_color_cache:
+            idx = int(getattr(self, "_source_group_color_next_idx", 0)) % len(palette)
+            self._source_group_color_cache[key] = palette[idx]
+            self._source_group_color_next_idx = int(getattr(self, "_source_group_color_next_idx", 0)) + 1
+        return QColor(self._source_group_color_cache[key])
+
+    def _apply_source_group_row_style(self, row_idx: int, row_data):
+        # 收支頁以時間排序為主，底色僅做逐列交錯輔助（白色 / 主題色）
+        palette = ["#FFFFFF", "#FFF3E3"]
+        color = QColor(palette[row_idx % len(palette)])
+        for c in range(self.table.columnCount()):
+            item = self.table.item(row_idx, c)
+            if item:
+                item.setBackground(color)
 
     def _get_selected_row_data(self):
         row = self.table.currentRow()
@@ -625,11 +726,44 @@ class TransactionTab(QWidget):
         tx_date = self._to_date_obj(data.get("date", ""))
         return bool(tx_date and tx_date == date.today())
 
+    def _is_system_business_income_txn(self, data):
+        """
+        Phase 1 止血：
+        - 90 活動收入
+        - 91 安燈收入（點燈收入）
+        這兩類交易應回原業務頁處理，不允許在收支頁直接修改/刪除。
+        """
+        if self.t_type != "income" or not data:
+            return False
+        cid = str((data or {}).get("category_id") or "").strip()
+        return cid in {"90", "91"}
+
+    def _can_direct_edit_data(self, data):
+        if not data:
+            return False
+        if self._is_system_business_income_txn(data):
+            return False
+        return self._is_editable_today(data)
+
+    def _can_direct_delete_data(self, data):
+        if not data:
+            return False
+        if self._is_system_business_income_txn(data):
+            return False
+        return self._can_delete_data(data)
+
+    def _show_system_income_lock_message(self):
+        QMessageBox.information(
+            self,
+            "限制",
+            "90活動收入 / 91安燈收入為系統保留業務交易，請回原業務頁（活動/安燈）處理。",
+        )
+
     def _sync_row_action_buttons(self):
         data = self._get_selected_row_data()
         has_row = data is not None
-        self.btn_edit_row.setEnabled(has_row and self._is_editable_today(data))
-        self.btn_del_row.setEnabled(has_row and self._can_delete_data(data))
+        self.btn_edit_row.setEnabled(has_row and self._can_direct_edit_data(data))
+        self.btn_del_row.setEnabled(has_row and self._can_direct_delete_data(data))
         if self.btn_print_row is not None:
             self.btn_print_row.setEnabled(has_row)
 
@@ -637,6 +771,9 @@ class TransactionTab(QWidget):
         data = self._get_selected_row_data()
         if not data:
             QMessageBox.warning(self, "提示", "請先選取一筆資料")
+            return
+        if self._is_system_business_income_txn(data):
+            self._show_system_income_lock_message()
             return
         if not self._is_editable_today(data):
             QMessageBox.information(self, "限制", "交易資料修改僅限當日資料。")
@@ -647,6 +784,9 @@ class TransactionTab(QWidget):
         data = self._get_selected_row_data()
         if not data:
             QMessageBox.warning(self, "提示", "請先選取一筆資料")
+            return
+        if self._is_system_business_income_txn(data):
+            self._show_system_income_lock_message()
             return
         if not self._can_delete_data(data):
             QMessageBox.information(self, "限制", "交易資料刪除僅限當日資料。")
@@ -705,13 +845,13 @@ class TransactionTab(QWidget):
 
         edit_action = QAction("修改資料", self)
         edit_action.triggered.connect(lambda: self.load_transaction_to_form(data))
-        edit_action.setEnabled(self._is_editable_today(data))
+        edit_action.setEnabled(self._can_direct_edit_data(data))
         menu.addAction(edit_action)
         menu.addSeparator()
         
         del_action = QAction("刪除資料", self)
         del_action.triggered.connect(lambda: self.delete_transaction(data))
-        del_action.setEnabled(self._can_delete_data(data))
+        del_action.setEnabled(self._can_direct_delete_data(data))
         menu.addAction(del_action)
         
         menu.exec_(self.table.viewport().mapToGlobal(pos))
@@ -720,6 +860,9 @@ class TransactionTab(QWidget):
         PrintHelper.print_receipt(data)
 
     def delete_transaction(self, data):
+        if self._is_system_business_income_txn(data):
+            self._show_system_income_lock_message()
+            return
         if not self._can_delete_data(data):
             QMessageBox.warning(self, "限制", "交易資料刪除僅限當日資料。")
             return
@@ -741,6 +884,9 @@ class TransactionTab(QWidget):
                 QMessageBox.critical(self, "錯誤", f"刪除失敗: {str(e)}")
 
     def load_transaction_to_form(self, data):
+        if self._is_system_business_income_txn(data):
+            self._show_system_income_lock_message()
+            return
         if not self._is_editable_today(data):
             QMessageBox.information(self, "限制", "交易資料修改僅限當日資料。")
             return
