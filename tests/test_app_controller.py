@@ -178,12 +178,12 @@ def test_create_custom_lighting_item(tmp_path):
     db_path = tmp_path / "lighting_custom.db"
     controller = AppController(db_path=str(db_path))
     try:
-        item_id = controller.create_lighting_item(name="文昌燈", fee=500, kind="GENERAL")
+        item_id = controller.create_lighting_item(name="文昌燈", fee=500, kind="JI_XIANG")
         rows = controller.list_lighting_items(include_inactive=True)
         row = next(r for r in rows if r["id"] == item_id)
         assert row["name"] == "文昌燈"
         assert int(row["fee"]) == 500
-        assert row["kind"] == "GENERAL"
+        assert row["kind"] == "JI_XIANG"
     finally:
         controller.conn.close()
 
@@ -283,15 +283,15 @@ def test_upsert_lighting_signup_and_item_totals(tmp_path):
         rows = controller.list_lighting_signups(2026)
         assert len(rows) == 2
         by_person = {r["person_name"]: r for r in rows}
-        assert int(by_person["王大明"]["total_amount"]) == 1200
-        assert int(by_person["王小明"]["total_amount"]) == 600
+        assert int(by_person["王大明"]["total_amount"]) == 1000
+        assert int(by_person["王小明"]["total_amount"]) == 500
 
         totals = controller.get_lighting_signup_item_totals(2026)
         by_item = {r["lighting_item_id"]: r for r in totals}
         assert int(by_item["L01"]["signup_count"]) == 2
-        assert int(by_item["L01"]["total_amount"]) == 1200
+        assert int(by_item["L01"]["total_amount"]) == 1000
         assert int(by_item["L02"]["signup_count"]) == 1
-        assert int(by_item["L02"]["total_amount"]) == 600
+        assert int(by_item["L02"]["total_amount"]) == 500
 
         selected = controller.get_lighting_signup_selected_item_ids(2026, ["P1", "P2"])
         assert set(selected["P1"]) == {"L01", "L02"}
@@ -357,7 +357,7 @@ def test_upsert_lighting_signup_allows_paid_record_update_with_flag(tmp_path):
         rows = controller.list_lighting_signups(2026)
         assert len(rows) == 1
         assert int(rows[0]["is_paid"] or 0) == 1
-        assert int(rows[0]["total_amount"] or 0) == 1200
+        assert int(rows[0]["total_amount"] or 0) == 1000
     finally:
         controller.conn.close()
 
@@ -595,13 +595,13 @@ def test_update_paid_lighting_signup_with_adjustment_creates_supplement_and_refu
         adj1 = controller.update_paid_lighting_signup_with_adjustment(
             2026, "P1", ["L01", "L02"], handler="測試經手人"
         )
-        assert int(adj1["delta"]) == 600
+        assert int(adj1["delta"]) == 500
         assert str(adj1["adjustment_type"]) == "SUPPLEMENT"
 
         adj2 = controller.update_paid_lighting_signup_with_adjustment(
             2026, "P1", ["L02"], handler="測試經手人"
         )
-        assert int(adj2["delta"]) == -600
+        assert int(adj2["delta"]) == -500
         assert str(adj2["adjustment_type"]) == "REFUND"
 
         tx_rows = cur.execute(
@@ -757,6 +757,8 @@ def test_delete_activity_signup_removes_unpaid_record(tmp_path):
                 id TEXT PRIMARY KEY,
                 activity_id TEXT,
                 person_id TEXT,
+                group_id TEXT,
+                signup_kind TEXT DEFAULT 'INITIAL',
                 signup_time TEXT,
                 note TEXT,
                 total_amount INTEGER DEFAULT 0,
@@ -778,10 +780,10 @@ def test_delete_activity_signup_removes_unpaid_record(tmp_path):
         cur.execute(
             """
             INSERT INTO activity_signups (
-                id, activity_id, person_id, signup_time, note, total_amount, created_at, updated_at, is_paid
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, activity_id, person_id, group_id, signup_kind, signup_time, note, total_amount, created_at, updated_at, is_paid
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            ("AS1", "A1", "P1", now, None, 100, now, now, 0),
+            ("AS1", "A1", "P1", "AS1", "INITIAL", now, None, 100, now, now, 0),
         )
         controller.conn.commit()
 
@@ -802,6 +804,8 @@ def test_delete_activity_signup_rejects_paid_record(tmp_path):
                 id TEXT PRIMARY KEY,
                 activity_id TEXT,
                 person_id TEXT,
+                group_id TEXT,
+                signup_kind TEXT DEFAULT 'INITIAL',
                 signup_time TEXT,
                 note TEXT,
                 total_amount INTEGER DEFAULT 0,
@@ -823,10 +827,10 @@ def test_delete_activity_signup_rejects_paid_record(tmp_path):
         cur.execute(
             """
             INSERT INTO activity_signups (
-                id, activity_id, person_id, signup_time, note, total_amount, created_at, updated_at, is_paid
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, activity_id, person_id, group_id, signup_kind, signup_time, note, total_amount, created_at, updated_at, is_paid
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            ("AS1", "A1", "P1", now, None, 100, now, now, 1),
+            ("AS1", "A1", "P1", "AS1", "INITIAL", now, None, 100, now, now, 1),
         )
         controller.conn.commit()
 
@@ -864,6 +868,8 @@ def test_mark_activity_signups_paid_writes_transaction_source_link(tmp_path):
                 id TEXT PRIMARY KEY,
                 activity_id TEXT,
                 person_id TEXT,
+                group_id TEXT,
+                signup_kind TEXT DEFAULT 'INITIAL',
                 total_amount INTEGER DEFAULT 0,
                 is_paid INTEGER DEFAULT 0,
                 paid_at TEXT,
@@ -926,6 +932,7 @@ def test_mark_activity_signups_paid_writes_transaction_source_link(tmp_path):
                 handler TEXT,
                 receipt_number TEXT,
                 note TEXT,
+                is_voided INTEGER DEFAULT 0,
                 source_type TEXT,
                 source_id TEXT,
                 adjustment_kind TEXT,
@@ -938,7 +945,10 @@ def test_mark_activity_signups_paid_writes_transaction_source_link(tmp_path):
         )
         cur.execute("INSERT INTO people (id, name, phone_mobile) VALUES (?, ?, ?)", ("P1", "王大明", "0911000000"))
         cur.execute("INSERT INTO activities (id, name, activity_end_date) VALUES (?, ?, ?)", ("A1", "法會", "2026-03-01"))
-        cur.execute("INSERT INTO activity_signups (id, activity_id, person_id, total_amount, is_paid) VALUES (?, ?, ?, ?, 0)", ("AS1", "A1", "P1", 1000))
+        cur.execute(
+            "INSERT INTO activity_signups (id, activity_id, person_id, group_id, signup_kind, total_amount, is_paid) VALUES (?, ?, ?, ?, ?, ?, 0)",
+            ("AS1", "A1", "P1", "AS1", "INITIAL", 1000),
+        )
         cur.execute("INSERT INTO activity_plans (id, activity_id, name, price_type) VALUES (?, ?, ?, ?)", ("AP1", "A1", "方案A", "FIXED"))
         cur.execute("INSERT INTO activity_signup_plans (id, signup_id, plan_id, qty, line_total) VALUES (?, ?, ?, ?, ?)", ("ASP1", "AS1", "AP1", 1, 1000))
         cur.execute("INSERT OR REPLACE INTO income_items (id, name, amount) VALUES (?, ?, ?)", ("90", "活動收入", 0))
@@ -993,6 +1003,8 @@ def test_update_paid_activity_signup_with_adjustment_creates_supplement_and_refu
                 id TEXT PRIMARY KEY,
                 activity_id TEXT,
                 person_id TEXT,
+                group_id TEXT,
+                signup_kind TEXT DEFAULT 'INITIAL',
                 total_amount INTEGER DEFAULT 0,
                 is_paid INTEGER DEFAULT 0,
                 paid_at TEXT,
@@ -1062,6 +1074,7 @@ def test_update_paid_activity_signup_with_adjustment_creates_supplement_and_refu
                 handler TEXT,
                 receipt_number TEXT,
                 note TEXT,
+                is_voided INTEGER DEFAULT 0,
                 source_type TEXT,
                 source_id TEXT,
                 adjustment_kind TEXT,
@@ -1075,8 +1088,8 @@ def test_update_paid_activity_signup_with_adjustment_creates_supplement_and_refu
         cur.execute("INSERT INTO people (id, name, phone_mobile) VALUES (?, ?, ?)", ("P1", "王大明", "0911000000"))
         cur.execute("INSERT INTO activities (id, name, activity_end_date) VALUES (?, ?, ?)", ("A1", "法會", "2026-03-01"))
         cur.execute(
-            "INSERT INTO activity_signups (id, activity_id, person_id, total_amount, is_paid) VALUES (?, ?, ?, ?, 0)",
-            ("AS1", "A1", "P1", 600),
+            "INSERT INTO activity_signups (id, activity_id, person_id, group_id, signup_kind, total_amount, is_paid) VALUES (?, ?, ?, ?, ?, ?, 0)",
+            ("AS1", "A1", "P1", "AS1", "INITIAL", 600),
         )
         cur.execute(
             """
@@ -1204,6 +1217,8 @@ def test_get_income_transactions_by_person_filters_voided_rows(tmp_path):
                 handler TEXT,
                 receipt_number TEXT,
                 note TEXT,
+                source_type TEXT,
+                adjustment_kind TEXT,
                 is_voided INTEGER DEFAULT 0,
                 is_deleted INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now', 'localtime'))
@@ -1223,5 +1238,284 @@ def test_get_income_transactions_by_person_filters_voided_rows(tmp_path):
         rows = controller.get_income_transactions_by_person("P1")
         assert len(rows) == 1
         assert str(rows[0]["category_id"] or "") == "91"
+    finally:
+        controller.conn.close()
+
+
+def test_create_activity_signup_append_creates_second_record_with_group_and_kind(tmp_path):
+    controller = AppController(db_path=str(tmp_path / "activity_append_kind.db"))
+    try:
+        cur = controller.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS people (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                phone_mobile TEXT,
+                address TEXT,
+                birthday_ad TEXT,
+                birthday_lunar TEXT,
+                lunar_is_leap INTEGER DEFAULT 0
+            )
+            """
+        )
+        cur.execute("CREATE TABLE IF NOT EXISTS activities (id TEXT PRIMARY KEY, name TEXT, activity_end_date TEXT)")
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_signups (
+                id TEXT PRIMARY KEY,
+                activity_id TEXT,
+                person_id TEXT,
+                group_id TEXT,
+                signup_kind TEXT DEFAULT 'INITIAL',
+                signup_time TEXT,
+                note TEXT,
+                total_amount INTEGER DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT,
+                is_paid INTEGER DEFAULT 0,
+                paid_at TEXT,
+                payment_txn_id INTEGER,
+                payment_receipt_number TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_plans (
+                id TEXT PRIMARY KEY,
+                activity_id TEXT,
+                name TEXT,
+                price_type TEXT,
+                fixed_price INTEGER DEFAULT 0,
+                min_price INTEGER DEFAULT 0
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_signup_plans (
+                id TEXT PRIMARY KEY,
+                signup_id TEXT,
+                plan_id TEXT,
+                qty INTEGER DEFAULT 1,
+                unit_price_snapshot INTEGER DEFAULT 0,
+                amount_override INTEGER,
+                line_total INTEGER DEFAULT 0,
+                note TEXT
+            )
+            """
+        )
+        cur.execute(
+            "INSERT INTO people (id, name, phone_mobile, address, birthday_ad, birthday_lunar, lunar_is_leap) VALUES ('P1','王大明','0911000000','','','','0')"
+        )
+        cur.execute("INSERT INTO activities (id, name, activity_end_date) VALUES ('A1','法會','2026-03-01')")
+        cur.execute("INSERT INTO activity_plans (id, activity_id, name, price_type, fixed_price, min_price) VALUES ('AP1','A1','方案A','FIXED',600,0)")
+        controller.conn.commit()
+
+        first_id = controller.create_activity_signup("A1", "P1", [{"plan_id": "AP1", "qty": 1}])
+        result = controller.create_activity_signup_append("A1", "P1", [{"plan_id": "AP1", "qty": 2}])
+        second_id = str(result.get("signup_id") or "")
+        assert second_id and second_id != first_id
+        assert str(result.get("signup_kind") or "") == "APPEND"
+
+        rows = controller.get_activity_signups("A1")
+        assert len(rows) == 2
+        kinds = [str(r.get("signup_kind") or "") for r in rows]
+        assert "INITIAL" in kinds and "APPEND" in kinds
+        assert len({str(r.get("group_id") or "") for r in rows}) == 1
+    finally:
+        controller.conn.close()
+
+
+def test_mark_activity_signup_append_paid_writes_supplement_kind(tmp_path):
+    controller = AppController(db_path=str(tmp_path / "activity_append_paid_kind.db"))
+    try:
+        cur = controller.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS people (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                phone_mobile TEXT,
+                address TEXT,
+                birthday_ad TEXT,
+                birthday_lunar TEXT,
+                lunar_is_leap INTEGER DEFAULT 0
+            )
+            """
+        )
+        cur.execute("CREATE TABLE IF NOT EXISTS activities (id TEXT PRIMARY KEY, name TEXT, activity_end_date TEXT)")
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_signups (
+                id TEXT PRIMARY KEY,
+                activity_id TEXT,
+                person_id TEXT,
+                group_id TEXT,
+                signup_kind TEXT DEFAULT 'INITIAL',
+                signup_time TEXT,
+                note TEXT,
+                total_amount INTEGER DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT,
+                is_paid INTEGER DEFAULT 0,
+                paid_at TEXT,
+                payment_txn_id INTEGER,
+                payment_receipt_number TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_plans (
+                id TEXT PRIMARY KEY,
+                activity_id TEXT,
+                name TEXT,
+                price_type TEXT,
+                fixed_price INTEGER DEFAULT 0,
+                min_price INTEGER DEFAULT 0
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_signup_plans (
+                id TEXT PRIMARY KEY,
+                signup_id TEXT,
+                plan_id TEXT,
+                qty INTEGER DEFAULT 0,
+                unit_price_snapshot INTEGER DEFAULT 0,
+                amount_override INTEGER,
+                line_total INTEGER DEFAULT 0,
+                note TEXT
+            )
+            """
+        )
+        cur.execute("CREATE TABLE IF NOT EXISTS income_items (id TEXT PRIMARY KEY, name TEXT, amount INTEGER DEFAULT 0)")
+        cur.execute("CREATE TABLE IF NOT EXISTS expense_items (id TEXT PRIMARY KEY, name TEXT, amount INTEGER DEFAULT 0)")
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                type TEXT NOT NULL,
+                category_id TEXT NOT NULL,
+                category_name TEXT,
+                amount INTEGER DEFAULT 0,
+                payer_person_id TEXT,
+                payer_name TEXT,
+                handler TEXT,
+                receipt_number TEXT,
+                note TEXT,
+                is_voided INTEGER DEFAULT 0,
+                source_type TEXT,
+                source_id TEXT,
+                adjustment_kind TEXT,
+                adjusts_txn_id INTEGER,
+                is_system_generated INTEGER DEFAULT 0,
+                is_deleted INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+            """
+        )
+        cur.execute(
+            "INSERT INTO people (id, name, phone_mobile, address, birthday_ad, birthday_lunar, lunar_is_leap) VALUES ('P1','王大明','0911000000','','','','0')"
+        )
+        cur.execute("INSERT INTO activities VALUES ('A1','法會','2026-03-01')")
+        cur.execute("INSERT INTO activity_plans (id, activity_id, name, price_type, fixed_price, min_price) VALUES ('AP1','A1','方案A','FIXED',600,0)")
+        cur.execute("INSERT OR REPLACE INTO income_items VALUES ('90','活動收入',0)")
+        cur.execute("INSERT OR REPLACE INTO expense_items VALUES ('90R','活動退費',0)")
+        controller.conn.commit()
+
+        controller.create_activity_signup("A1", "P1", [{"plan_id": "AP1", "qty": 1}])
+        append = controller.create_activity_signup_append("A1", "P1", [{"plan_id": "AP1", "qty": 1}])
+        append_sid = str(append.get("signup_id") or "")
+        cur.execute("UPDATE activity_signups SET total_amount = 600 WHERE id = ?", (append_sid,))
+        cur.execute("INSERT INTO activity_signup_plans (id, signup_id, plan_id, qty, line_total) VALUES ('X1', ?, 'AP1', 1, 600)", (append_sid,))
+        controller.conn.commit()
+
+        result = controller.mark_activity_signups_paid("A1", [append_sid], handler="櫃台A")
+        assert int(result["paid_count"]) == 1
+        tx = cur.execute("SELECT adjustment_kind FROM transactions WHERE source_id = ? ORDER BY id DESC LIMIT 1", (append_sid,)).fetchone()
+        assert tx is not None
+        assert str(tx["adjustment_kind"] or "") == "SUPPLEMENT"
+    finally:
+        controller.conn.close()
+
+
+def test_delete_activity_signup_with_void_transactions_paid_record(tmp_path):
+    controller = AppController(db_path=str(tmp_path / "activity_delete_voided.db"))
+    try:
+        cur = controller.conn.cursor()
+        now = controller._now()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_signups (
+                id TEXT PRIMARY KEY,
+                activity_id TEXT,
+                person_id TEXT,
+                group_id TEXT,
+                signup_kind TEXT DEFAULT 'INITIAL',
+                signup_time TEXT,
+                note TEXT,
+                total_amount INTEGER DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT,
+                is_paid INTEGER DEFAULT 0,
+                paid_at TEXT,
+                payment_txn_id INTEGER,
+                payment_receipt_number TEXT
+            )
+            """
+        )
+        cur.execute("CREATE TABLE IF NOT EXISTS activity_signup_plans (id TEXT PRIMARY KEY, signup_id TEXT)")
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                type TEXT NOT NULL,
+                category_id TEXT NOT NULL,
+                category_name TEXT,
+                amount INTEGER DEFAULT 0,
+                payer_person_id TEXT,
+                payer_name TEXT,
+                handler TEXT,
+                receipt_number TEXT,
+                note TEXT,
+                is_voided INTEGER DEFAULT 0,
+                source_type TEXT,
+                source_id TEXT,
+                adjustment_kind TEXT,
+                adjusts_txn_id INTEGER,
+                is_system_generated INTEGER DEFAULT 0,
+                is_deleted INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO activity_signups (id, activity_id, person_id, group_id, signup_kind, signup_time, total_amount, created_at, updated_at, is_paid, payment_txn_id, payment_receipt_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 'R001')
+            """,
+            ("AS1", "A1", "P1", "AS1", "INITIAL", now, 600, now, now),
+        )
+        cur.execute("INSERT INTO activity_signup_plans (id, signup_id) VALUES ('ASP1', 'AS1')")
+        cur.execute(
+            """
+            INSERT INTO transactions (date, type, category_id, category_name, amount, payer_person_id, payer_name, handler, receipt_number, note,
+                                      is_voided, source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated, is_deleted)
+            VALUES ('2026-01-01','income','90','活動收入',600,'P1','王大明','櫃台','R001','測試',0,'ACTIVITY_SIGNUP','AS1','PRIMARY',NULL,1,0)
+            """
+        )
+        controller.conn.commit()
+
+        assert controller.delete_activity_signup_with_void_transactions("AS1") is True
+        assert cur.execute("SELECT id FROM activity_signups WHERE id='AS1'").fetchone() is None
+        tx = cur.execute("SELECT COALESCE(is_voided,0) AS is_voided FROM transactions WHERE source_id='AS1' LIMIT 1").fetchone()
+        assert tx is not None
+        assert int(tx["is_voided"] or 0) == 1
     finally:
         controller.conn.close()

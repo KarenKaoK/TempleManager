@@ -56,6 +56,8 @@ def controller_with_payment_db(tmp_path):
             id TEXT PRIMARY KEY,
             activity_id TEXT NOT NULL,
             person_id TEXT NOT NULL,
+            group_id TEXT,
+            signup_kind TEXT DEFAULT 'INITIAL',
             signup_time TEXT NOT NULL,
             note TEXT,
             total_amount INTEGER NOT NULL DEFAULT 0,
@@ -114,8 +116,8 @@ def controller_with_payment_db(tmp_path):
     cur.execute("INSERT INTO people (id, name) VALUES ('P1', '王小明')")
     cur.execute("INSERT INTO activities (id, name, activity_end_date) VALUES ('A1', '虎爺聖誕', '2026/02/28')")
     cur.execute(
-        "INSERT INTO activity_signups (id, activity_id, person_id, signup_time, total_amount, created_at, updated_at) "
-        "VALUES ('S1', 'A1', 'P1', '2026-02-01 10:00:00', 600, '2026-02-01 10:00:00', '2026-02-01 10:00:00')"
+        "INSERT INTO activity_signups (id, activity_id, person_id, group_id, signup_kind, signup_time, total_amount, created_at, updated_at) "
+        "VALUES ('S1', 'A1', 'P1', 'S1', 'INITIAL', '2026-02-01 10:00:00', 600, '2026-02-01 10:00:00', '2026-02-01 10:00:00')"
     )
     cur.execute("INSERT INTO activity_plans (id, activity_id, name, price_type) VALUES ('PL1', 'A1', '雙虎祝壽', 'FIXED')")
     cur.execute("INSERT INTO activity_signup_plans (id, signup_id, plan_id, qty, line_total) VALUES ('SP1', 'S1', 'PL1', 2, 600)")

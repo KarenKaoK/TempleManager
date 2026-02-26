@@ -30,10 +30,10 @@ class AppController:
     ACTIVITY_REFUND_EXPENSE_ITEM_ID = "90R"
     LIGHTING_REFUND_EXPENSE_ITEM_ID = "91R"
     SYSTEM_LIGHTING_ITEMS = (
-        ("L01", "太歲燈", 600, "TAI_SUI", 1),
-        ("L02", "光明燈", 600, "BRIGHT", 2),
-        ("L03", "吉祥如意燈", 600, "GENERAL", 3),
-        ("L04", "祭改", 800, "JI_GAI", 4),
+        ("L01", "太歲燈", 500, "TAI_SUI", 1),
+        ("L02", "光明燈", 500, "BRIGHT", 2),
+        ("L03", "吉祥如意燈", 1200, "JI_XIANG", 3),
+        ("L04", "祭改", 500, "JI_GAI", 4),
     )
 
     def __init__(self, db_path=DB_NAME):
@@ -229,7 +229,7 @@ class AppController:
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 fee INTEGER NOT NULL DEFAULT 0,
-                kind TEXT NOT NULL DEFAULT 'GENERAL',
+                kind TEXT NOT NULL DEFAULT 'JI_XIANG',
                 sort_order INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -288,9 +288,9 @@ class AppController:
         rows = cur.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
-    def create_lighting_item(self, name: str, fee: int, kind: str = "GENERAL") -> str:
+    def create_lighting_item(self, name: str, fee: int, kind: str = "JI_XIANG") -> str:
         name = (name or "").strip()
-        kind = (kind or "GENERAL").strip().upper()
+        kind = (kind or "JI_XIANG").strip().upper()
         if not name:
             raise ValueError("lighting name is required")
         try:
@@ -312,9 +312,9 @@ class AppController:
         self.conn.commit()
         return item_id
 
-    def update_lighting_item(self, item_id: str, name: str, fee: int, kind: str = "GENERAL") -> bool:
+    def update_lighting_item(self, item_id: str, name: str, fee: int, kind: str = "JI_XIANG") -> bool:
         name = (name or "").strip()
-        kind = (kind or "GENERAL").strip().upper()
+        kind = (kind or "JI_XIANG").strip().upper()
         if not name:
             raise ValueError("lighting name is required")
         fee_value = int(fee or 0)
@@ -3448,7 +3448,15 @@ class AppController:
     # -------------------------
     # Signups (核心)
     # -------------------------
-    def create_activity_signup(self, activity_id: str, person_id: str, selected_plans: list, note: str = None) -> str:
+    def create_activity_signup(
+        self,
+        activity_id: str,
+        person_id: str,
+        selected_plans: list,
+        note: str = None,
+        group_id: str = "",
+        signup_kind: str = "INITIAL",
+    ) -> str:
         """
         selected_plans: list of dict
           {
@@ -3462,6 +3470,10 @@ class AppController:
           - FREE : amount_override 必填，且 >= min_price
         """
         signup_id = self._uuid()
+        kind = str(signup_kind or "INITIAL").strip().upper()
+        if kind not in {"INITIAL", "APPEND"}:
+            kind = "INITIAL"
+        resolved_group_id = str(group_id or "").strip() or signup_id
         now = self._now()
         cursor = self.conn.cursor()
 
@@ -3471,9 +3483,9 @@ class AppController:
             # 1) insert signup 主檔（total_amount 先 0）
             cursor.execute("""
                 INSERT INTO activity_signups (
-                    id, activity_id, person_id, signup_time, note, total_amount, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (signup_id, activity_id, person_id, now, note, 0, now, now))
+                    id, activity_id, person_id, group_id, signup_kind, signup_time, note, total_amount, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (signup_id, activity_id, person_id, resolved_group_id, kind, now, note, 0, now, now))
 
             # 2) 逐筆寫明細 + 計算總額
             total_amount = 0
@@ -3541,6 +3553,45 @@ class AppController:
             cursor.execute("ROLLBACK;")
             raise e
 
+    def create_activity_signup_append(self, activity_id: str, person_id: str, selected_plans: list, note: str = None) -> Dict[str, Any]:
+        """
+        新規則（活動）：
+        已繳費後不修改原單，改為新增一筆「追加」紀錄（右側按鈕使用）。
+        """
+        aid = str(activity_id or "").strip()
+        pid = str(person_id or "").strip()
+        if not aid or not pid:
+            raise ValueError("activity_id / person_id 為必填")
+        cur = self.conn.cursor()
+        rows = cur.execute(
+            """
+            SELECT id, COALESCE(group_id, id) AS group_id
+            FROM activity_signups
+            WHERE activity_id = ? AND person_id = ?
+            ORDER BY
+                CASE COALESCE(signup_kind, 'INITIAL')
+                  WHEN 'INITIAL' THEN 0
+                  WHEN 'APPEND' THEN 1
+                  ELSE 9
+                END ASC,
+                datetime(replace(COALESCE(signup_time, created_at), '/', '-')) ASC,
+                datetime(replace(COALESCE(created_at, ''), '/', '-')) ASC,
+                id ASC
+            """,
+            (aid, pid),
+        ).fetchall()
+        group_id = str(rows[0]["group_id"] or rows[0]["id"] or "").strip() if rows else ""
+        signup_kind = "APPEND" if rows else "INITIAL"
+        signup_id = self.create_activity_signup(
+            activity_id=aid,
+            person_id=pid,
+            selected_plans=selected_plans,
+            note=note,
+            group_id=group_id,
+            signup_kind=signup_kind,
+        )
+        return {"signup_id": signup_id, "group_id": (group_id or signup_id), "signup_kind": signup_kind}
+
     def upsert_person(self, person_payload: Dict[str, Any]) -> str:
         """
         給「活動報名頁」用：
@@ -3577,6 +3628,9 @@ class AppController:
         sql = """
         SELECT
             s.id AS signup_id,
+            s.person_id AS person_id,
+            COALESCE(s.group_id, s.id) AS group_id,
+            COALESCE(s.signup_kind, 'INITIAL') AS signup_kind,
             p.name AS person_name,
             p.phone_mobile AS person_phone,
             p.address AS person_address,
@@ -3603,6 +3657,12 @@ class AppController:
         WHERE s.activity_id = ?
         GROUP BY s.id
         ORDER BY
+            COALESCE(s.group_id, s.id) ASC,
+            CASE COALESCE(s.signup_kind, 'INITIAL')
+              WHEN 'INITIAL' THEN 0
+              WHEN 'APPEND' THEN 1
+              ELSE 9
+            END ASC,
             datetime(replace(COALESCE(s.signup_time, s.created_at), '/', '-')) ASC,
             datetime(replace(s.created_at, '/', '-')) ASC,
             s.id ASC
@@ -3670,6 +3730,7 @@ class AppController:
         SELECT
                s.id AS signup_id,
                s.person_id,
+               COALESCE(s.signup_kind, 'INITIAL') AS signup_kind,
                COALESCE(s.total_amount, 0) AS total_amount,
                COALESCE(s.is_paid, 0) AS is_paid,
                p.name AS person_name,
@@ -3709,6 +3770,8 @@ class AppController:
                 if int(row.get("is_paid") or 0) == 1:
                     skipped_count += 1
                     continue
+                signup_kind = str(row.get("signup_kind") or "INITIAL").strip().upper()
+                adjustment_kind = "SUPPLEMENT" if signup_kind == "APPEND" else "PRIMARY"
 
                 receipt = self.generate_receipt_number(today)
                 plan_summary = str(row.get("plan_summary") or "").strip()
@@ -3736,7 +3799,7 @@ class AppController:
                         note,
                         "ACTIVITY_SIGNUP",
                         str(row.get("signup_id") or ""),
-                        "PRIMARY",
+                        adjustment_kind,
                         None,
                         1,
                     ),
@@ -4317,6 +4380,45 @@ class AppController:
             self.conn.rollback()
             raise
 
+    def delete_activity_signup_with_void_transactions(self, signup_id: str) -> bool:
+        """
+        新規則（活動右側）：
+        刪除當前選取報名紀錄；若已繳費則將對應交易標記作廢（is_voided=1）。
+        不影響其他同 group 紀錄。
+        """
+        sid = str(signup_id or "").strip()
+        if not sid:
+            return False
+        cur = self.conn.cursor()
+        row = cur.execute(
+            "SELECT id, COALESCE(is_paid, 0) AS is_paid FROM activity_signups WHERE id = ? LIMIT 1",
+            (sid,),
+        ).fetchone()
+        if not row:
+            return False
+        try:
+            cur.execute("BEGIN;")
+            if int(row["is_paid"] or 0) == 1 and self._table_exists("transactions"):
+                cols = self._table_columns("transactions")
+                if "is_voided" in cols:
+                    cur.execute(
+                        """
+                        UPDATE transactions
+                        SET is_voided = 1
+                        WHERE (is_deleted = 0 OR is_deleted IS NULL)
+                          AND COALESCE(source_type, '') = 'ACTIVITY_SIGNUP'
+                          AND COALESCE(source_id, '') = ?
+                        """,
+                        (sid,),
+                    )
+            cur.execute("DELETE FROM activity_signup_plans WHERE signup_id = ?", (sid,))
+            cur.execute("DELETE FROM activity_signups WHERE id = ?", (sid,))
+            self.conn.commit()
+            return cur.rowcount > 0
+        except Exception:
+            self.conn.rollback()
+            raise
+
     def get_activity_signup_id_by_person(self, activity_id: str, person_id: str) -> Optional[str]:
         """
         取得某活動中某人目前的報名單 id（若有）。
@@ -4773,7 +4875,9 @@ class AppController:
                 t.amount,
                 t.handler,
                 t.receipt_number,
-                t.note
+                t.note,
+                t.source_type,
+                t.adjustment_kind
             FROM transactions t
             WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
               AND t.type = 'income'

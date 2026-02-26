@@ -1,6 +1,6 @@
 from datetime import date
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QEvent, pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QLineEdit, QSplitter, QMessageBox, QDialog
@@ -202,6 +202,16 @@ class LightingSignupPage(QWidget):
         self.tbl_signups.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeToContents)
         self.tbl_signups.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl_signups.setSelectionMode(QTableWidget.SingleSelection)
+        self.tbl_signups.setStyleSheet(
+            """
+            QTableWidget::item:selected {
+                background: #D9ECFF;
+                color: #1F2937;
+                border: 1px solid #8CB8E8;
+            }
+            """
+        )
+        self.tbl_signups.viewport().installEventFilter(self)
         right_layout.addWidget(self.tbl_signups, 1)
 
         detail_btn_row = QHBoxLayout()
@@ -283,7 +293,7 @@ class LightingSignupPage(QWidget):
             show_tai_sui = str(defaults.get("tai_sui_text") or "")
             show_ji_gai = str(defaults.get("ji_gai_text") or "")
         self.lbl_hint_meta.setText(
-            f"年度（本次報名）：{selected_year}｜提示設定年度：{data.get('year')}｜提醒：實際是否建議報名，仍由廟方依法會/科儀規則人工判斷。"
+            f"年度（本次報名）：{selected_year} 年"
         )
         self.txt_tai_sui_hint.setPlainText(show_tai_sui)
         self.txt_ji_gai_hint.setPlainText(show_ji_gai)
@@ -399,10 +409,22 @@ class LightingSignupPage(QWidget):
     def _on_show_unpaid_signups(self):
         self._reload_signup_list(unpaid_only=True)
 
+    def eventFilter(self, obj, event):
+        tbl = getattr(self, "tbl_signups", None)
+        if tbl is not None and obj is tbl.viewport() and event.type() == QEvent.MouseButtonPress:
+            idx = tbl.indexAt(event.pos())
+            if not idx.isValid():
+                tbl.clearSelection()
+                tbl.setCurrentCell(-1, -1)
+                self._update_signup_action_buttons()
+        return super().eventFilter(obj, event)
+
     def _reload_signup_list(self, unpaid_only: bool = False):
         kw = (self.edt_signup_search.text() or "").strip() if hasattr(self, "edt_signup_search") else ""
         rows = self.controller.list_lighting_signups(self.year_spin.value(), keyword=kw, unpaid_only=unpaid_only)
         self.tbl_signups.setRowCount(len(rows))
+        self._signup_group_color_cache = {}
+        self._signup_group_color_next_idx = 0
         kind_label_map = {"INITIAL": "初始", "APPEND": "追加"}
         for i, row in enumerate(rows):
             is_paid = int(row.get("is_paid") or 0) == 1
@@ -468,9 +490,10 @@ class LightingSignupPage(QWidget):
         meta = self._get_current_signup_row_meta()
         has_row = bool(str((meta or {}).get("signup_id") or "").strip())
         is_paid = bool((meta or {}).get("is_paid"))
-        self.btn_edit_signup.setEnabled(has_row and (not is_paid))
+        self.btn_edit_signup.setEnabled(has_row)
         self.btn_append_signup.setEnabled(has_row and is_paid)
         self.btn_delete_signup.setEnabled(has_row)
+        self.btn_edit_signup.setToolTip("")
 
     def _signup_group_color(self, group_id: str):
         gid = str(group_id or "").strip()
@@ -479,8 +502,14 @@ class LightingSignupPage(QWidget):
         from PyQt5.QtGui import QColor
         # 只使用兩種底色：白色 + 主題色
         palette = ["#FFFFFF", "#FFF3E3"]
-        idx = sum(ord(ch) for ch in gid) % len(palette)
-        return QColor(palette[idx])
+        if not hasattr(self, "_signup_group_color_cache"):
+            self._signup_group_color_cache = {}
+            self._signup_group_color_next_idx = 0
+        if gid not in self._signup_group_color_cache:
+            idx = int(getattr(self, "_signup_group_color_next_idx", 0)) % len(palette)
+            self._signup_group_color_cache[gid] = palette[idx]
+            self._signup_group_color_next_idx = int(getattr(self, "_signup_group_color_next_idx", 0)) + 1
+        return QColor(self._signup_group_color_cache[gid])
 
     def _apply_signup_group_row_style(self, row_idx: int, group_id: str):
         color = self._signup_group_color(group_id)
@@ -500,7 +529,11 @@ class LightingSignupPage(QWidget):
             QMessageBox.information(self, "請先選取", "請先在已報名明細選取一筆資料。")
             return
         if is_paid:
-            QMessageBox.information(self, "不可修改", "已繳費紀錄不可修改，請使用「追加報名」。")
+            QMessageBox.information(
+                self,
+                "已繳費報名限制",
+                "已繳費的報名無法修改，要增加請用追加報名，要改品項請先刪除再重新報名",
+            )
             return
 
         try:

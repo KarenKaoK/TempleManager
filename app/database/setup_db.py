@@ -309,6 +309,8 @@ def create_activity_signups_table(db_name=DB_NAME):
     id TEXT PRIMARY KEY,
     activity_id TEXT NOT NULL,
     person_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    signup_kind TEXT NOT NULL DEFAULT 'INITIAL', -- INITIAL / APPEND
 
     signup_time TEXT NOT NULL,           -- YYYY-MM-DD HH:MM:SS
     note TEXT,
@@ -381,7 +383,7 @@ def create_lighting_items_table(db_name=DB_NAME):
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         fee INTEGER NOT NULL DEFAULT 0,
-        kind TEXT NOT NULL DEFAULT 'GENERAL', -- TAI_SUI / BRIGHT / GENERAL / JI_GAI
+        kind TEXT NOT NULL DEFAULT 'JI_XIANG', -- TAI_SUI / BRIGHT / JI_XIANG / JI_GAI
         sort_order INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now', 'localtime')),

@@ -253,13 +253,13 @@ class MainPageWidget(QWidget):
         tab_widget.addTab(base_widget, "基本資料")
 
         # 三個紀錄分頁：添油香 / 活動 / 安燈
-        donation_tab, self.donation_summary_label, self.donation_table = self._build_income_record_tab("添油香記錄")
+        donation_tab, self.donation_summary_label, self.donation_table = self._build_income_record_tab("添油香記錄", show_type=False)
         tab_widget.addTab(donation_tab, "添油香記錄")
 
-        activity_tab, self.activity_summary_label, self.activity_table = self._build_income_record_tab("活動紀錄")
+        activity_tab, self.activity_summary_label, self.activity_table = self._build_income_record_tab("活動紀錄", show_type=True)
         tab_widget.addTab(activity_tab, "活動紀錄")
 
-        light_tab, self.light_summary_label, self.light_table = self._build_income_record_tab("安燈紀錄")
+        light_tab, self.light_summary_label, self.light_table = self._build_income_record_tab("安燈紀錄", show_type=True)
         tab_widget.addTab(light_tab, "安燈紀錄")
 
         splitter.addWidget(tab_widget)
@@ -342,7 +342,7 @@ class MainPageWidget(QWidget):
         except (TypeError, ValueError):
             return str(value or "")
 
-    def _build_income_record_tab(self, title: str):
+    def _build_income_record_tab(self, title: str, show_type: bool = False):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -352,8 +352,12 @@ class MainPageWidget(QWidget):
         layout.addWidget(summary_label)
 
         table = QTableWidget()
-        table.setColumnCount(6)
-        table.setHorizontalHeaderLabels(["日期", "收據號碼", "項目", "金額", "經手人", "備註"])
+        if show_type:
+            table.setColumnCount(7)
+            table.setHorizontalHeaderLabels(["日期", "收據號碼", "項目", "類型", "金額", "經手人", "備註"])
+        else:
+            table.setColumnCount(6)
+            table.setHorizontalHeaderLabels(["日期", "收據號碼", "項目", "金額", "經手人", "備註"])
         table.setSelectionBehavior(QTableWidget.SelectRows)
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         table.setTextElideMode(Qt.ElideNone)
@@ -364,25 +368,48 @@ class MainPageWidget(QWidget):
         table.setColumnWidth(0, 120)
         table.setColumnWidth(1, 140)
         table.setColumnWidth(2, 180)
-        table.setColumnWidth(3, 110)
-        table.setColumnWidth(4, 120)
-        table.setColumnWidth(5, 520)
+        if show_type:
+            table.setColumnWidth(3, 90)
+            table.setColumnWidth(4, 110)
+            table.setColumnWidth(5, 120)
+            table.setColumnWidth(6, 430)
+        else:
+            table.setColumnWidth(3, 110)
+            table.setColumnWidth(4, 120)
+            table.setColumnWidth(5, 520)
+        table.setProperty("show_type_col", bool(show_type))
         layout.addWidget(table)
 
         return tab, summary_label, table
 
     def _fill_income_record_table(self, table: QTableWidget, rows: list):
+        show_type = bool(table.property("show_type_col"))
         table.setRowCount(len(rows))
         for r, tx in enumerate(rows):
             table.setItem(r, 0, QTableWidgetItem(self._fmt_date_text(tx.get("date", "") or "")))
             table.setItem(r, 1, QTableWidgetItem(tx.get("receipt_number", "") or ""))
             table.setItem(r, 2, QTableWidgetItem(tx.get("category_name", "") or ""))
-            table.setItem(r, 3, QTableWidgetItem(self._to_amount_text(tx.get("amount"))))
-            table.setItem(r, 4, QTableWidgetItem(tx.get("handler", "") or ""))
+            if show_type:
+                source_type = str(tx.get("source_type", "") or "").strip().upper()
+                adjustment_kind = str(tx.get("adjustment_kind", "") or "").strip().upper()
+                type_text = ""
+                if source_type in {"ACTIVITY_SIGNUP", "LIGHTING_SIGNUP"}:
+                    if adjustment_kind == "PRIMARY":
+                        type_text = "初始"
+                    elif adjustment_kind == "SUPPLEMENT":
+                        type_text = "追加"
+                table.setItem(r, 3, QTableWidgetItem(type_text))
+                table.setItem(r, 4, QTableWidgetItem(self._to_amount_text(tx.get("amount"))))
+                table.setItem(r, 5, QTableWidgetItem(tx.get("handler", "") or ""))
+                note_col = 6
+            else:
+                table.setItem(r, 3, QTableWidgetItem(self._to_amount_text(tx.get("amount"))))
+                table.setItem(r, 4, QTableWidgetItem(tx.get("handler", "") or ""))
+                note_col = 5
             note = tx.get("note", "") or ""
             note_item = QTableWidgetItem(note)
             note_item.setToolTip(note)
-            table.setItem(r, 5, note_item)
+            table.setItem(r, note_col, note_item)
 
     def refresh_all_panels(self, select_household_id: str = None, select_head_person_id: str = None):
         """

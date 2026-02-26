@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
 
 class LightingSetupDialog(QDialog):
     KIND_OPTIONS = [
-        ("一般燈", "GENERAL"),
+        ("吉祥如意燈", "JI_XIANG"),
         ("太歲燈", "TAI_SUI"),
         ("光明燈", "BRIGHT"),
         ("祭改", "JI_GAI"),
@@ -179,7 +179,7 @@ class LightingSetupDialog(QDialog):
         QMessageBox.information(self, "成功", "安燈提示已儲存。")
 
     def _kind_label(self, kind: str) -> str:
-        return self.KIND_LABEL_MAP.get((kind or "").strip().upper(), "一般燈")
+        return self.KIND_LABEL_MAP.get((kind or "").strip().upper(), "吉祥如意燈")
 
     def _sync_toggle_text(self):
         r = self.table.currentRow()
@@ -204,7 +204,7 @@ class LightingSetupDialog(QDialog):
             self.table.setItem(i, 4, QTableWidgetItem(status_text))
         self._sync_toggle_text()
 
-    def _open_item_editor(self, title: str, default_name: str = "", default_fee: int = 0, default_kind: str = "GENERAL"):
+    def _open_item_editor(self, title: str, default_name: str = "", default_fee: int = 0, default_kind: str = "JI_XIANG"):
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
         layout = QFormLayout(dlg)
@@ -217,7 +217,7 @@ class LightingSetupDialog(QDialog):
         kind_combo = QComboBox()
         for label, code in self.KIND_OPTIONS:
             kind_combo.addItem(label, code)
-        idx = max(0, kind_combo.findData((default_kind or "GENERAL").strip().upper()))
+        idx = max(0, kind_combo.findData((default_kind or "JI_XIANG").strip().upper()))
         kind_combo.setCurrentIndex(idx)
 
         layout.addRow("燈別名稱：", name_input)
@@ -231,7 +231,7 @@ class LightingSetupDialog(QDialog):
         row_btn.addWidget(btn_cancel)
         layout.addRow(row_btn)
 
-        result = {"ok": False, "name": "", "fee": 0, "kind": "GENERAL"}
+        result = {"ok": False, "name": "", "fee": 0, "kind": "JI_XIANG"}
 
         def _confirm():
             name = (name_input.text() or "").strip()
@@ -241,7 +241,7 @@ class LightingSetupDialog(QDialog):
             result["ok"] = True
             result["name"] = name
             result["fee"] = int(fee_input.value())
-            result["kind"] = str(kind_combo.currentData() or "GENERAL")
+            result["kind"] = str(kind_combo.currentData() or "JI_XIANG")
             dlg.accept()
 
         btn_ok.clicked.connect(_confirm)
@@ -279,7 +279,7 @@ class LightingSetupDialog(QDialog):
             "修改燈別",
             default_name=str(row.get("name") or ""),
             default_fee=int(row.get("fee") or 0),
-            default_kind=str(row.get("kind") or "GENERAL"),
+            default_kind=str(row.get("kind") or "JI_XIANG"),
         )
         if not data.get("ok"):
             return

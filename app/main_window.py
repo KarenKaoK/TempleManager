@@ -325,6 +325,8 @@ class MainWindow(QMainWindow):
             self.activity_manage_page.set_current_username(self.operator_name)
         if hasattr(self.activity_manage_page, "set_current_user_role"):
             self.activity_manage_page.set_current_user_role(self.role)
+        if hasattr(self.activity_manage_page, "refresh_after_signup_changes"):
+            self.activity_manage_page.refresh_after_signup_changes()
 
         self._show_page(self.activity_manage_page)
 

@@ -33,6 +33,7 @@ class ActivityHouseholdSignupDialog(QDialog):
         activity_id: str,
         activity_title: str,
         people: List[Dict[str, Any]],
+        prefill_existing: bool = True,
         parent=None,
     ):
         super().__init__(parent)
@@ -40,6 +41,7 @@ class ActivityHouseholdSignupDialog(QDialog):
         self.activity_id = (activity_id or "").strip()
         self.activity_title = activity_title or ""
         self.people = people or []
+        self.prefill_existing = bool(prefill_existing)
 
         self._plans: List[Dict[str, Any]] = []
         self._signup_requests: List[Dict[str, Any]] = []
@@ -50,7 +52,8 @@ class ActivityHouseholdSignupDialog(QDialog):
         self.resize(1320, 820)
 
         self._load_plans()
-        self._load_existing_signups()
+        if self.prefill_existing:
+            self._load_existing_signups()
         self._build_ui()
         self._load_people()
         self._refresh_total()

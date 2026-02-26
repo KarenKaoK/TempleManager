@@ -431,6 +431,15 @@ class TransactionTab(QWidget):
         self.table.setColumnWidth(8, 320)  # 摘要
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setStyleSheet(
+            """
+            QTableWidget::item:selected {
+                background: #D9ECFF;
+                color: #1F2937;
+                border: 1px solid #8CB8E8;
+            }
+            """
+        )
         
         # 右鍵選單
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -571,7 +580,6 @@ class TransactionTab(QWidget):
                  end_date =  f"{year}-{month:02d}-31"
 
             data = self.controller.get_transactions(self.t_type, start_date, end_date)
-        data = self._group_rows_by_source_for_display(data)
         
         self.table.setRowCount(len(data))
         for i, row in enumerate(data):
@@ -658,13 +666,19 @@ class TransactionTab(QWidget):
             "#FFFFFF",
             "#FFF3E3",
         ]
-        idx = sum(ord(ch) for ch in key) % len(palette)
-        return QColor(palette[idx])
+        if not hasattr(self, "_source_group_color_cache"):
+            self._source_group_color_cache = {}
+            self._source_group_color_next_idx = 0
+        if key not in self._source_group_color_cache:
+            idx = int(getattr(self, "_source_group_color_next_idx", 0)) % len(palette)
+            self._source_group_color_cache[key] = palette[idx]
+            self._source_group_color_next_idx = int(getattr(self, "_source_group_color_next_idx", 0)) + 1
+        return QColor(self._source_group_color_cache[key])
 
     def _apply_source_group_row_style(self, row_idx: int, row_data):
-        color = self._source_group_color(row_data)
-        if color is None:
-            return
+        # 收支頁以時間排序為主，底色僅做逐列交錯輔助（白色 / 主題色）
+        palette = ["#FFFFFF", "#FFF3E3"]
+        color = QColor(palette[row_idx % len(palette)])
         for c in range(self.table.columnCount()):
             item = self.table.item(row_idx, c)
             if item:
