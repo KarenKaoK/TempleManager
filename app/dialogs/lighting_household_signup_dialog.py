@@ -69,6 +69,13 @@ class LightingHouseholdSignupDialog(QDialog):
         root.addWidget(self.tbl, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        # 明確覆寫為中文，避免在自訂 QDialog 顯示英文 Save/Cancel
+        save_btn = buttons.button(QDialogButtonBox.Save)
+        cancel_btn = buttons.button(QDialogButtonBox.Cancel)
+        if save_btn:
+            save_btn.setText("儲存")
+        if cancel_btn:
+            cancel_btn.setText("取消")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
