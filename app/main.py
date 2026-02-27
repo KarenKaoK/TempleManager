@@ -1,6 +1,7 @@
 # app/main.py
 import sys
 from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5 import sip as pyqt_sip
 from app.controller.app_controller import AppController
 from app.auth.login import LoginDialog
 from app.main_window import MainWindow
@@ -8,6 +9,14 @@ from app.utils.dialog_localizer import install_dialog_localizer
 from app.utils.font_manager import GlobalFontManager
 
 def run_app():
+    # 避免 PyQt5 在 Python 結束階段清理 QObject 時偶發 segfault
+    # （常見於 macOS / PyQt5 / sip 組合）
+    try:
+        if hasattr(pyqt_sip, "setdestroyonexit"):
+            pyqt_sip.setdestroyonexit(False)
+    except Exception:
+        pass
+
     app = QApplication(sys.argv)
     app.setStyleSheet("""
         /* === 全域基礎 === */

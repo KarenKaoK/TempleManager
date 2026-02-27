@@ -490,6 +490,43 @@ class AppController:
         rows = cur.execute(sql, tuple(params)).fetchall()
         return [dict(r) for r in rows]
 
+    def list_lighting_signup_rows_by_item(self, signup_year: int, keyword: str = "") -> List[Dict[str, Any]]:
+        """
+        供「安燈報名 / 列印名單」使用：
+        依燈別列出明細（每個人每個燈別一列），可套用姓名/手機關鍵字。
+        """
+        year_value = int(signup_year)
+        kw = (keyword or "").strip()
+        cur = self.conn.cursor()
+        sql = """
+            SELECT
+                i.lighting_item_id,
+                i.lighting_item_name,
+                p.name AS person_name,
+                COALESCE(p.phone_mobile, '') AS person_phone,
+                COALESCE(i.fee_snapshot, 0) AS item_amount,
+                COALESCE(s.is_paid, 0) AS is_paid,
+                COALESCE(s.payment_receipt_number, '') AS payment_receipt_number
+            FROM lighting_signups s
+            JOIN people p ON p.id = s.person_id
+            JOIN lighting_signup_items i ON i.signup_id = s.id
+            WHERE s.signup_year = ?
+        """
+        params: List[Any] = [year_value]
+        if kw:
+            like_kw = f"%{kw}%"
+            sql += " AND (p.name LIKE ? OR COALESCE(p.phone_mobile,'') LIKE ?)"
+            params.extend([like_kw, like_kw])
+        sql += """
+            ORDER BY
+                i.lighting_item_id ASC,
+                i.lighting_item_name ASC,
+                p.name ASC,
+                s.id ASC
+        """
+        rows = cur.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
     def get_lighting_signup_selected_item_ids(self, signup_year: int, person_ids: List[str]) -> Dict[str, List[str]]:
         """
         回傳指定人員在該年度已勾選燈別：
@@ -4780,7 +4817,7 @@ class AppController:
         self.conn.commit()
         return cursor.lastrowid
     
-    def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None):
+    def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None, voided_filter="all"):
         cursor = self.conn.cursor()
         query = """
             SELECT t.*, p.phone_mobile, p.address
@@ -4804,8 +4841,24 @@ class AppController:
         
         if keyword:
             kw = f"%{keyword}%"
-            query += " AND (t.payer_name LIKE ? OR t.receipt_number LIKE ? OR t.note LIKE ?)"
-            params.extend([kw, kw, kw])
+            query += """
+                AND (
+                    t.payer_name LIKE ?
+                    OR COALESCE(p.phone_mobile, '') LIKE ?
+                    OR COALESCE(p.phone_home, '') LIKE ?
+                    OR t.receipt_number LIKE ?
+                    OR t.note LIKE ?
+                )
+            """
+            params.extend([kw, kw, kw, kw, kw])
+
+        cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+        if "is_voided" in cols:
+            mode = str(voided_filter or "all").strip().lower()
+            if mode == "exclude":
+                query += " AND COALESCE(t.is_voided, 0) = 0"
+            elif mode == "only":
+                query += " AND COALESCE(t.is_voided, 0) = 1"
             
         query += " ORDER BY t.date DESC, t.created_at DESC"
         
@@ -4926,6 +4979,9 @@ class AppController:
                 FROM transactions t
                 WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
             """
+            cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+            if "is_voided" in cols:
+                query += " AND COALESCE(t.is_voided, 0) = 0"
             params: List[Any] = []
 
             if transaction_type in {"income", "expense"}:
@@ -4964,6 +5020,9 @@ class AppController:
             FROM transactions t
             WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
         """
+        cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+        if "is_voided" in cols:
+            query += " AND COALESCE(t.is_voided, 0) = 0"
         params: List[Any] = []
 
         if transaction_type in {"income", "expense"}:
@@ -5001,6 +5060,9 @@ class AppController:
               AND {period_expr} = ?
               AND t.type = ?
         """
+        cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+        if "is_voided" in cols:
+            query += " AND COALESCE(t.is_voided, 0) = 0"
         params: List[Any] = [period_key, transaction_type]
         if category_id:
             query += " AND t.category_id = ?"

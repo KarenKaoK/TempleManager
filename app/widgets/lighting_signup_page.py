@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app.dialogs.lighting_household_signup_dialog import LightingHouseholdSignupDialog
+from app.utils.print_helper import PrintHelper
 
 
 class LightingSignupPage(QWidget):
@@ -141,19 +142,26 @@ class LightingSignupPage(QWidget):
 
         self.tbl_people_search = QTableWidget(0, 7)
         self.tbl_people_search.setHorizontalHeaderLabels(["姓名", "電話", "國曆生日", "農曆生日", "生肖", "地址", "戶別"])
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        self.tbl_people_search.setWordWrap(True)
+        self.tbl_people_search.setTextElideMode(Qt.ElideNone)
+        self.tbl_people_search.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.tbl_people_search.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tbl_people_search.horizontalHeader().setStretchLastSection(False)
+        for c in range(self.tbl_people_search.columnCount()):
+            self.tbl_people_search.horizontalHeader().setSectionResizeMode(c, QHeaderView.Interactive)
+        self.tbl_people_search.setColumnWidth(0, 90)   # 姓名
+        self.tbl_people_search.setColumnWidth(1, 120)  # 電話
+        self.tbl_people_search.setColumnWidth(2, 110)  # 國曆生日
+        self.tbl_people_search.setColumnWidth(3, 110)  # 農曆生日
+        self.tbl_people_search.setColumnWidth(4, 70)   # 生肖
+        self.tbl_people_search.setColumnWidth(5, 260)  # 地址
+        self.tbl_people_search.setColumnWidth(6, 70)   # 戶別
         left_layout.addWidget(self.tbl_people_search, 1)
 
         right_wrap = QWidget()
         right_layout = QVBoxLayout(right_wrap)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.addWidget(QLabel("已報名明細"))
+        right_layout.addWidget(QLabel("報名明細"))
 
         self.lighting_total_card = QFrame()
         self.lighting_total_card.setStyleSheet(
@@ -219,12 +227,14 @@ class LightingSignupPage(QWidget):
         self.btn_edit_signup = QPushButton("修改報名")
         self.btn_append_signup = QPushButton("追加報名")
         self.btn_delete_signup = QPushButton("刪除報名")
+        self.btn_print_signup_list = QPushButton("列印名單")
         self.btn_edit_signup.setEnabled(False)
         self.btn_append_signup.setEnabled(False)
         self.btn_delete_signup.setEnabled(False)
         detail_btn_row.addWidget(self.btn_edit_signup)
         detail_btn_row.addWidget(self.btn_append_signup)
         detail_btn_row.addWidget(self.btn_delete_signup)
+        detail_btn_row.addWidget(self.btn_print_signup_list)
         right_layout.addLayout(detail_btn_row)
 
         right_btn_row = QHBoxLayout()
@@ -258,6 +268,7 @@ class LightingSignupPage(QWidget):
         self.btn_edit_signup.clicked.connect(self._on_edit_signup)
         self.btn_append_signup.clicked.connect(self._on_append_signup)
         self.btn_delete_signup.clicked.connect(self._on_delete_signup)
+        self.btn_print_signup_list.clicked.connect(self._on_print_signup_list_by_item)
         self.btn_clear_selection_rows.clicked.connect(self._clear_signup_row_selection)
         self.btn_pay.clicked.connect(self._on_mark_paid)
 
@@ -328,6 +339,7 @@ class LightingSignupPage(QWidget):
             self.tbl_people_search.setItem(i, 5, QTableWidgetItem(str(row.get("address") or "")))
             self.tbl_people_search.setItem(i, 6, QTableWidgetItem("戶長" if str(row.get("role_in_household") or "") == "HEAD" else "戶員"))
             self.tbl_people_search.item(i, 0).setData(Qt.UserRole, str(row.get("id") or ""))
+        self.tbl_people_search.resizeRowsToContents()
 
     def _on_people_search_row_clicked(self, row: int, _col: int):
         item = self.tbl_people_search.item(row, 0)
@@ -679,7 +691,47 @@ class LightingSignupPage(QWidget):
             return
         QMessageBox.information(self, "完成", "刪除報名完成。")
         self._reload_signup_list()
-  
+
+    def _on_print_signup_list_by_item(self):
+        year_value = int(self.year_spin.value())
+        keyword = (self.edt_signup_search.text() or "").strip()
+        rows = self.controller.list_lighting_signup_rows_by_item(year_value, keyword=keyword)
+        if not rows:
+            QMessageBox.information(self, "無資料", "目前沒有可列印的安燈報名資料。")
+            return
+
+        item_rows = self.controller.list_lighting_items(include_inactive=True)
+        item_names = [str((x or {}).get("name") or "").strip() for x in (item_rows or [])]
+        item_names = [x for x in item_names if x]
+
+        headers = ["燈別", "姓名", "電話", "金額", "繳費", "收據號"]
+        report_rows = []
+        for row in rows:
+            item_name = str(row.get("lighting_item_name") or "").strip()
+            person_name = str(row.get("person_name") or "").strip()
+            person_phone = str(row.get("person_phone") or "").strip()
+            amount = int(row.get("item_amount") or 0)
+            is_paid = int(row.get("is_paid") or 0) == 1
+            receipt = str(row.get("payment_receipt_number") or "").strip()
+
+            report_rows.append([
+                item_name,
+                person_name,
+                person_phone,
+                str(amount),
+                "已繳費" if is_paid else "未繳費",
+                receipt,
+            ])
+
+        PrintHelper.print_table_report_with_item_filter(
+            f"{year_value}安燈報名名單",
+            headers,
+            report_rows,
+            item_names=item_names,
+            item_name_col=0,
+            landscape=True,
+        )
+
     def _select_all_signup_rows(self):
         for r in range(self.tbl_signups.rowCount()):
             item = self.tbl_signups.item(r, 0)

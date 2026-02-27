@@ -19,6 +19,15 @@ def _connect(db_path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     return conn
 
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    cur = conn.cursor()
+    cur.execute(f"PRAGMA table_info({table})")
+    rows = cur.fetchall() or []
+    for r in rows:
+        if str(r[1]) == column:
+            return True
+    return False
+
 
 def _get_transactions(
     conn: sqlite3.Connection,
@@ -39,6 +48,8 @@ def _get_transactions(
     if transaction_type:
         query += " AND t.type = ?"
         params.append(transaction_type)
+    if _has_column(conn, "transactions", "is_voided"):
+        query += " AND COALESCE(t.is_voided, 0) = 0"
     query += " ORDER BY (CASE WHEN t.type = 'income' THEN 0 ELSE 1 END), t.date ASC, t.receipt_number ASC"
     cur = conn.cursor()
     cur.execute(query, tuple(params))
@@ -72,6 +83,7 @@ def _get_finance_summary(
         WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
           AND t.date >= ?
           AND t.date <= ?
+          {"AND COALESCE(t.is_voided, 0) = 0" if _has_column(conn, "transactions", "is_voided") else ""}
         GROUP BY period_key
         ORDER BY period_key ASC
     """

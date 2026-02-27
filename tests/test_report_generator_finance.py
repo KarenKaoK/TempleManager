@@ -33,18 +33,19 @@ def _create_test_db(tmp_path):
             date TEXT NOT NULL, type TEXT NOT NULL,
             category_id TEXT NOT NULL, category_name TEXT, amount INTEGER DEFAULT 0,
             payer_person_id TEXT, payer_name TEXT, handler TEXT, receipt_number TEXT,
-            note TEXT, is_deleted INTEGER DEFAULT 0, created_at TEXT
+            note TEXT, is_voided INTEGER DEFAULT 0, is_deleted INTEGER DEFAULT 0, created_at TEXT
         )
     """)
     cur.executemany(
-        """INSERT INTO transactions (date, type, category_id, category_name, amount, payer_name, handler, note, receipt_number, is_deleted)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO transactions (date, type, category_id, category_name, amount, payer_name, handler, note, receipt_number, is_voided, is_deleted)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         [
-            ("2026-02-01", "income", "01", "香油錢", 1000, "王一", "A", "", "R1", 0),
-            ("2026-02-01", "income", "02", "建廟基金", 1500, "王二", "A", "", "R2", 0),
-            ("2026-02-01", "expense", "E1", "香燭", 300, "廠商", "B", "", "P1", 0),
-            ("2026-02-02", "income", "01", "香油錢", 800, "王三", "A", "", "R3", 0),
-            ("2026-02-02", "expense", "E1", "香燭", 200, "廠商", "B", "", "P2", 0),
+            ("2026-02-01", "income", "01", "香油錢", 1000, "王一", "A", "", "R1", 0, 0),
+            ("2026-02-01", "income", "02", "建廟基金", 1500, "王二", "A", "", "R2", 0, 0),
+            ("2026-02-01", "income", "02", "建廟基金", 999, "王作廢", "A", "", "R2X", 1, 0),
+            ("2026-02-01", "expense", "E1", "香燭", 300, "廠商", "B", "", "P1", 0, 0),
+            ("2026-02-02", "income", "01", "香油錢", 800, "王三", "A", "", "R3", 0, 0),
+            ("2026-02-02", "expense", "E1", "香燭", 200, "廠商", "B", "", "P2", 0, 0),
         ],
     )
     conn.commit()

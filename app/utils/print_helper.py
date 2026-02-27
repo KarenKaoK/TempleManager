@@ -1,14 +1,14 @@
 from PyQt5.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPrintDialog, QPrintPreviewWidget
 from PyQt5.QtGui import QPainter, QFont, QPen, QColor, QPageLayout, QPageSize, QFontDatabase, QPixmap
 from PyQt5.QtCore import Qt, QRectF, QPointF
-from PyQt5.QtWidgets import QAction, QToolBar, QPushButton, QComboBox, QLineEdit, QLabel, QCheckBox, QApplication
+from PyQt5.QtWidgets import QAction, QToolBar, QPushButton, QComboBox, QLineEdit, QLabel, QCheckBox, QApplication, QToolButton, QMenu
 from PyQt5.QtGui import QTextDocument
 import re
 from datetime import datetime
 
 class PrintHelper:
     @staticmethod
-    def _apply_preview_toolbar(preview, do_print, show_address_toggle=False, toggle_address=None):
+    def _apply_preview_toolbar(preview, do_print, show_address_toggle=False, toggle_address=None, extra_toolbar_builder=None):
         """套用統一列印工具列：自訂列印、縮放、關閉返回。"""
         try:
             toolbars = preview.findChildren(QToolBar)
@@ -94,6 +94,9 @@ class PrintHelper:
                 else:
                     toolbar.addWidget(addr_cb)
 
+            if callable(extra_toolbar_builder):
+                extra_toolbar_builder(toolbar, actions)
+
             toolbar.addSeparator()
             close_btn = QPushButton("關閉返回")
             close_btn.setMinimumHeight(35)
@@ -131,22 +134,7 @@ class PrintHelper:
         return max(10, app_pt), max(14, app_pt + 4)
 
     @staticmethod
-    def print_table_report(title, headers, rows, landscape: bool = False):
-        """
-        列印表格式報表（Excel 風格格線）
-        - title: str
-        - headers: List[str]
-        - rows: List[List[Any]]
-        - landscape: bool (True = A4 橫式)
-        """
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setPageSize(QPageSize(QPageSize.A4))
-        printer.setOrientation(QPrinter.Landscape if landscape else QPrinter.Portrait)
-
-        font_family = PrintHelper._get_compatible_font_family()
-        body_pt, title_pt = PrintHelper._report_font_sizes()
-        table_pt = max(9, body_pt - 2)
-
+    def _build_table_report_html(title, headers, rows, font_family, body_pt, title_pt, table_pt):
         def esc(v):
             s = "" if v is None else str(v)
             return (
@@ -162,7 +150,7 @@ class PrintHelper:
             cells = "".join(f"<td>{esc(c)}</td>" for c in (r or []))
             tbody.append(f"<tr>{cells}</tr>")
 
-        html = f"""
+        return f"""
         <html>
         <head>
           <meta charset="utf-8">
@@ -205,14 +193,28 @@ class PrintHelper:
         </head>
         <body>
           <h2>{esc(title)}</h2>
-          <table>
-            <thead><tr>{thead}</tr></thead>
-            <tbody>{''.join(tbody)}</tbody>
-          </table>
+          <table><thead><tr>{thead}</tr></thead><tbody>{''.join(tbody)}</tbody></table>
         </body>
         </html>
         """
 
+    @staticmethod
+    def print_table_report(title, headers, rows, landscape: bool = False):
+        """
+        列印表格式報表（Excel 風格格線）
+        - title: str
+        - headers: List[str]
+        - rows: List[List[Any]]
+        - landscape: bool (True = A4 橫式)
+        """
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPageSize(QPageSize.A4))
+        printer.setOrientation(QPrinter.Landscape if landscape else QPrinter.Portrait)
+
+        font_family = PrintHelper._get_compatible_font_family()
+        body_pt, title_pt = PrintHelper._report_font_sizes()
+        table_pt = max(9, body_pt - 2)
+        html = PrintHelper._build_table_report_html(title, headers, rows, font_family, body_pt, title_pt, table_pt)
         doc = QTextDocument()
         doc.setHtml(html)
 
@@ -223,10 +225,159 @@ class PrintHelper:
         def do_print():
             dialog = QPrintDialog(printer, preview)
             if dialog.exec_() == QPrintDialog.Accepted:
+                if landscape:
+                    # 系統列印視窗（含存 PDF）可能覆蓋方向，列印前再強制一次
+                    PrintHelper._force_a4_landscape(printer)
                 doc.print_(printer)
 
         PrintHelper._apply_preview_toolbar(preview, do_print, show_address_toggle=False)
-        preview.paintRequested.connect(lambda p: doc.print_(p))
+        preview.paintRequested.connect(
+            (lambda p: (PrintHelper._force_a4_landscape(p), doc.print_(p)))
+            if landscape else (lambda p: doc.print_(p))
+        )
+        preview.exec_()
+
+    @staticmethod
+    def print_table_report_with_item_filter(
+        title,
+        headers,
+        rows,
+        item_names,
+        item_name_col: int = 0,
+        landscape: bool = False,
+    ):
+        """
+        列印表格 + 預覽工具列燈別下拉勾選（含全選）。
+        rows: 每列資料，item_name_col 指向「燈別名稱」欄位索引。
+        """
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPageSize(QPageSize.A4))
+        printer.setOrientation(QPrinter.Landscape if landscape else QPrinter.Portrait)
+
+        font_family = PrintHelper._get_compatible_font_family()
+        body_pt, title_pt = PrintHelper._report_font_sizes()
+        table_pt = max(9, body_pt - 2)
+
+        all_rows = list(rows or [])
+        normalized_items = []
+        seen = set()
+        for n in (item_names or []):
+            name = str(n or "").strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            normalized_items.append(name)
+        if not normalized_items:
+            for r in all_rows:
+                try:
+                    name = str((r or [])[item_name_col] or "").strip()
+                except Exception:
+                    name = ""
+                if name and name not in seen:
+                    seen.add(name)
+                    normalized_items.append(name)
+
+        selected_items = set(normalized_items)
+        doc = QTextDocument()
+        preview = QPrintPreviewDialog(printer)
+        preview.setWindowTitle("列印預覽")
+        preview.resize(1000, 800)
+
+        def _filtered_rows():
+            if not selected_items:
+                return []
+            out = []
+            for r in all_rows:
+                try:
+                    item_name = str((r or [])[item_name_col] or "").strip()
+                except Exception:
+                    item_name = ""
+                if item_name in selected_items:
+                    out.append(r)
+            return out
+
+        def _refresh_doc():
+            html = PrintHelper._build_table_report_html(
+                title, headers, _filtered_rows(), font_family, body_pt, title_pt, table_pt
+            )
+            doc.setHtml(html)
+
+        def _refresh_preview():
+            _refresh_doc()
+            widgets = preview.findChildren(QPrintPreviewWidget)
+            if widgets:
+                try:
+                    widgets[0].updatePreview()
+                except Exception:
+                    widgets[0].update()
+
+        def do_print():
+            dialog = QPrintDialog(printer, preview)
+            if dialog.exec_() == QPrintDialog.Accepted:
+                if landscape:
+                    # 系統列印視窗（含存 PDF）可能覆蓋方向，列印前再強制一次
+                    PrintHelper._force_a4_landscape(printer)
+                doc.print_(printer)
+
+        def build_filter_toolbar(toolbar, _actions):
+            toolbar.addSeparator()
+            toolbar.addWidget(QLabel("燈別"))
+            btn = QToolButton(toolbar)
+            btn.setText("燈別篩選")
+            btn.setPopupMode(QToolButton.InstantPopup)
+            menu = QMenu(btn)
+            btn.setMenu(menu)
+
+            action_all = QAction("全選", menu)
+            action_all.setCheckable(True)
+            action_all.setChecked(True)
+            menu.addAction(action_all)
+            menu.addSeparator()
+
+            item_actions = []
+            for name in normalized_items:
+                act = QAction(name, menu)
+                act.setCheckable(True)
+                act.setChecked(True)
+                menu.addAction(act)
+                item_actions.append(act)
+
+            def _sync_from_items():
+                selected_items.clear()
+                checked_count = 0
+                for act in item_actions:
+                    if act.isChecked():
+                        selected_items.add(act.text())
+                        checked_count += 1
+                action_all.blockSignals(True)
+                action_all.setChecked(checked_count == len(item_actions))
+                action_all.blockSignals(False)
+                _refresh_preview()
+
+            def _on_all_toggled(checked):
+                for act in item_actions:
+                    act.blockSignals(True)
+                    act.setChecked(bool(checked))
+                    act.blockSignals(False)
+                _sync_from_items()
+
+            action_all.toggled.connect(_on_all_toggled)
+            for act in item_actions:
+                act.toggled.connect(lambda _state, _a=act: _sync_from_items())
+
+            toolbar.addWidget(btn)
+
+        _refresh_doc()
+        PrintHelper._apply_preview_toolbar(
+            preview,
+            do_print,
+            show_address_toggle=False,
+            extra_toolbar_builder=build_filter_toolbar,
+        )
+        preview.paintRequested.connect(
+            (lambda p: (PrintHelper._force_a4_landscape(p), doc.print_(p)))
+            if landscape else (lambda p: doc.print_(p))
+        )
         preview.exec_()
 
     @staticmethod
