@@ -160,7 +160,7 @@ class LightingSignupPage(QWidget):
         right_wrap = QWidget()
         right_layout = QVBoxLayout(right_wrap)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.addWidget(QLabel("已報名明細"))
+        right_layout.addWidget(QLabel("報名明細"))
 
         self.lighting_total_card = QFrame()
         self.lighting_total_card.setStyleSheet(
