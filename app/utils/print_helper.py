@@ -225,10 +225,16 @@ class PrintHelper:
         def do_print():
             dialog = QPrintDialog(printer, preview)
             if dialog.exec_() == QPrintDialog.Accepted:
+                if landscape:
+                    # 系統列印視窗（含存 PDF）可能覆蓋方向，列印前再強制一次
+                    PrintHelper._force_a4_landscape(printer)
                 doc.print_(printer)
 
         PrintHelper._apply_preview_toolbar(preview, do_print, show_address_toggle=False)
-        preview.paintRequested.connect(lambda p: doc.print_(p))
+        preview.paintRequested.connect(
+            (lambda p: (PrintHelper._force_a4_landscape(p), doc.print_(p)))
+            if landscape else (lambda p: doc.print_(p))
+        )
         preview.exec_()
 
     @staticmethod
@@ -308,6 +314,9 @@ class PrintHelper:
         def do_print():
             dialog = QPrintDialog(printer, preview)
             if dialog.exec_() == QPrintDialog.Accepted:
+                if landscape:
+                    # 系統列印視窗（含存 PDF）可能覆蓋方向，列印前再強制一次
+                    PrintHelper._force_a4_landscape(printer)
                 doc.print_(printer)
 
         def build_filter_toolbar(toolbar, _actions):
@@ -365,7 +374,10 @@ class PrintHelper:
             show_address_toggle=False,
             extra_toolbar_builder=build_filter_toolbar,
         )
-        preview.paintRequested.connect(lambda p: doc.print_(p))
+        preview.paintRequested.connect(
+            (lambda p: (PrintHelper._force_a4_landscape(p), doc.print_(p)))
+            if landscape else (lambda p: doc.print_(p))
+        )
         preview.exec_()
 
     @staticmethod
