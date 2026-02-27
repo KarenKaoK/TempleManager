@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app.dialogs.lighting_household_signup_dialog import LightingHouseholdSignupDialog
+from app.utils.print_helper import PrintHelper
 
 
 class LightingSignupPage(QWidget):
@@ -226,12 +227,14 @@ class LightingSignupPage(QWidget):
         self.btn_edit_signup = QPushButton("修改報名")
         self.btn_append_signup = QPushButton("追加報名")
         self.btn_delete_signup = QPushButton("刪除報名")
+        self.btn_print_signup_list = QPushButton("列印名單")
         self.btn_edit_signup.setEnabled(False)
         self.btn_append_signup.setEnabled(False)
         self.btn_delete_signup.setEnabled(False)
         detail_btn_row.addWidget(self.btn_edit_signup)
         detail_btn_row.addWidget(self.btn_append_signup)
         detail_btn_row.addWidget(self.btn_delete_signup)
+        detail_btn_row.addWidget(self.btn_print_signup_list)
         right_layout.addLayout(detail_btn_row)
 
         right_btn_row = QHBoxLayout()
@@ -265,6 +268,7 @@ class LightingSignupPage(QWidget):
         self.btn_edit_signup.clicked.connect(self._on_edit_signup)
         self.btn_append_signup.clicked.connect(self._on_append_signup)
         self.btn_delete_signup.clicked.connect(self._on_delete_signup)
+        self.btn_print_signup_list.clicked.connect(self._on_print_signup_list_by_item)
         self.btn_clear_selection_rows.clicked.connect(self._clear_signup_row_selection)
         self.btn_pay.clicked.connect(self._on_mark_paid)
 
@@ -687,7 +691,47 @@ class LightingSignupPage(QWidget):
             return
         QMessageBox.information(self, "完成", "刪除報名完成。")
         self._reload_signup_list()
-  
+
+    def _on_print_signup_list_by_item(self):
+        year_value = int(self.year_spin.value())
+        keyword = (self.edt_signup_search.text() or "").strip()
+        rows = self.controller.list_lighting_signup_rows_by_item(year_value, keyword=keyword)
+        if not rows:
+            QMessageBox.information(self, "無資料", "目前沒有可列印的安燈報名資料。")
+            return
+
+        item_rows = self.controller.list_lighting_items(include_inactive=True)
+        item_names = [str((x or {}).get("name") or "").strip() for x in (item_rows or [])]
+        item_names = [x for x in item_names if x]
+
+        headers = ["燈別", "姓名", "電話", "金額", "繳費", "收據號"]
+        report_rows = []
+        for row in rows:
+            item_name = str(row.get("lighting_item_name") or "").strip()
+            person_name = str(row.get("person_name") or "").strip()
+            person_phone = str(row.get("person_phone") or "").strip()
+            amount = int(row.get("item_amount") or 0)
+            is_paid = int(row.get("is_paid") or 0) == 1
+            receipt = str(row.get("payment_receipt_number") or "").strip()
+
+            report_rows.append([
+                item_name,
+                person_name,
+                person_phone,
+                str(amount),
+                "已繳費" if is_paid else "未繳費",
+                receipt,
+            ])
+
+        PrintHelper.print_table_report_with_item_filter(
+            f"{year_value}安燈報名名單",
+            headers,
+            report_rows,
+            item_names=item_names,
+            item_name_col=0,
+            landscape=True,
+        )
+
     def _select_all_signup_rows(self):
         for r in range(self.tbl_signups.rowCount()):
             item = self.tbl_signups.item(r, 0)

@@ -299,6 +299,44 @@ def test_upsert_lighting_signup_and_item_totals(tmp_path):
     finally:
         controller.conn.close()
 
+def test_list_lighting_signup_rows_by_item_for_print(tmp_path):
+    controller = AppController(db_path=str(tmp_path / "lighting_signup_print_rows.db"))
+    try:
+        cur = controller.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS people (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                phone_mobile TEXT
+            )
+            """
+        )
+        cur.execute("INSERT OR REPLACE INTO people (id, name, phone_mobile) VALUES (?, ?, ?)", ("P1", "王大明", "0911000000"))
+        cur.execute("INSERT OR REPLACE INTO people (id, name, phone_mobile) VALUES (?, ?, ?)", ("P2", "王小明", "0922000000"))
+        controller.conn.commit()
+
+        sid1 = controller.upsert_lighting_signup(2026, "P1", ["L01", "L02"])
+        controller.upsert_lighting_signup(2026, "P2", ["L01"])
+        cur.execute(
+            "UPDATE lighting_signups SET is_paid = 1, payment_receipt_number = ? WHERE id = ?",
+            ("R001", sid1),
+        )
+        controller.conn.commit()
+
+        rows = controller.list_lighting_signup_rows_by_item(2026)
+        assert len(rows) == 3
+        assert [r["lighting_item_id"] for r in rows] == ["L01", "L01", "L02"]
+        assert rows[0]["lighting_item_name"] in {"太歲燈", "光明燈", "吉祥如意燈", "祭改"}
+        assert any(int(r.get("is_paid") or 0) == 1 for r in rows)
+        assert any(str(r.get("payment_receipt_number") or "") == "R001" for r in rows)
+
+        only_p2 = controller.list_lighting_signup_rows_by_item(2026, keyword="王小明")
+        assert len(only_p2) == 1
+        assert only_p2[0]["person_name"] == "王小明"
+    finally:
+        controller.conn.close()
+
 
 def test_upsert_lighting_signup_rejects_paid_record_update(tmp_path):
     controller = AppController(db_path=str(tmp_path / "lighting_signup_paid_guard.db"))
