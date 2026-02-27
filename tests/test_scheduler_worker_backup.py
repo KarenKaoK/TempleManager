@@ -1,0 +1,25 @@
+import app.scheduler.worker as worker_module
+
+
+def test_run_backup_schedule_check_runs_controller_and_closes_conn(monkeypatch):
+    called = {"run_once": 0, "closed": 0, "db_path": ""}
+
+    class _Conn:
+        def close(self):
+            called["closed"] += 1
+
+    class _FakeController:
+        def __init__(self, db_path=None):
+            called["db_path"] = db_path
+            self.conn = _Conn()
+
+        def run_scheduled_backup_once(self):
+            called["run_once"] += 1
+            return True
+
+    monkeypatch.setattr(worker_module, "AppController", _FakeController)
+    worker_module.run_backup_schedule_check("/tmp/fake.db")
+
+    assert called["db_path"] == "/tmp/fake.db"
+    assert called["run_once"] == 1
+    assert called["closed"] == 1

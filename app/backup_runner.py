@@ -14,7 +14,7 @@ def main():
     try:
         if args.force:
             result = controller.create_local_backup(manual=False)
-            controller.mark_backup_run()
+            controller.mark_backup_run(scheduled=True)
             print(f"[backup] SUCCESS(force): {result.get('backup_file')}")
             return 0
 

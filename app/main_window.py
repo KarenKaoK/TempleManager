@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QAction, QMessageBox, QWidget, QStackedWidget, QDialog,
     QHBoxLayout, QPushButton, QVBoxLayout, QFrame
 )
-from PyQt5.QtCore import Qt, QEvent, QTimer, QObject, QThread, pyqtSignal
+from PyQt5.QtCore import QEvent, QTimer
 import time
 
 from app.dialogs.income_dialog import IncomeSetupDialog
@@ -20,40 +20,7 @@ from app.dialogs.lighting_setup_dialog import LightingSetupDialog
 from app.dialogs.account_management_dialog import AccountManagementDialog
 from app.dialogs.cover_settings_dialog import CoverSettingsDialog
 from app.dialogs.backup_settings_dialog import BackupSettingsDialog
-from app.controller.app_controller import AppController
-
-
-class ScheduledBackupWorker(QObject):
-    finished = pyqtSignal()
-    failed = pyqtSignal(str)
-
-    def __init__(self, controller):
-        super().__init__()
-        self.controller = controller
-
-    def run(self):
-        worker_controller = None
-        error_text = None
-        try:
-            # 背景 thread 不可共用主執行緒的 sqlite connection，需建立獨立 controller
-            db_path = getattr(self.controller, "db_path", None)
-            worker_controller = AppController(db_path=db_path) if db_path else AppController()
-            worker_controller.create_local_backup(manual=False)
-        except Exception as e:
-            error_text = str(e)
-        finally:
-            # 先釋放 worker thread 內的 sqlite connection，避免主執行緒 callback 卡在 DB lock
-            try:
-                conn = getattr(worker_controller, "conn", None)
-                if conn is not None:
-                    conn.close()
-            except Exception:
-                pass
-
-        if error_text is not None:
-            self.failed.emit(error_text)
-            return
-        self.finished.emit()
+from app.dialogs.report_schedule_settings_dialog import ReportScheduleSettingsDialog
 
 
 class MainWindow(QMainWindow):
@@ -66,11 +33,6 @@ class MainWindow(QMainWindow):
         self.font_manager = getattr(QApplication.instance(), "font_manager", None)
         self._last_activity_ts = time.monotonic()
         self._idle_filter_installed = False
-        self._backup_retry_cooldown_seconds = 300  # 排程失敗後 5 分鐘內不重試
-        self._backup_retry_cooldown_until = 0.0
-        self._scheduled_backup_running = False
-        self._scheduled_backup_thread = None
-        self._scheduled_backup_worker = None
 
         self.setWindowTitle(f"宮廟管理系統 - {role}")
         self.setGeometry(300, 150, 1000, 700)
@@ -136,7 +98,6 @@ class MainWindow(QMainWindow):
 
         self.setup_menu()
         self._setup_idle_logout()
-        self._setup_backup_scheduler()
         
         # ✅ 自動進入「信眾資料建檔」（UX 優化）
         self.open_household_entry()
@@ -232,12 +193,15 @@ class MainWindow(QMainWindow):
             account_action = QAction("帳號管理", self)
             cover_action = QAction("封面設定", self)
             backup_action = QAction("資料備份", self)
+            report_schedule_action = QAction("報表排程設定", self)
             account_action.triggered.connect(self.open_account_management_dialog)
             cover_action.triggered.connect(self.open_cover_settings_dialog)
             backup_action.triggered.connect(self.open_backup_settings_dialog)
+            report_schedule_action.triggered.connect(self.open_report_schedule_settings_dialog)
             system_menu.addAction(account_action)
             system_menu.addAction(cover_action)
             system_menu.addAction(backup_action)
+            system_menu.addAction(report_schedule_action)
 
     # -------------------------
     # Dialogs
@@ -461,6 +425,13 @@ class MainWindow(QMainWindow):
         dialog = BackupSettingsDialog(self.controller, self)
         dialog.exec_()
 
+    def open_report_schedule_settings_dialog(self):
+        if not self._can_manage_accounts():
+            QMessageBox.warning(self, "權限不足", "此功能僅限管理員。")
+            return
+        dialog = ReportScheduleSettingsDialog(self.controller, self)
+        dialog.exec_()
+
     def _setup_idle_logout(self):
         app = QApplication.instance()
         if app:
@@ -470,93 +441,6 @@ class MainWindow(QMainWindow):
         self._idle_timer.setInterval(30 * 1000)
         self._idle_timer.timeout.connect(self._check_idle_timeout)
         self._idle_timer.start()
-
-    def _setup_backup_scheduler(self):
-        get_backup_settings = getattr(self.controller, "get_backup_settings", None)
-        if callable(get_backup_settings):
-            try:
-                if bool(get_backup_settings().get("use_cli_scheduler")):
-                    return
-            except Exception:
-                pass
-        self._backup_timer = QTimer(self)
-        self._backup_timer.setInterval(60 * 1000)  # 每分鐘檢查一次
-        self._backup_timer.timeout.connect(self._check_backup_schedule)
-        self._backup_timer.start()
-
-    def _check_backup_schedule(self):
-        get_backup_settings = getattr(self.controller, "get_backup_settings", None)
-        if callable(get_backup_settings):
-            try:
-                if bool(get_backup_settings().get("use_cli_scheduler")):
-                    return
-            except Exception:
-                pass
-        should_run = getattr(self.controller, "should_run_scheduled_backup", None)
-        try:
-            if time.monotonic() < float(self._backup_retry_cooldown_until or 0):
-                return
-        except Exception:
-            pass
-        do_backup = getattr(self.controller, "create_local_backup", None)
-        mark_run = getattr(self.controller, "mark_backup_run", None)
-        if not callable(should_run) or not callable(do_backup) or not callable(mark_run):
-            return
-        if self._scheduled_backup_running:
-            return
-        try:
-            if not should_run():
-                return
-            self._scheduled_backup_running = True
-            self._start_scheduled_backup_worker()
-        except Exception:
-            # 備份失敗不阻斷主流程，失敗細節由 backup_logs 紀錄
-            self._scheduled_backup_running = False
-            self._backup_retry_cooldown_until = time.monotonic() + float(self._backup_retry_cooldown_seconds)
-            return
-
-    def _start_scheduled_backup_worker(self):
-        self._scheduled_backup_thread = QThread(self)
-        self._scheduled_backup_worker = ScheduledBackupWorker(self.controller)
-        self._scheduled_backup_worker.moveToThread(self._scheduled_backup_thread)
-
-        self._scheduled_backup_thread.started.connect(self._scheduled_backup_worker.run)
-        self._scheduled_backup_worker.finished.connect(self._on_scheduled_backup_finished)
-        self._scheduled_backup_worker.failed.connect(self._on_scheduled_backup_failed)
-
-        self._scheduled_backup_worker.finished.connect(self._scheduled_backup_thread.quit)
-        self._scheduled_backup_worker.failed.connect(self._scheduled_backup_thread.quit)
-        self._scheduled_backup_thread.finished.connect(self._cleanup_scheduled_backup_thread)
-
-        self._scheduled_backup_thread.start()
-
-    def _on_scheduled_backup_finished(self):
-        try:
-            mark_run = getattr(self.controller, "mark_backup_run", None)
-            if callable(mark_run):
-                mark_run()
-        except Exception:
-            pass
-        self._backup_retry_cooldown_until = 0.0
-        self._scheduled_backup_running = False
-
-    def _on_scheduled_backup_failed(self, _error_text: str):
-        self._scheduled_backup_running = False
-        self._backup_retry_cooldown_until = time.monotonic() + float(self._backup_retry_cooldown_seconds)
-
-    def _cleanup_scheduled_backup_thread(self):
-        if self._scheduled_backup_worker is not None:
-            try:
-                self._scheduled_backup_worker.deleteLater()
-            except Exception:
-                pass
-        if self._scheduled_backup_thread is not None:
-            try:
-                self._scheduled_backup_thread.deleteLater()
-            except Exception:
-                pass
-        self._scheduled_backup_worker = None
-        self._scheduled_backup_thread = None
 
     def eventFilter(self, obj, event):
         if event.type() in {
@@ -594,8 +478,6 @@ class MainWindow(QMainWindow):
         try:
             if hasattr(self, "_idle_timer") and self._idle_timer is not None:
                 self._idle_timer.stop()
-            if hasattr(self, "_backup_timer") and self._backup_timer is not None:
-                self._backup_timer.stop()
         except Exception:
             pass
         try:

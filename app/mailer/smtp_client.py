@@ -15,15 +15,17 @@ def send_email_smtp(
     to_emails: List[str],
     subject: str,
     body: str,
-    attachments: Optional[List[str]] = None,  
+    attachments: Optional[List[str]] = None,
+    smtp_user: Optional[str] = None,
+    smtp_password: Optional[str] = None,
 ) -> None:
     smtp_cfg = cfg["smtp"]
 
     user_env = smtp_cfg.get("username_env", "GMAIL_USER")
     pass_env = smtp_cfg.get("password_env", "GMAIL_APP_PASSWORD")
 
-    user = os.environ.get(user_env, "").strip()
-    pwd = os.environ.get(pass_env, "").strip()
+    user = (smtp_user or "").strip() or os.environ.get(user_env, "").strip()
+    pwd = (smtp_password or "").strip() or os.environ.get(pass_env, "").strip()
     if not user or not pwd:
         raise RuntimeError(f"Missing env vars: {user_env} / {pass_env}")
 

@@ -49,11 +49,30 @@ class LoginDialog(QDialog):
 
         self.title_label = QtWidgets.QLabel(self)
         self.title_label.setAlignment(QtCore.Qt.AlignCenter)
+        title_font_family = self._get_title_font_family()
         self.title_label.setStyleSheet(
             "QLabel { font-size: 30px; font-weight: 700; color: #5A3D2B; "
-            "font-family: 'DFKai-SB', 'BiauKai', 'Kaiti TC', 'KaiTi', 'STKaiti'; }"
+            f"font-family: '{title_font_family}'; }}"
         )
         self._layout_login_widgets()
+
+    def _get_title_font_family(self) -> str:
+        db = QtGui.QFontDatabase()
+        families = set(db.families())
+        preferred = [
+            "PingFang TC",
+            "Heiti TC",
+            "BiauKai",
+            "Kaiti TC",
+            "KaiTi",
+            "STKaiti",
+            "Microsoft JhengHei",
+            "Noto Sans CJK TC",
+        ]
+        for name in preferred:
+            if name in families:
+                return name
+        return "Sans Serif"
 
     def _layout_login_widgets(self):
         w = self.width()

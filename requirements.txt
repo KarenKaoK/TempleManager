@@ -10,6 +10,7 @@ google-api-python-client==2.164.0
 google-auth==2.38.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
+keyring==25.*
 iniconfig==2.0.0
 ipykernel==6.29.5
 ipython==8.32.0
@@ -45,3 +46,4 @@ traitlets==5.14.3
 wcwidth==0.2.13
 APScheduler==3.* 
 PyYAML==6.*
+pywin32==308; platform_system=="Windows"
