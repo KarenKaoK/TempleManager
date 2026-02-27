@@ -12,3 +12,4 @@ AGENTS.md
 secrets/
 *.service-account.json
 *gdrive*key*.json
+reports/

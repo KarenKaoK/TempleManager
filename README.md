@@ -221,16 +221,12 @@ rm -rf ./temple_old.db
 
 ### 2-2. 啟動自動發信排程
 
-設定環境變數（Gmail App Password）：
-```bash
-export GMAIL_USER="your@gmail.com"
-export GMAIL_APP_PASSWORD="your_app_password"
-```
-
-啟動排程：
+啟動排程（若採獨立 worker）：
 ```bash
 python -m app.scheduler.worker
 ```
+
+> 建議正式部署以「系統管理 -> 報表排程設定」完成 Gmail 帳密安全儲存，不再依賴 `export GMAIL_*`。
 
 排程設定檔位於 `app/scheduler/scheduler_config.yaml`。以下為預設排程的報表類型與寄送時間：
 
@@ -721,7 +717,7 @@ TempleManager/
 - 主程式持續開啟時（即使登出回登入頁），仍可由程式內排程持續執行。
 
 ##### 建議設定流程（上線順序）：
-- 步驟 1：先準備 Google OAuth `credentials.json`（初始不需要 `token.json`）
+- 步驟 1：先準備 Google OAuth `credentials.json`（預設不需 `token.json`）
 - 步驟 2：先完成系統內備份設定與立即備份驗證
 - 步驟 3：最後到系統內「資料備份」填入目的地、JSON 路徑、資料夾 ID 與保留數量
 - 步驟 4：用「立即備份」驗證一次
@@ -738,9 +734,9 @@ TempleManager/
    - 在「測試使用者 (Test users)」加入你的 Gmail（未加入可能出現 `403 Access Blocked`）
 2. 第二步：首次授權前的系統設定
    - 在「系統管理 -> 資料備份」先設定 `OAuth 憑證 JSON` 路徑（`credentials.json`）
-   - `OAuth Token 檔案` 建議先指定儲存位置（建議專案外；首次授權後會建立/更新）
+   - `OAuth Token 檔案` 可留空（預設寫入安全儲存，不產生 `token.json`）
    - 按「Google 授權（首次）」完成人工授權
-   - 授權後系統才會建立/更新 `token.json`，後續可自動 refresh
+   - 授權後 token 會存放在系統安全儲存，後續可自動 refresh
 3. 第三步：設定目標資料夾
    - 建立（或選擇）備份資料夾，例如「自動化備份區」
    - 取得資料夾 ID（網址 `.../folders/<folder_id>`）
@@ -749,7 +745,7 @@ TempleManager/
    - 確認 Google Drive API 為「已啟用」
 5. 系統內設定
    - 在「系統管理 -> 資料備份」勾選 `Google Drive（OAuth）`
-   - 填入 `OAuth 憑證 JSON`、`OAuth Token 檔案` 與 `Drive 資料夾 ID`
+   - 填入 `OAuth 憑證 JSON` 與 `Drive 資料夾 ID`（`OAuth Token 檔案` 可留空）
    - 可同時勾選本機備份，形成雙寫
 
 ##### CLI / OS 排程（相容模式，UI 目前隱藏）
@@ -840,6 +836,62 @@ A: 請參考上方「系統管理功能 -> 資料備份」章節。
 
 ### Q: 系統支援哪些作業系統？
 A: 支援 Windows、macOS、Linux 等所有支援 Python 和 PyQt5 的作業系統
+
+## 部署準備
+
+### 1. 排程與設定檔
+- 啟動主程式後，請到「系統管理 -> 報表排程設定」：
+  - 選擇外部 `scheduler_config.yaml`（建議放在專案外、版本控制外）
+  - 視需要啟用/停用 Email 排程
+  - 修改 YAML 後按「重新載入排程」
+
+### 2. 郵件密碼安全儲存（必要）
+- **Windows**：必須使用 `Windows Credential Manager` 儲存 Gmail App Password
+- **macOS**：使用 `Keychain` 儲存 Gmail App Password
+- UI 路徑：「系統管理 -> 報表排程設定」輸入 Gmail 帳號與密碼後按「儲存郵件帳密」
+- 若安全儲存寫入失敗，系統會顯示錯誤原因，且不允許啟用 Email 排程
+
+### 3. Google Drive 授權資訊（備份）
+- `OAuth credentials.json` 仍由你指定檔案路徑
+- `authorization/token` 會優先寫入系統安全儲存（Windows Credential Manager / macOS Keychain）
+- 即使不提供 `token.json` 路徑，授權後仍可使用；預設不會產生 `token.json`（安全儲存優先）
+
+### 4. macOS 驗證流程（Gmail 密碼 + Google token）
+以下流程可直接在 macOS 逐步驗證：
+
+1. 安裝相依套件並啟動主程式
+   - `pip install -r requirements.txt`
+   - `python -m app.main`
+
+2. 驗證 Gmail App Password 安全儲存
+   - 進入「系統管理 -> 報表排程設定」
+   - 選擇外部 `scheduler_config.yaml`
+   - 輸入 `Gmail 帳號` 與 `Gmail App Password`
+   - 按「儲存郵件帳密」
+   - 預期：顯示「已儲存（macOS Keychain）」且可啟用 Email 排程
+
+3. 驗證 Email 排程可正常送信
+   - 在 `scheduler_config.yaml` 先設定一個短週期測試排程（例如 heartbeat）
+   - 啟用 Email 排程
+   - 等待一個排程週期後確認收信
+   - 若失敗：到「系統管理 -> 報表排程設定」查看錯誤訊息與狀態
+
+4. 驗證 Google Drive OAuth/token（備份）
+   - 進入「系統管理 -> 資料備份」
+   - 指定 `credentials.json` 路徑
+   - `token.json` 路徑可留空（預設不寫檔，改存 Keychain）
+   - 勾選 Google Drive 備份並執行「立即備份」
+   - 首次會跳出授權流程，完成後應備份成功
+
+5. 重啟後再驗證一次（確認 token 持久化）
+   - 關閉並重開程式
+   - 再執行一次「立即備份」
+   - 預期：不需重新授權（可直接使用 Keychain 內 token）
+
+### 5. 打包與部署注意
+- Windows 打包 EXE 後，需以一般使用者身分執行（Credential Manager 使用者範圍）
+- macOS 需允許程式存取 Keychain（首次可能出現授權提示）
+- 不建議再使用 `GMAIL_USER` / `GMAIL_APP_PASSWORD` 環境變數作為正式部署主流程
 
 ## 授權與支援
 

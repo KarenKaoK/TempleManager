@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from app.dialogs.backup_settings_dialog import BackupHelpDialog, BackupSettingsDialog, ScheduleSettingsDialog
+from app.dialogs.backup_settings_dialog import BackupHelpDialog, BackupSettingsDialog, GoogleSettingsDialog, ScheduleSettingsDialog
 
 
 class DummyController:
@@ -19,7 +19,11 @@ class DummyController:
             "enable_local": True,
             "enable_drive": False,
             "use_cli_scheduler": False,
+            "last_scheduled_run_at": "",
         }
+
+    def get_scheduler_feature_settings(self):
+        return {"mail_enabled": True, "backup_enabled": True}
 
     def save_backup_settings(self, _settings):
         return None
@@ -124,10 +128,45 @@ def test_schedule_settings_dialog_hidden_cli_always_returns_false(qtbot):
 
 def test_backup_settings_dialog_runtime_scheduler_status_text():
     text = BackupSettingsDialog._build_runtime_scheduler_status_text(
-        timer_active=False,
+        service_running=True,
+        backup_job_enabled=True,
         schedule_enabled=True,
         last_run_at_text="2026-02-23 07:06:25",
     )
-    assert "排程器狀態：未運作" in text
+    assert "排程服務：運行中" in text
+    assert "備份排程：已啟用" in text
     assert "排程設定：已啟用" in text
     assert "上次排程執行：2026-02-23 07:06:25" in text
+
+
+def test_backup_settings_dialog_google_summary_token_from_secret_store(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        "app.dialogs.backup_settings_dialog.secret_store.has_secret",
+        lambda _k: True,
+    )
+    dialog = BackupSettingsDialog(DummyController())
+    qtbot.addWidget(dialog)
+    text = dialog.lbl_google_summary.text()
+    assert "憑證：未設定" in text
+    assert "Token：已設定（安全儲存）" in text
+    assert "資料夾：未設定" in text
+
+
+def test_google_settings_dialog_authorize_button_state_restored(qtbot, monkeypatch):
+    ctrl = DummyController()
+    dialog = GoogleSettingsDialog(
+        controller=ctrl,
+        drive_folder_id="",
+        oauth_client_secret_path="/tmp/credentials.json",
+        oauth_token_path="",
+    )
+    qtbot.addWidget(dialog)
+
+    monkeypatch.setattr("app.dialogs.backup_settings_dialog.QMessageBox.information", lambda *a, **k: None)
+    monkeypatch.setattr("app.dialogs.backup_settings_dialog.QMessageBox.warning", lambda *a, **k: None)
+
+    dialog.btn_google_auth.setText("Google 授權（首次）")
+    dialog._authorize_google()
+
+    assert dialog.btn_google_auth.isEnabled() is True
+    assert dialog.btn_google_auth.text() == "Google 授權（首次）"

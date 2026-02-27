@@ -5,6 +5,7 @@ from PyQt5 import sip as pyqt_sip
 from app.controller.app_controller import AppController
 from app.auth.login import LoginDialog
 from app.main_window import MainWindow
+from app.scheduler.service import SchedulerService
 from app.utils.dialog_localizer import install_dialog_localizer
 from app.utils.font_manager import GlobalFontManager
 
@@ -241,25 +242,48 @@ def run_app():
     app.font_manager = GlobalFontManager(app)
     install_dialog_localizer(app)
 
-    while True:
-        login_dialog = LoginDialog()
-        if login_dialog.exec_() != QDialog.Accepted:
-            break  # 使用者取消登入 → 結束程式
+    init_controller = AppController()
+    try:
+        scheduler_feature_flags = init_controller.get_scheduler_feature_settings()
+        scheduler_db_path = getattr(init_controller, "db_path", None)
+        scheduler_config_path = init_controller.get_scheduler_config_path()
+    finally:
+        try:
+            init_controller.conn.close()
+        except Exception:
+            pass
 
-        username = login_dialog.username
-        role = login_dialog.role
-        display_name = (getattr(login_dialog, "display_name", None) or "").strip()
-        operator_name = f"{display_name}({username})" if display_name and display_name != username else username
-        controller = AppController()
-        main_window = MainWindow(username, role, controller)
-        main_window.operator_name = operator_name
-        main_window._is_logout = False
-        main_window.showMaximized()
-        app.exec_()
+    scheduler_service = SchedulerService(
+        config_path=scheduler_config_path,
+        feature_flags=scheduler_feature_flags,
+        db_path_override=scheduler_db_path,
+    )
+    scheduler_service.start()
+    app.scheduler_service = scheduler_service
 
-        # 檢查是否為「登出」→ 回到登入畫面；否則直接結束
-        if not getattr(main_window, '_is_logout', False):
-            break
+    try:
+        while True:
+            login_dialog = LoginDialog()
+            if login_dialog.exec_() != QDialog.Accepted:
+                break  # 使用者取消登入 → 結束程式
+
+            username = login_dialog.username
+            role = login_dialog.role
+            display_name = (getattr(login_dialog, "display_name", None) or "").strip()
+            operator_name = f"{display_name}({username})" if display_name and display_name != username else username
+            controller = AppController()
+            main_window = MainWindow(username, role, controller)
+            main_window.operator_name = operator_name
+            main_window._is_logout = False
+            main_window.showMaximized()
+            app.exec_()
+
+            # 檢查是否為「登出」→ 回到登入畫面；否則直接結束
+            if not getattr(main_window, '_is_logout', False):
+                break
+    finally:
+        scheduler_service.stop()
+        app.scheduler_service = None
 
     sys.exit(0)
 

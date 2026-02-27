@@ -6,6 +6,7 @@ import json
 import re
 import os
 from typing import Tuple, Optional,  List, Dict, Any
+import app.utils.secret_store as secret_store
 
 from datetime import datetime, date, timedelta
 
@@ -35,6 +36,8 @@ class AppController:
         ("L03", "吉祥如意燈", 1200, "JI_XIANG", 3),
         ("L04", "祭改", 500, "JI_GAI", 4),
     )
+    SCHEDULER_SMTP_PASSWORD_SECRET_KEY = "scheduler/smtp_app_password"
+    BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY = "backup/google_oauth_token_json"
 
     def __init__(self, db_path=DB_NAME):
         self.db_path = db_path
@@ -159,6 +162,10 @@ class AppController:
         self._ensure_setting("security/idle_logout_minutes", "15")
         self._ensure_setting("ui/login_cover_title", "")
         self._ensure_setting("ui/login_cover_image_path", "")
+        self._ensure_setting("scheduler/smtp_username", "")
+        self._ensure_setting("scheduler/config_path", "app/scheduler/scheduler_config.yaml")
+        self._ensure_setting("scheduler/mail_enabled", "1")
+        self._ensure_setting("scheduler/backup_enabled", "1")
         self.conn.commit()
 
     def _ensure_backup_schema(self):
@@ -1253,6 +1260,67 @@ class AppController:
         self.set_setting("ui/login_cover_title", (title or "").strip())
         self.set_setting("ui/login_cover_image_path", (image_path or "").strip())
 
+    def get_scheduler_feature_settings(self) -> Dict[str, bool]:
+        return {
+            "mail_enabled": self.get_setting("scheduler/mail_enabled", "1") == "1",
+            "backup_enabled": self.get_setting("scheduler/backup_enabled", "1") == "1",
+        }
+
+    def get_scheduler_config_path(self) -> str:
+        return (self.get_setting("scheduler/config_path", "app/scheduler/scheduler_config.yaml") or "").strip() or "app/scheduler/scheduler_config.yaml"
+
+    def save_scheduler_config_path(self, path: str):
+        value = (path or "").strip()
+        if not value:
+            value = "app/scheduler/scheduler_config.yaml"
+        self.set_setting("scheduler/config_path", value)
+
+    def get_scheduler_mail_settings(self) -> Dict[str, Any]:
+        username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
+        secret_error = ""
+        pwd_set = False
+        try:
+            pwd_set = bool(secret_store.has_secret(self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY))
+        except Exception as e:
+            secret_error = str(e)
+            pwd_set = False
+        return {
+            "smtp_username": username,
+            "smtp_password_set": pwd_set,
+            "secret_backend": secret_store.backend_label(),
+            "secret_error": secret_error,
+        }
+
+    def save_scheduler_mail_settings(self, smtp_username: str, smtp_password: str = ""):
+        username = (smtp_username or "").strip()
+        if not username:
+            raise ValueError("請輸入 Gmail 帳號。")
+        self.set_setting("scheduler/smtp_username", username)
+        if (smtp_password or "").strip():
+            try:
+                secret_store.set_secret(self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY, smtp_password)
+            except Exception as e:
+                raise RuntimeError(f"無法寫入 {secret_store.backend_label()}：{e}")
+
+    def get_scheduler_mail_credentials(self) -> Tuple[str, str]:
+        username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
+        password = ""
+        try:
+            password = (secret_store.get_secret(self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY) or "").strip()
+        except Exception:
+            password = ""
+        if not username:
+            username = (os.environ.get("GMAIL_USER", "") or "").strip()
+        if not password:
+            password = (os.environ.get("GMAIL_APP_PASSWORD", "") or "").strip()
+        return username, password
+
+    def save_scheduler_feature_settings(self, settings: Dict[str, Any]):
+        if not isinstance(settings, dict):
+            raise ValueError("settings must be a dict")
+        self.set_setting("scheduler/mail_enabled", "1" if bool(settings.get("mail_enabled", True)) else "0")
+        self.set_setting("scheduler/backup_enabled", "1" if bool(settings.get("backup_enabled", True)) else "0")
+
     # -------------------------
     # Backup
     # -------------------------
@@ -1272,6 +1340,7 @@ class AppController:
             "keep_latest": max(1, _to_int(self.get_setting("backup/keep_latest", "20"), 20)),
             "local_dir": (self.get_setting("backup/local_dir", "") or "").strip(),
             "last_run_at": (self.get_setting("backup/last_run_at", "") or "").strip(),
+            "last_scheduled_run_at": (self.get_setting("backup/last_scheduled_run_at", "") or "").strip(),
             "drive_folder_id": (self.get_setting("backup/drive_folder_id", "") or "").strip(),
             "oauth_client_secret_path": (self.get_setting("backup/oauth_client_secret_path", "") or "").strip(),
             "oauth_token_path": (self.get_setting("backup/oauth_token_path", "") or "").strip(),
@@ -1492,7 +1561,8 @@ class AppController:
         return str(res.get("id") or ""), folder_name
 
     def authorize_google_drive_oauth(self, oauth_client_secret_path: str, oauth_token_path: str = "") -> Dict[str, str]:
-        token_path = (oauth_token_path or "").strip() or self._default_oauth_token_path()
+        # 安全儲存優先：未指定 token 路徑時，不再 fallback 寫入本地檔案
+        token_path = (oauth_token_path or "").strip()
 
         service = self._build_drive_service_oauth(
             oauth_client_secret_path=(oauth_client_secret_path or "").strip(),
@@ -1513,8 +1583,6 @@ class AppController:
             raise ValueError("請先設定 OAuth credentials.json 路徑")
         if not os.path.isfile(oauth_client_secret_path):
             raise ValueError(f"OAuth 憑證檔不存在：{oauth_client_secret_path}")
-        if not oauth_token_path:
-            raise ValueError("請先設定 OAuth token.json 路徑")
 
         try:
             from google.auth.transport.requests import Request
@@ -1527,7 +1595,16 @@ class AppController:
             )
 
         creds = None
-        if os.path.isfile(oauth_token_path):
+        try:
+            token_json = (secret_store.get_secret(self.BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY) or "").strip()
+        except Exception:
+            token_json = ""
+        if token_json:
+            try:
+                creds = Credentials.from_authorized_user_info(json.loads(token_json), self._drive_scopes())
+            except Exception:
+                creds = None
+        if not creds and (oauth_token_path or "").strip() and os.path.isfile(oauth_token_path):
             try:
                 creds = Credentials.from_authorized_user_file(oauth_token_path, self._drive_scopes())
             except Exception:
@@ -1538,13 +1615,30 @@ class AppController:
                 creds.refresh(Request())
             elif interactive:
                 flow = InstalledAppFlow.from_client_secrets_file(oauth_client_secret_path, self._drive_scopes())
-                creds = flow.run_local_server(port=0, access_type="offline", prompt="consent")
+                try:
+                    creds = flow.run_local_server(
+                        port=0,
+                        access_type="offline",
+                        prompt="consent",
+                        timeout_seconds=180,
+                    )
+                except Exception as e:
+                    raise RuntimeError(f"Google 授權逾時或失敗：{e}")
             else:
                 raise ValueError("尚未完成 Google OAuth 授權，請先在資料備份頁按「Google 授權」")
 
-        os.makedirs(os.path.dirname(os.path.abspath(oauth_token_path)), exist_ok=True)
-        with open(oauth_token_path, "w", encoding="utf-8") as f:
-            f.write(creds.to_json())
+        try:
+            secret_store.set_secret(self.BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY, creds.to_json())
+        except Exception as e:
+            raise RuntimeError(f"無法寫入 {secret_store.backend_label()}（Google OAuth Token）：{e}")
+
+        if (oauth_token_path or "").strip():
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(oauth_token_path)), exist_ok=True)
+                with open(oauth_token_path, "w", encoding="utf-8") as f:
+                    f.write(creds.to_json())
+            except Exception:
+                pass
 
         return build("drive", "v3", credentials=creds, cache_discovery=False)
 
@@ -1617,7 +1711,8 @@ class AppController:
         if freq == "monthly" and now_dt.day != int(s.get("monthday", 1)):
             return False
 
-        last_run_text = s.get("last_run_at") or ""
+        # 排程判斷只看「排程執行時間」，手動備份不應阻擋自動排程
+        last_run_text = s.get("last_scheduled_run_at") or ""
         if not last_run_text:
             return True
         try:
@@ -1633,9 +1728,12 @@ class AppController:
             return (last_dt.year, last_dt.month) != (now_dt.year, now_dt.month)
         return last_dt.date() != now_dt.date()
 
-    def mark_backup_run(self, now: Optional[datetime] = None):
+    def mark_backup_run(self, now: Optional[datetime] = None, scheduled: bool = False):
         dt = now or datetime.now()
-        self.set_setting("backup/last_run_at", dt.strftime("%Y-%m-%d %H:%M:%S"))
+        ts = dt.strftime("%Y-%m-%d %H:%M:%S")
+        self.set_setting("backup/last_run_at", ts)
+        if bool(scheduled):
+            self.set_setting("backup/last_scheduled_run_at", ts)
 
     def run_scheduled_backup_once(self, now: Optional[datetime] = None) -> bool:
         """
@@ -1646,7 +1744,7 @@ class AppController:
         if not self.should_run_scheduled_backup(now=now):
             return False
         self.create_local_backup(manual=False, now=now)
-        self.mark_backup_run(now=now)
+        self.mark_backup_run(now=now, scheduled=True)
         return True
 
     def log_security_event(self, actor_username: str, action: str, target_username: Optional[str], detail: str = ""):

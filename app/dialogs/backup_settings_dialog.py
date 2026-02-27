@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app.controller.app_controller import AppController
+from app.utils import secret_store
 
 
 class BackupHelpDialog(QDialog):
@@ -194,7 +195,7 @@ class GoogleSettingsDialog(QDialog):
         form.addRow("OAuth 憑證 JSON", self._line_with_button(self.edt_oauth_client_secret, self.btn_pick_oauth_client))
 
         self.edt_oauth_token = QLineEdit()
-        self.edt_oauth_token.setPlaceholderText("OAuth token.json 路徑（必填，第一次可留空）")
+        self.edt_oauth_token.setPlaceholderText("OAuth token 檔案路徑（可留空；預設存安全儲存，不產生 token.json）")
         self.edt_oauth_token.setText(oauth_token_path or "")
         self.btn_pick_oauth_token = QPushButton("選擇檔案")
         self.btn_pick_oauth_token.clicked.connect(self._pick_oauth_token_file)
@@ -232,7 +233,7 @@ class GoogleSettingsDialog(QDialog):
     def _pick_oauth_token_file(self):
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "選擇 OAuth token.json",
+            "選擇 OAuth token 檔案（選填）",
             self.edt_oauth_token.text() or "",
             "JSON Files (*.json);;All Files (*)",
         )
@@ -240,12 +241,16 @@ class GoogleSettingsDialog(QDialog):
             self.edt_oauth_token.setText(path)
 
     def _authorize_google(self):
+        old_text = self.btn_google_auth.text()
         try:
             client_path = (self.edt_oauth_client_secret.text() or "").strip()
             token_path = (self.edt_oauth_token.text() or "").strip()
             if not client_path:
                 QMessageBox.warning(self, "設定錯誤", "請先設定 OAuth 憑證 JSON")
                 return
+            self.btn_google_auth.setEnabled(False)
+            self.btn_google_auth.setText("授權中...")
+            QApplication.processEvents()
             result = self.controller.authorize_google_drive_oauth(client_path, token_path)
             self.edt_oauth_token.setText(result.get("token_path", token_path))
             email = result.get("email", "")
@@ -253,6 +258,9 @@ class GoogleSettingsDialog(QDialog):
             QMessageBox.information(self, "成功", tip)
         except Exception as e:
             QMessageBox.warning(self, "授權失敗", str(e))
+        finally:
+            self.btn_google_auth.setEnabled(True)
+            self.btn_google_auth.setText(old_text)
 
     def get_values(self) -> dict:
         return {
@@ -311,6 +319,8 @@ class BackupSettingsDialog(QDialog):
         self._google_oauth_token_path = ""
         self._schedule_use_cli = False
         self._last_run_at_text = ""
+        self._backup_job_enabled = True
+        self._scheduler_service_running = False
         self._backup_thread = None
         self._backup_worker = None
         self._backup_running = False
@@ -388,7 +398,8 @@ class BackupSettingsDialog(QDialog):
         cli_module_cmd = f"{py_exec} -m app.backup_runner --run-once"
         cli_file_cmd = f"{py_exec} {runner_path} --run-once"
         help_text = (
-            "詳細設定流程請按「說明文件」。"
+            "詳細設定流程請按「說明文件」。\n"
+            "自動備份由背景排程服務執行。"
         )
         self.lbl_cli_help = QLabel(help_text)
         self.lbl_cli_help.setWordWrap(True)
@@ -551,7 +562,15 @@ class BackupSettingsDialog(QDialog):
         self._schedule_weekday = int(s.get("weekday", 1))
         self._schedule_monthday = int(s.get("monthday", 1))
         self._schedule_use_cli = bool(s.get("use_cli_scheduler"))
-        self._last_run_at_text = str(s.get("last_run_at", "") or "")
+        self._last_run_at_text = str(s.get("last_scheduled_run_at", "") or "")
+        feature_getter = getattr(self.controller, "get_scheduler_feature_settings", None)
+        if callable(feature_getter):
+            try:
+                self._backup_job_enabled = bool((feature_getter() or {}).get("backup_enabled", True))
+            except Exception:
+                self._backup_job_enabled = True
+        else:
+            self._backup_job_enabled = True
         self.spin_keep.setValue(int(s.get("keep_latest", 20)))
         self.edt_local_dir.setText(str(s.get("local_dir", "")))
         self.chk_enable_local.setChecked(bool(s.get("enable_local", True)))
@@ -592,29 +611,23 @@ class BackupSettingsDialog(QDialog):
         self.lbl_schedule_summary.setText(f"{enabled_text}｜{detail}｜{mode_text}")
 
     @staticmethod
-    def _build_runtime_scheduler_status_text(timer_active: bool, schedule_enabled: bool, last_run_at_text: str) -> str:
-        timer_text = "運作中（主視窗）" if timer_active else "未運作（主視窗排程器未啟動）"
+    def _build_runtime_scheduler_status_text(service_running: bool, backup_job_enabled: bool, schedule_enabled: bool, last_run_at_text: str) -> str:
+        service_text = "運行中" if service_running else "未運行"
+        backup_text = "已啟用" if backup_job_enabled else "未啟用"
         enabled_text = "已啟用" if schedule_enabled else "未啟用"
         last_text = (last_run_at_text or "").strip() or "無"
-        return f"排程器狀態：{timer_text}｜排程設定：{enabled_text}｜上次排程執行：{last_text}"
+        return f"排程服務：{service_text}｜備份排程：{backup_text}｜排程設定：{enabled_text}｜上次排程執行：{last_text}"
 
     def _update_runtime_scheduler_status(self):
-        parent = self.parent()
-        timer_active = False
-        try:
-            timer = getattr(parent, "_backup_timer", None)
-            if timer is not None and hasattr(timer, "isActive"):
-                timer_active = bool(timer.isActive())
-        except Exception:
-            timer_active = False
-
+        app = QApplication.instance()
+        svc = getattr(app, "scheduler_service", None) if app is not None else None
+        self._scheduler_service_running = bool(svc is not None and getattr(svc, "is_running", False))
         text = self._build_runtime_scheduler_status_text(
-            timer_active=timer_active,
+            service_running=bool(self._scheduler_service_running),
+            backup_job_enabled=bool(self._backup_job_enabled),
             schedule_enabled=bool(self._schedule_enabled),
             last_run_at_text=self._last_run_at_text,
         )
-        if not timer_active:
-            text += "（提示：目前自動備份仍綁在主視窗；登出回登入頁時不會檢查，會在下次主視窗啟用後補跑）"
         self.lbl_runtime_scheduler_status.setText(text)
 
     def _open_schedule_settings_dialog(self):
@@ -641,7 +654,18 @@ class BackupSettingsDialog(QDialog):
 
     def _update_google_summary(self):
         cred_text = "已設定" if (self._google_oauth_client_secret_path or "").strip() else "未設定"
-        token_text = "已設定" if (self._google_oauth_token_path or "").strip() else "未設定"
+        token_path_set = bool((self._google_oauth_token_path or "").strip())
+        token_secret_set = False
+        try:
+            token_secret_set = bool(secret_store.has_secret(AppController.BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY))
+        except Exception:
+            token_secret_set = False
+        if token_secret_set:
+            token_text = "已設定（安全儲存）"
+        elif token_path_set:
+            token_text = "已設定（檔案）"
+        else:
+            token_text = "未設定"
         folder_text = self._google_drive_folder_id if (self._google_drive_folder_id or "").strip() else "未設定"
         self.lbl_google_summary.setText(f"憑證：{cred_text}｜Token：{token_text}｜資料夾：{folder_text}")
 
@@ -755,7 +779,7 @@ class BackupSettingsDialog(QDialog):
             self._backup_notice_reset_timer.timeout.connect(self._clear_backup_notice)
         self._backup_notice_reset_timer.start(8000)
         try:
-            self._last_run_at_text = str((self.controller.get_backup_settings() or {}).get("last_run_at", "") or "")
+            self._last_run_at_text = str((self.controller.get_backup_settings() or {}).get("last_scheduled_run_at", "") or "")
         except Exception:
             pass
         self._update_runtime_scheduler_status()
@@ -858,9 +882,10 @@ class BackupSettingsDialog(QDialog):
 
 <h3>2. 建議設定流程（先後順序）</h3>
 <ol>
-  <li>步驟 1：先完成 Google OAuth 設定與首次授權</li>
+  <li>步驟 1：先完成 Google OAuth 設定取得credentials.json</li>
   <li>步驟 2：回到系統內填入 JSON 路徑、資料夾 ID、目的地與保留數量</li>
-  <li>步驟 3：執行「立即備份」驗證一次</li>
+  <li>步驟 3：按「Google 授權（首次）」</li>
+  <li>步驟 4：執行「立即備份」驗證一次</li>
 </ol>
 
 <h3>3. Google Drive OAuth 設定</h3>
@@ -875,24 +900,24 @@ class BackupSettingsDialog(QDialog):
   <li>在「測試使用者 (Test users)」加入你的 Gmail（未加入可能出現 403 Access Blocked）</li>
 </ol>
 
-<p><b>第二步：系統內填寫路徑與資料夾</b></p>
-<ol>
-  <li>填入 OAuth 憑證 JSON 路徑（credentials.json）</li>
-  <li>OAuth token 路徑建議先指定儲存位置（建議專案外；首次授權後會建立/更新）</li>
-  <li>按「Google 授權（首次）」後，系統才會建立/更新 token.json</li>
-  <li>填入 Drive 資料夾 ID</li>
-</ol>
-
-<p><b>第三步：首次人工授權</b></p>
-<ol>
-  <li>按「Google 授權（首次）」並完成瀏覽器登入同意</li>
-  <li>系統會產生/更新 token.json，後續可自動 refresh</li>
-</ol>
-
-<p><b>第四步：確認 API 已啟用</b></p>
+<p><b>第二步：確認 API 已啟用</b></p>
 <ol>
   <li>Google Cloud Console → API 和服務 → 啟用 API 和服務</li>
   <li>確認 Google Drive API 顯示為「已啟用」</li>
+</ol>
+
+<p><b>第三步：系統內填寫路徑與資料夾</b></p>
+<ol>
+  <li>填入 OAuth 憑證 JSON 路徑（credentials.json）</li>
+  <li>OAuth token 路徑可留空（預設寫入系統安全儲存，不產生 token.json）</li>
+  <li>按「Google 授權（首次）」完成授權後，token 會存入系統安全儲存</li>
+  <li>填入 Drive 資料夾 ID</li>
+</ol>
+
+<p><b>第四步：首次人工授權</b></p>
+<ol>
+  <li>按「Google 授權（首次）」並完成瀏覽器登入同意</li>
+  <li>系統會更新安全儲存中的 token，後續可自動 refresh</li>
 </ol>
 
 <h3>4. 備份目的地與驗證</h3>
