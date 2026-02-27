@@ -199,6 +199,7 @@ class TransactionTab(QWidget):
         # 用於暫存選擇的信徒 ID (僅 Income 用到)
         self.selected_person_id = None
         self.show_all_mode = False
+        self.void_only_mode = False
         
         self.init_ui()
         self.load_initial_data()
@@ -236,6 +237,19 @@ class TransactionTab(QWidget):
         btn_curr.clicked.connect(self.set_current_month)
         btn_next.clicked.connect(lambda: self.change_month(1))
         btn_all.clicked.connect(self.show_all_records)
+
+        # 明細搜尋 / 作廢篩選
+        self.list_search_input = QLineEdit()
+        self.list_search_input.setPlaceholderText("搜尋姓名/電話/單號")
+        self.list_search_input.setClearButtonEnabled(True)
+        self.list_search_input.returnPressed.connect(self.apply_list_search)
+        self.btn_list_search = QPushButton("搜尋")
+        self.btn_list_search.clicked.connect(self.apply_list_search)
+        self.btn_list_clear = QPushButton("清除")
+        self.btn_list_clear.clicked.connect(self.clear_list_search)
+        self.btn_void_only = QPushButton("作廢單據")
+        self.btn_void_only.setCheckable(True)
+        self.btn_void_only.toggled.connect(self.toggle_void_only)
         
         # 排序
         # self.sort_combo = QComboBox()
@@ -396,6 +410,11 @@ class TransactionTab(QWidget):
 
         # 明確操作列：避免只靠右鍵，操作不明顯
         action_row = QHBoxLayout()
+        action_row.addWidget(QLabel("搜尋:"))
+        action_row.addWidget(self.list_search_input)
+        action_row.addWidget(self.btn_list_search)
+        action_row.addWidget(self.btn_list_clear)
+        action_row.addWidget(self.btn_void_only)
         action_row.addStretch()
 
         self.btn_edit_row = QPushButton("修改資料")
@@ -404,13 +423,10 @@ class TransactionTab(QWidget):
         if self.t_type == "income":
             self.btn_print_row = QPushButton("補印收據")
             self.btn_print_row.clicked.connect(self._print_selected_row)
-            action_row.addWidget(self.btn_print_row)
 
         self.btn_edit_row.clicked.connect(self._edit_selected_row)
         self.btn_del_row.clicked.connect(self._delete_selected_row)
-        action_row.addWidget(self.btn_edit_row)
-        action_row.addWidget(self.btn_del_row)
-        
+
         self.table = QTableWidget()
         cols = ["日期", "單號", "項目", "對象", "金額", "經手人", "作廢", "類型", "摘要"]
         self.table.setColumnCount(len(cols))
@@ -445,10 +461,19 @@ class TransactionTab(QWidget):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_context_menu)
         self.table.itemSelectionChanged.connect(self._sync_row_action_buttons)
+
+        # 表格下方操作列
+        bottom_action_row = QHBoxLayout()
+        bottom_action_row.addStretch()
+        if self.btn_print_row is not None:
+            bottom_action_row.addWidget(self.btn_print_row)
+        bottom_action_row.addWidget(self.btn_edit_row)
+        bottom_action_row.addWidget(self.btn_del_row)
         
         right_layout.addWidget(list_label)
         right_layout.addLayout(action_row)
         right_layout.addWidget(self.table)
+        right_layout.addLayout(bottom_action_row)
         right_widget.setLayout(right_layout)
         
         splitter.addWidget(left_widget)
@@ -564,9 +589,35 @@ class TransactionTab(QWidget):
         self.show_all_mode = True
         self.refresh_list()
 
+    def apply_list_search(self):
+        self.refresh_list()
+
+    def clear_list_search(self):
+        self.list_search_input.clear()
+        self.refresh_list()
+
+    def toggle_void_only(self, checked):
+        self.void_only_mode = bool(checked)
+        self.btn_void_only.setText("顯示全部" if checked else "作廢單據")
+        self.refresh_list()
+
     def refresh_list(self):
-        if self.show_all_mode:
-            data = self.controller.get_transactions(self.t_type)
+        keyword = self.list_search_input.text().strip() if hasattr(self, "list_search_input") else None
+        if self.void_only_mode:
+            data = self.controller.get_transactions(
+                self.t_type,
+                start_date=None,
+                end_date=None,
+                keyword=keyword,
+                voided_filter="only",
+            )
+        elif self.show_all_mode:
+            data = self.controller.get_transactions(
+                self.t_type,
+                start_date=None,
+                end_date=None,
+                keyword=keyword,
+            )
         else:
             year = self.year_combo.currentData()
             month = self.month_combo.currentData()
@@ -579,7 +630,12 @@ class TransactionTab(QWidget):
             except:
                  end_date =  f"{year}-{month:02d}-31"
 
-            data = self.controller.get_transactions(self.t_type, start_date, end_date)
+            data = self.controller.get_transactions(
+                self.t_type,
+                start_date,
+                end_date,
+                keyword=keyword,
+            )
         
         self.table.setRowCount(len(data))
         for i, row in enumerate(data):

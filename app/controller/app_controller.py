@@ -4780,7 +4780,7 @@ class AppController:
         self.conn.commit()
         return cursor.lastrowid
     
-    def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None):
+    def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None, voided_filter="all"):
         cursor = self.conn.cursor()
         query = """
             SELECT t.*, p.phone_mobile, p.address
@@ -4804,8 +4804,24 @@ class AppController:
         
         if keyword:
             kw = f"%{keyword}%"
-            query += " AND (t.payer_name LIKE ? OR t.receipt_number LIKE ? OR t.note LIKE ?)"
-            params.extend([kw, kw, kw])
+            query += """
+                AND (
+                    t.payer_name LIKE ?
+                    OR COALESCE(p.phone_mobile, '') LIKE ?
+                    OR COALESCE(p.phone_home, '') LIKE ?
+                    OR t.receipt_number LIKE ?
+                    OR t.note LIKE ?
+                )
+            """
+            params.extend([kw, kw, kw, kw, kw])
+
+        cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+        if "is_voided" in cols:
+            mode = str(voided_filter or "all").strip().lower()
+            if mode == "exclude":
+                query += " AND COALESCE(t.is_voided, 0) = 0"
+            elif mode == "only":
+                query += " AND COALESCE(t.is_voided, 0) = 1"
             
         query += " ORDER BY t.date DESC, t.created_at DESC"
         
@@ -4926,6 +4942,9 @@ class AppController:
                 FROM transactions t
                 WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
             """
+            cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+            if "is_voided" in cols:
+                query += " AND COALESCE(t.is_voided, 0) = 0"
             params: List[Any] = []
 
             if transaction_type in {"income", "expense"}:
@@ -4964,6 +4983,9 @@ class AppController:
             FROM transactions t
             WHERE (t.is_deleted = 0 OR t.is_deleted IS NULL)
         """
+        cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+        if "is_voided" in cols:
+            query += " AND COALESCE(t.is_voided, 0) = 0"
         params: List[Any] = []
 
         if transaction_type in {"income", "expense"}:
@@ -5001,6 +5023,9 @@ class AppController:
               AND {period_expr} = ?
               AND t.type = ?
         """
+        cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+        if "is_voided" in cols:
+            query += " AND COALESCE(t.is_voided, 0) = 0"
         params: List[Any] = [period_key, transaction_type]
         if category_id:
             query += " AND t.category_id = ?"

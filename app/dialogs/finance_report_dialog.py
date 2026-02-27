@@ -258,6 +258,7 @@ class FinanceReportDialog(QDialog):
             transaction_type=transaction_type,
             start_date=start,
             end_date=end,
+            voided_filter="exclude",
             keyword=None,
         )
         self.detail_rows.sort(
@@ -306,6 +307,7 @@ class FinanceReportDialog(QDialog):
                 transaction_type=None,
                 start_date=start,
                 end_date=end,
+                voided_filter="exclude",
                 keyword=None,
             )
             all_details.sort(
