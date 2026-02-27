@@ -141,13 +141,20 @@ class LightingSignupPage(QWidget):
 
         self.tbl_people_search = QTableWidget(0, 7)
         self.tbl_people_search.setHorizontalHeaderLabels(["姓名", "電話", "國曆生日", "農曆生日", "生肖", "地址", "戶別"])
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
-        self.tbl_people_search.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        self.tbl_people_search.setWordWrap(True)
+        self.tbl_people_search.setTextElideMode(Qt.ElideNone)
+        self.tbl_people_search.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.tbl_people_search.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tbl_people_search.horizontalHeader().setStretchLastSection(False)
+        for c in range(self.tbl_people_search.columnCount()):
+            self.tbl_people_search.horizontalHeader().setSectionResizeMode(c, QHeaderView.Interactive)
+        self.tbl_people_search.setColumnWidth(0, 90)   # 姓名
+        self.tbl_people_search.setColumnWidth(1, 120)  # 電話
+        self.tbl_people_search.setColumnWidth(2, 110)  # 國曆生日
+        self.tbl_people_search.setColumnWidth(3, 110)  # 農曆生日
+        self.tbl_people_search.setColumnWidth(4, 70)   # 生肖
+        self.tbl_people_search.setColumnWidth(5, 260)  # 地址
+        self.tbl_people_search.setColumnWidth(6, 70)   # 戶別
         left_layout.addWidget(self.tbl_people_search, 1)
 
         right_wrap = QWidget()
@@ -328,6 +335,7 @@ class LightingSignupPage(QWidget):
             self.tbl_people_search.setItem(i, 5, QTableWidgetItem(str(row.get("address") or "")))
             self.tbl_people_search.setItem(i, 6, QTableWidgetItem("戶長" if str(row.get("role_in_household") or "") == "HEAD" else "戶員"))
             self.tbl_people_search.item(i, 0).setData(Qt.UserRole, str(row.get("id") or ""))
+        self.tbl_people_search.resizeRowsToContents()
 
     def _on_people_search_row_clicked(self, row: int, _col: int):
         item = self.tbl_people_search.item(row, 0)
