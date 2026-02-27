@@ -398,3 +398,31 @@ def test_handler_input_is_editable_for_accountant(qtbot, temp_db):
 
     assert dlg.income_tab.handler_input.isReadOnly() is False
     assert dlg.expense_tab.handler_input.isReadOnly() is False
+
+
+def test_new_income_save_clears_form_fields(qtbot, dialog):
+    tab = dialog.income_tab
+    tab.set_person({
+        "id": "P001",
+        "name": "王小明",
+        "phone_mobile": "0912345678",
+        "phone_home": "",
+        "address": "台北市信義區測試路100號",
+    })
+    tab.category_combo.setCurrentIndex(0)
+    tab.amount_input.setText("1234")
+    tab.note_input.setText("測試備註")
+
+    with patch("app.dialogs.income_expense_dialog.QMessageBox.information"):
+        tab.save_data(print_receipt=False)
+
+    assert tab.amount_input.text() == ""
+    assert tab.note_input.text() == ""
+    assert tab.receipt_input.text() == ""
+    assert tab.selected_person_id is None
+    assert tab.selected_person_data is None
+    assert tab.payer_name_display.text() == ""
+    assert tab.payer_phone_display.text() == ""
+
+    rows = tab.controller.get_transactions("income")
+    assert any(int(r.get("amount") or 0) == 1234 for r in rows)

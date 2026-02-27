@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QDateEdit, QTabWidget, QWidget, QMessageBox, QFormLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QFrame, QListView, QAbstractSpinBox
 )
-from PyQt5.QtCore import QDate, Qt
+from PyQt5.QtCore import QDate, Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from datetime import date
 
@@ -55,6 +55,42 @@ def style_combo_with_dividers(combo: QComboBox):
             background: #FBF5EE;
         }
     """)
+
+
+class IncomeExpensePage(QWidget):
+    """收支管理頁面版（供 MainWindow stack 使用）。"""
+    request_close = pyqtSignal()
+
+    def __init__(self, controller, parent=None, initial_tab=0, user_role=None, current_operator_name=""):
+        super().__init__(parent)
+        self.controller = controller
+        self.user_role = user_role
+        self.current_operator_name = (current_operator_name or "").strip()
+        self._build_ui(initial_tab)
+
+    def _build_ui(self, initial_tab: int):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        self.tabs = QTabWidget()
+        self.income_tab = TransactionTab(
+            self.controller, "income", self, self.user_role, self.current_operator_name
+        )
+        self.expense_tab = TransactionTab(
+            self.controller, "expense", self, self.user_role, self.current_operator_name
+        )
+        self.tabs.addTab(self.income_tab, "收入資料登錄作業")
+        self.tabs.addTab(self.expense_tab, "支出資料登錄作業")
+        self.tabs.setCurrentIndex(0 if int(initial_tab or 0) == 0 else 1)
+        layout.addWidget(self.tabs)
+
+        foot = QHBoxLayout()
+        foot.addStretch()
+        btn_close = QPushButton("關閉返回")
+        btn_close.setMinimumWidth(120)
+        btn_close.clicked.connect(self.request_close.emit)
+        foot.addWidget(btn_close)
+        layout.addLayout(foot)
 
 
 class IncomeExpenseDialog(QDialog):
@@ -1010,6 +1046,28 @@ class TransactionTab(QWidget):
         else:
             self.payee_input.clear()
 
+    def _clear_after_new_save(self):
+        """
+        新增成功後清空輸入欄位，避免連續登錄時誤用上一筆資料。
+        """
+        self.amount_input.clear()
+        self.note_input.clear()
+        self.receipt_input.setText("")
+        self.receipt_input.setPlaceholderText("系統自動產生")
+        # 同步清空搜尋欄，避免殘留上一筆搜尋條件
+        if hasattr(self, "list_search_input"):
+            self.list_search_input.clear()
+        if self.t_type == "income" and hasattr(self, "search_input"):
+            self.search_input.clear()
+
+        if self.t_type == "income":
+            self.selected_person_id = None
+            self.selected_person_data = None
+            self.payer_name_display.clear()
+            self.payer_phone_display.clear()
+        else:
+            self.payee_input.clear()
+
     def save_data(self, print_receipt):
         # 1. 蒐集資料
         date_str = qdate_to_db_ymd(self.date_input.date())
@@ -1112,10 +1170,7 @@ class TransactionTab(QWidget):
                 if print_receipt and self.t_type == "income":
                     PrintHelper.print_receipt(payload)
                 
-                # 清空表單 (只清部分)
-                self.amount_input.clear()
-                # self.note_input.clear()
-                # self.selected_person_id = None ...
+                self._clear_after_new_save()
             
             # 刷新列表
             self.refresh_list()

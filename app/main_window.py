@@ -14,7 +14,7 @@ from app.widgets.main_page import MainPageWidget
 from app.widgets.activity_manage_page import ActivityManagePage
 from app.widgets.activity_signup_page import ActivitySignupPage
 from app.widgets.lighting_signup_page import LightingSignupPage
-from app.dialogs.income_expense_dialog import IncomeExpenseDialog
+from app.dialogs.income_expense_dialog import IncomeExpensePage
 from app.dialogs.finance_report_dialog import FinanceReportDialog
 from app.dialogs.lighting_setup_dialog import LightingSetupDialog
 from app.dialogs.account_management_dialog import AccountManagementDialog
@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         self.activity_manage_page = None
         self.activity_signup_page = None
         self.lighting_signup_page = None
+        self.income_expense_page = None
         self.finance_report_action = None
 
         # ✅ 空白頁
@@ -150,7 +151,12 @@ class MainWindow(QMainWindow):
 
     def _sync_bottom_bar_visibility(self, page: QWidget):
         """活動頁改用頁內「關閉返回」，隱藏全域底部列避免重複操作。"""
-        hide_for_activity_pages = page in (self.activity_manage_page, self.activity_signup_page, self.lighting_signup_page)
+        hide_for_activity_pages = page in (
+            self.activity_manage_page,
+            self.activity_signup_page,
+            self.lighting_signup_page,
+            self.income_expense_page,
+        )
         self.bottom_bar.setVisible(not hide_for_activity_pages)
 
     def _back_to_blank(self):
@@ -207,8 +213,8 @@ class MainWindow(QMainWindow):
         income_entry_action = QAction("收入資料登錄作業", self)
         expense_entry_action = QAction("支出資料登錄作業", self)
         
-        income_entry_action.triggered.connect(lambda: self.open_income_expense_dialog(0))
-        expense_entry_action.triggered.connect(lambda: self.open_income_expense_dialog(1))
+        income_entry_action.triggered.connect(lambda: self.open_income_expense_page(0))
+        expense_entry_action.triggered.connect(lambda: self.open_income_expense_page(1))
         
         finance_menu.addAction(income_entry_action)
         finance_menu.addAction(expense_entry_action)
@@ -352,10 +358,26 @@ class MainWindow(QMainWindow):
 
         self._show_page(self.activity_signup_page)
 
+    def open_income_expense_page(self, initial_tab=0):
+        if self.income_expense_page is None:
+            self.income_expense_page = IncomeExpensePage(
+                self.controller,
+                self,
+                initial_tab=initial_tab,
+                user_role=self.role,
+                current_operator_name=getattr(self, "operator_name", "") or self.username,
+            )
+            self.income_expense_page.request_close.connect(self.open_household_entry)
+        else:
+            if hasattr(self.income_expense_page, "tabs"):
+                idx = 0 if int(initial_tab or 0) == 0 else 1
+                self.income_expense_page.tabs.setCurrentIndex(idx)
+
+        self._show_page(self.income_expense_page)
+
     def open_income_expense_dialog(self, initial_tab=0):
-        # 0=Income, 1=Expense
-        dialog = IncomeExpenseDialog(self.controller, self, initial_tab, self.role)
-        dialog.exec_()
+        # backward compatibility: 舊呼叫點導向 page
+        self.open_income_expense_page(initial_tab)
 
     def open_lighting_setup(self):
         dialog = LightingSetupDialog(self.controller, self, user_role=self.role)
