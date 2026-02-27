@@ -15,7 +15,7 @@ from app.widgets.activity_manage_page import ActivityManagePage
 from app.widgets.activity_signup_page import ActivitySignupPage
 from app.widgets.lighting_signup_page import LightingSignupPage
 from app.dialogs.income_expense_dialog import IncomeExpensePage
-from app.dialogs.finance_report_dialog import FinanceReportDialog
+from app.dialogs.finance_report_dialog import FinanceReportPage
 from app.dialogs.lighting_setup_dialog import LightingSetupDialog
 from app.dialogs.account_management_dialog import AccountManagementDialog
 from app.dialogs.cover_settings_dialog import CoverSettingsDialog
@@ -126,6 +126,7 @@ class MainWindow(QMainWindow):
         self.activity_signup_page = None
         self.lighting_signup_page = None
         self.income_expense_page = None
+        self.finance_report_page = None
         self.finance_report_action = None
 
         # ✅ 空白頁
@@ -156,6 +157,7 @@ class MainWindow(QMainWindow):
             self.activity_signup_page,
             self.lighting_signup_page,
             self.income_expense_page,
+            self.finance_report_page,
         )
         self.bottom_bar.setVisible(not hide_for_activity_pages)
 
@@ -222,7 +224,7 @@ class MainWindow(QMainWindow):
         if self._can_access_finance_report():
             finance_report_menu = menu_bar.addMenu("財務會計")
             self.finance_report_action = QAction("會計彙整報表", self)
-            self.finance_report_action.triggered.connect(self.open_finance_report_dialog)
+            self.finance_report_action.triggered.connect(self.open_finance_report_page)
             finance_report_menu.addAction(self.finance_report_action)
 
         if self._can_manage_accounts():
@@ -421,8 +423,22 @@ class MainWindow(QMainWindow):
         if not self._can_access_finance_report():
             QMessageBox.warning(self, "權限不足", "此功能僅限管理員與會計人員。")
             return
-        dialog = FinanceReportDialog(self.controller, self)
-        dialog.exec_()
+        # backward compatibility: 舊呼叫點導向 page
+        self.open_finance_report_page()
+
+    def open_finance_report_page(self):
+        if not self._can_access_finance_report():
+            QMessageBox.warning(self, "權限不足", "此功能僅限管理員與會計人員。")
+            return
+        if self.finance_report_page is None:
+            self.finance_report_page = FinanceReportPage(self.controller, self)
+            self.finance_report_page.request_close.connect(self.open_household_entry)
+        else:
+            # 每次進入維持最新查詢結果
+            if hasattr(self.finance_report_page, "run_query"):
+                self.finance_report_page.run_query()
+
+        self._show_page(self.finance_report_page)
 
     def open_account_management_dialog(self):
         if not self._can_manage_accounts():

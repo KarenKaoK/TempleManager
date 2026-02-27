@@ -1,7 +1,7 @@
 from csv import writer
 from datetime import date, datetime, timedelta
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -16,10 +16,13 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 
-class FinanceReportDialog(QDialog):
+class FinanceReportPage(QWidget):
+    request_close = pyqtSignal()
+
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
@@ -131,7 +134,7 @@ class FinanceReportDialog(QDialog):
         footer = QHBoxLayout()
         footer.addStretch()
         close_btn = QPushButton("關閉返回")
-        close_btn.clicked.connect(self.accept)
+        close_btn.clicked.connect(self.request_close.emit)
         footer.addWidget(close_btn)
         root.addLayout(footer)
 
@@ -371,3 +374,19 @@ class FinanceReportDialog(QDialog):
             return datetime.strptime(str(value or ""), "%Y-%m-%d")
         except Exception:
             return datetime.min
+
+
+class FinanceReportDialog(QDialog):
+    """
+    相容舊入口：保留 Dialog 用法，內部包 FinanceReportPage。
+    """
+    def __init__(self, controller, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self.setWindowTitle("財務會計")
+        self.resize(1200, 760)
+
+        root = QVBoxLayout(self)
+        self.page = FinanceReportPage(controller, self)
+        self.page.request_close.connect(self.accept)
+        root.addWidget(self.page)

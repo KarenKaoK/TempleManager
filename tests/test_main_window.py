@@ -70,17 +70,19 @@ class FakeIncomeExpensePage(QWidget):
         FakeIncomeExpensePage.last_instance = self
 
 
-class FakeFinanceReportDialog:
+class FakeFinanceReportPage(QWidget):
     last_instance = None
+    request_close = pyqtSignal()
 
     def __init__(self, controller, parent):
+        super().__init__(parent)
         self.controller = controller
         self.parent = parent
-        self.exec_called = False
-        FakeFinanceReportDialog.last_instance = self
+        self.run_query_called = 0
+        FakeFinanceReportPage.last_instance = self
 
-    def exec_(self):
-        self.exec_called = True
+    def run_query(self):
+        self.run_query_called += 1
 
 
 class FakeAccountManagementDialog:
@@ -301,7 +303,7 @@ def test_open_income_expense_dialog_passes_role(qtbot, monkeypatch):
 
 def test_finance_report_action_visible_for_accountant(qtbot, monkeypatch):
     monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
-    monkeypatch.setattr(main_window_module, "FinanceReportDialog", FakeFinanceReportDialog)
+    monkeypatch.setattr(main_window_module, "FinanceReportPage", FakeFinanceReportPage)
 
     mock_controller = MagicMock()
     mock_controller.get_all_people.return_value = []
@@ -310,11 +312,11 @@ def test_finance_report_action_visible_for_accountant(qtbot, monkeypatch):
 
     assert window.finance_report_action is not None
     window.open_finance_report_dialog()
-    instance = FakeFinanceReportDialog.last_instance
+    instance = FakeFinanceReportPage.last_instance
     assert instance is not None
     assert instance.controller is mock_controller
     assert instance.parent is window
-    assert instance.exec_called is True
+    assert window.stack.currentWidget() is window.finance_report_page
 
 
 def test_finance_report_action_hidden_for_staff(qtbot, monkeypatch):
