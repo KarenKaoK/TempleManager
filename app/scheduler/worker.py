@@ -16,12 +16,27 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.controller.app_controller import AppController
+from app.logging import log_data_change, log_system
 from app.mailer.smtp_client import send_email_smtp
 from app.mailer.outbox_db import connect, ensure_schema, insert_record
 from app.report_generator import activity as report_activity
 from app.report_generator import believer as report_believer
 from app.report_generator import finance as report_finance
 from app.report_generator.cleanup import cleanup_reports
+
+
+def _log_scheduler_data(action: str, message: str) -> None:
+    try:
+        log_data_change(action=action, message=message, level="INFO")
+    except Exception:
+        pass
+
+
+def _log_scheduler_system(message: str, level: str = "WARN") -> None:
+    try:
+        log_system(message, level=level)
+    except Exception:
+        pass
 
 
 def load_cfg(path: str) -> Dict[str, Any]:
@@ -56,10 +71,22 @@ def run_backup_schedule_check(db_path: str) -> None:
         ran = controller.run_scheduled_backup_once()
         if ran:
             print("[OK] backup schedule check executed")
+            _log_scheduler_data(
+                "SCHEDULER.BACKUP.CHECK",
+                f"排程備份檢查執行完成（db_path {db_path}，結果 executed）",
+            )
         else:
             print("[INFO] backup schedule check skipped")
+            _log_scheduler_data(
+                "SCHEDULER.BACKUP.CHECK",
+                f"排程備份檢查執行完成（db_path {db_path}，結果 skipped）",
+            )
     except Exception as e:
         print(f"[ERR] backup schedule check failed: {e}")
+        _log_scheduler_system(
+            f"排程備份檢查失敗（db_path {db_path}，原因：{e})",
+            level="ERROR",
+        )
     finally:
         try:
             if controller is not None and getattr(controller, "conn", None) is not None:
@@ -103,9 +130,11 @@ def create_scheduler(
         job = next((j for j in (cfg.get("jobs") or []) if str(j.get("id", "")).strip() == job_id), None)
         if not job:
             print(f"[WARN] job not found: {job_id}")
+            _log_scheduler_system(f"排程工作不存在（job_id {job_id}）", level="WARN")
             return
         if not bool(job.get("enabled", True)):
             print(f"[INFO] job disabled: {job_id}")
+            _log_scheduler_data("SCHEDULER.JOB.SKIP", f"排程工作略過（job_id {job_id}，原因 disabled）")
             return
 
         to_emails = [str(x).strip() for x in (job.get("to") or []) if str(x).strip()]
@@ -117,41 +146,79 @@ def create_scheduler(
             try:
                 out_path = report_finance.generate_daily_report(db_path_resolved)
                 attachments = [out_path]
+                _log_scheduler_data(
+                    "SCHEDULER.REPORT.GENERATE",
+                    f"報表產生完成（job_id {job_id}，report daily_finance，檔案 {out_path}）",
+                )
             except Exception as e:
                 print(f"[ERR] job={job_id} report gen failed: {e}")
+                _log_scheduler_system(
+                    f"報表產生失敗（job_id {job_id}，report daily_finance，原因：{e}）",
+                    level="ERROR",
+                )
                 return
         elif report_type == "monthly_finance":
             try:
                 out_path = report_finance.generate_monthly_report(db_path_resolved)
                 attachments = [out_path]
+                _log_scheduler_data(
+                    "SCHEDULER.REPORT.GENERATE",
+                    f"報表產生完成（job_id {job_id}，report monthly_finance，檔案 {out_path}）",
+                )
             except Exception as e:
                 print(f"[ERR] job={job_id} report gen failed: {e}")
+                _log_scheduler_system(
+                    f"報表產生失敗（job_id {job_id}，report monthly_finance，原因：{e}）",
+                    level="ERROR",
+                )
                 return
         elif report_type == "daily_activity":
             try:
                 out_path = report_activity.generate_daily_activity_report(db_path_resolved)
                 attachments = [out_path]
+                _log_scheduler_data(
+                    "SCHEDULER.REPORT.GENERATE",
+                    f"報表產生完成（job_id {job_id}，report daily_activity，檔案 {out_path}）",
+                )
             except ValueError as e:
                 print(f"[INFO] job={job_id} skipped (no activities): {e}")
+                _log_scheduler_data(
+                    "SCHEDULER.JOB.SKIP",
+                    f"排程工作略過（job_id {job_id}，report daily_activity，原因 no_activities）",
+                )
                 return
             except Exception as e:
                 print(f"[ERR] job={job_id} report gen failed: {e}")
+                _log_scheduler_system(
+                    f"報表產生失敗（job_id {job_id}，report daily_activity，原因：{e}）",
+                    level="ERROR",
+                )
                 return
         elif report_type == "monthly_believer":
             try:
                 out_path = report_believer.generate_monthly_believer_report(db_path_resolved)
                 attachments = [out_path]
+                _log_scheduler_data(
+                    "SCHEDULER.REPORT.GENERATE",
+                    f"報表產生完成（job_id {job_id}，report monthly_believer，檔案 {out_path}）",
+                )
             except Exception as e:
                 print(f"[ERR] job={job_id} report gen failed: {e}")
+                _log_scheduler_system(
+                    f"報表產生失敗（job_id {job_id}，report monthly_believer，原因：{e}）",
+                    level="ERROR",
+                )
                 return
         else:
             attachments = resolve_paths(project_root, job.get("attachments") or [])
 
         if not to_emails:
             print(f"[WARN] job={job_id} Job.to is empty, skipped")
+            _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：收件人為空）", level="WARN")
             return
         if not subject:
             print(f"[WARN] job={job_id} Job.subject is empty, skipped")
+            _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：主旨為空）", level="WARN")
             return
 
         conn = connect(db_path_resolved)
@@ -189,6 +256,10 @@ def create_scheduler(
                     error=None,
                 )
                 print(f"[OK] SENT job={job_id} outbox_id={outbox_id} to={to_emails}")
+                _log_scheduler_data(
+                    "SCHEDULER.MAIL.SEND",
+                    f"排程郵件寄送成功（job_id {job_id}，outbox_id {outbox_id}，收件者 {','.join(to_emails)}，附件數 {len(attachments)}）",
+                )
             except Exception as e:
                 outbox_id = insert_record(
                     conn,
@@ -201,6 +272,10 @@ def create_scheduler(
                     error=f"{type(e).__name__}: {e}",
                 )
                 print(f"[ERR] FAILED job={job_id} outbox_id={outbox_id} err={e}")
+                _log_scheduler_system(
+                    f"排程郵件寄送失敗（job_id {job_id}，outbox_id {outbox_id}，原因：{type(e).__name__}: {e}）",
+                    level="ERROR",
+                )
         finally:
             conn.close()
 
@@ -214,6 +289,10 @@ def create_scheduler(
             cron = job.get("cron") or {}
             trigger = CronTrigger(timezone=tz, **cron)
             sched.add_job(run_job, trigger, kwargs={"job_id": job_id}, id=job_id, replace_existing=True)
+            _log_scheduler_data(
+                "SCHEDULER.JOB.REGISTER",
+                f"註冊排程工作（job_id {job_id}，cron {cron}）",
+            )
 
         cleanup_cfg = ((cfg.get("reports") or {}).get("cleanup") or {})
         if cleanup_cfg.get("enabled", True):
@@ -240,8 +319,13 @@ def create_scheduler(
                     replace_existing=True,
                 )
                 print(f"[INFO] reports_cleanup job registered with cron={cleanup_cron}")
+                _log_scheduler_data(
+                    "SCHEDULER.JOB.REGISTER",
+                    f"註冊報表清理工作（job_id reports_cleanup，cron {cleanup_cron}）",
+                )
     else:
         print("[INFO] mail jobs disabled by feature flag")
+        _log_scheduler_data("SCHEDULER.FEATURE.SKIP", "略過郵件排程（原因：mail_enabled=0）")
 
     if backup_enabled:
         sched.add_job(
@@ -254,8 +338,13 @@ def create_scheduler(
             coalesce=True,
         )
         print("[INFO] auto_backup_check job registered (interval=1m)")
+        _log_scheduler_data(
+            "SCHEDULER.JOB.REGISTER",
+            "註冊排程備份檢查工作（job_id auto_backup_check，trigger interval=1m）",
+        )
     else:
         print("[INFO] backup job disabled by feature flag")
+        _log_scheduler_data("SCHEDULER.FEATURE.SKIP", "略過備份排程（原因：backup_enabled=0）")
 
     runtime = {
         "config_file": str(config_file),
@@ -264,6 +353,14 @@ def create_scheduler(
         "mail_enabled": mail_enabled,
         "backup_enabled": backup_enabled,
     }
+    _log_scheduler_data(
+        "SCHEDULER.CREATE",
+        (
+            "建立排程器（"
+            f"config {runtime['config_file']}，db_path {runtime['db_path']}，tz {runtime['timezone']}，"
+            f"mail_enabled {int(runtime['mail_enabled'])}，backup_enabled {int(runtime['backup_enabled'])}）"
+        ),
+    )
     return sched, runtime
 
 

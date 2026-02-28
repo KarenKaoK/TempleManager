@@ -196,7 +196,8 @@ def test_manual_backup_mark_does_not_block_scheduled_backup(tmp_path):
     assert controller.should_run_scheduled_backup(now=datetime(2026, 2, 20, 18, 50)) is True
 
 
-def test_scheduler_feature_settings_defaults_and_save(tmp_path):
+def test_scheduler_feature_settings_defaults_and_save(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_feature_settings.db"
     controller = AppController(db_path=str(db))
 
@@ -213,17 +214,27 @@ def test_scheduler_feature_settings_defaults_and_save(tmp_path):
     data = controller.get_scheduler_feature_settings()
     assert data["mail_enabled"] is False
     assert data["backup_enabled"] is True
+    assert any(
+        call["kwargs"].get("action") == "SCHEDULER.FEATURE_FLAGS.UPDATE"
+        for call in logs["data"]
+    )
 
 
-def test_scheduler_config_path_defaults_and_save(tmp_path):
+def test_scheduler_config_path_defaults_and_save(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_config_path.db"
     controller = AppController(db_path=str(db))
     assert controller.get_scheduler_config_path() == "app/scheduler/scheduler_config.yaml"
     controller.save_scheduler_config_path("/tmp/custom_scheduler.yaml")
     assert controller.get_scheduler_config_path() == "/tmp/custom_scheduler.yaml"
+    assert any(
+        call["kwargs"].get("action") == "SCHEDULER.CONFIG_PATH.UPDATE"
+        for call in logs["data"]
+    )
 
 
 def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_mail_settings.db"
     controller = AppController(db_path=str(db))
 
@@ -241,6 +252,10 @@ def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
     user, pwd = controller.get_scheduler_mail_credentials()
     assert user == "temple@gmail.com"
     assert pwd == "app-password"
+    assert any(
+        call["kwargs"].get("action") == "SCHEDULER.MAIL_SETTINGS.UPDATE"
+        for call in logs["data"]
+    )
 
 
 def test_authorize_google_drive_oauth_without_token_path_does_not_fallback(tmp_path, monkeypatch):

@@ -3,6 +3,7 @@ import app.scheduler.worker as worker_module
 
 def test_run_backup_schedule_check_runs_controller_and_closes_conn(monkeypatch):
     called = {"run_once": 0, "closed": 0, "db_path": ""}
+    logs = {"data": [], "system": []}
 
     class _Conn:
         def close(self):
@@ -18,8 +19,19 @@ def test_run_backup_schedule_check_runs_controller_and_closes_conn(monkeypatch):
             return True
 
     monkeypatch.setattr(worker_module, "AppController", _FakeController)
+    monkeypatch.setattr(
+        worker_module,
+        "log_data_change",
+        lambda **kwargs: logs["data"].append(kwargs),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "log_system",
+        lambda message, level="INFO": logs["system"].append({"message": message, "level": level}),
+    )
     worker_module.run_backup_schedule_check("/tmp/fake.db")
 
     assert called["db_path"] == "/tmp/fake.db"
     assert called["run_once"] == 1
     assert called["closed"] == 1
+    assert any(item.get("action") == "SCHEDULER.BACKUP.CHECK" for item in logs["data"])

@@ -211,6 +211,18 @@ class AppController:
         except Exception:
             pass
 
+    def _log_scheduler_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_scheduler_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
     def _lighting_item_ids_text(
         self,
         item_ids: List[str],
@@ -1757,10 +1769,19 @@ class AppController:
         return (self.get_setting("scheduler/config_path", "app/scheduler/scheduler_config.yaml") or "").strip() or "app/scheduler/scheduler_config.yaml"
 
     def save_scheduler_config_path(self, path: str):
+        before = self.get_scheduler_config_path()
         value = (path or "").strip()
         if not value:
             value = "app/scheduler/scheduler_config.yaml"
         self.set_setting("scheduler/config_path", value)
+        self._log_scheduler_data_change(
+            "SCHEDULER.CONFIG_PATH.UPDATE",
+            (
+                "更新排程設定檔路徑（"
+                f"舊路徑 {self._fmt_log_val(before)}，"
+                f"新路徑 {self._fmt_log_val(value)}）"
+            ),
+        )
 
     def get_scheduler_mail_settings(self) -> Dict[str, Any]:
         username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
@@ -1781,13 +1802,31 @@ class AppController:
     def save_scheduler_mail_settings(self, smtp_username: str, smtp_password: str = ""):
         username = (smtp_username or "").strip()
         if not username:
+            self._log_scheduler_system_event("儲存排程郵件設定失敗（原因：未輸入 Gmail 帳號）", level="WARN")
             raise ValueError("請輸入 Gmail 帳號。")
+        before = self.get_scheduler_mail_settings()
         self.set_setting("scheduler/smtp_username", username)
+        password_updated = False
         if (smtp_password or "").strip():
             try:
                 secret_store.set_secret(self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY, smtp_password)
+                password_updated = True
             except Exception as e:
+                self._log_scheduler_system_event(
+                    f"儲存排程郵件設定失敗（帳號 {self._fmt_log_val(username)}，原因：無法寫入 {secret_store.backend_label()}：{e}）",
+                    level="ERROR",
+                )
                 raise RuntimeError(f"無法寫入 {secret_store.backend_label()}：{e}")
+        self._log_scheduler_data_change(
+            "SCHEDULER.MAIL_SETTINGS.UPDATE",
+            (
+                "更新排程郵件設定（"
+                f"舊帳號 {self._fmt_log_val(before.get('smtp_username'))}，"
+                f"新帳號 {self._fmt_log_val(username)}，"
+                f"密碼更新 {1 if password_updated else 0}，"
+                f"密碼保存位置 {self._fmt_log_val(secret_store.backend_label())}）"
+            ),
+        )
 
     def get_scheduler_mail_credentials(self) -> Tuple[str, str]:
         username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
@@ -1804,9 +1843,20 @@ class AppController:
 
     def save_scheduler_feature_settings(self, settings: Dict[str, Any]):
         if not isinstance(settings, dict):
+            self._log_scheduler_system_event("儲存排程功能設定失敗（原因：settings 非 dict）", level="WARN")
             raise ValueError("settings must be a dict")
+        before = self.get_scheduler_feature_settings()
         self.set_setting("scheduler/mail_enabled", "1" if bool(settings.get("mail_enabled", True)) else "0")
         self.set_setting("scheduler/backup_enabled", "1" if bool(settings.get("backup_enabled", True)) else "0")
+        after = self.get_scheduler_feature_settings()
+        self._log_scheduler_data_change(
+            "SCHEDULER.FEATURE_FLAGS.UPDATE",
+            (
+                "更新排程功能旗標（"
+                f"郵件排程：{int(bool(before.get('mail_enabled')))} -> {int(bool(after.get('mail_enabled')))}；"
+                f"備份排程：{int(bool(before.get('backup_enabled')))} -> {int(bool(after.get('backup_enabled')))}）"
+            ),
+        )
 
     # -------------------------
     # Backup

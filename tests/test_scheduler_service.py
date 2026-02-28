@@ -3,6 +3,7 @@ import app.scheduler.service as service_module
 
 def test_scheduler_service_start_and_stop(monkeypatch):
     called = {"start": 0, "shutdown": 0}
+    logs = {"data": [], "system": []}
 
     class _FakeScheduler:
         def __init__(self):
@@ -28,6 +29,16 @@ def test_scheduler_service_start_and_stop(monkeypatch):
         }
 
     monkeypatch.setattr(service_module, "create_scheduler", _fake_create_scheduler)
+    monkeypatch.setattr(
+        service_module,
+        "log_data_change",
+        lambda **kwargs: logs["data"].append(kwargs),
+    )
+    monkeypatch.setattr(
+        service_module,
+        "log_system",
+        lambda message, level="INFO": logs["system"].append({"message": message, "level": level}),
+    )
 
     svc = service_module.SchedulerService(
         config_path="app/scheduler/scheduler_config.yaml",
@@ -41,6 +52,8 @@ def test_scheduler_service_start_and_stop(monkeypatch):
     svc.stop()
     assert svc.is_running is False
     assert called["shutdown"] == 1
+    assert any(item.get("action") == "SCHEDULER.SERVICE.START" for item in logs["data"])
+    assert any(item.get("action") == "SCHEDULER.SERVICE.STOP" for item in logs["data"])
 
 
 def test_scheduler_service_reload_applies_new_feature_flags(monkeypatch):
