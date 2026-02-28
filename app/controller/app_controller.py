@@ -175,6 +175,39 @@ class AppController:
         except Exception:
             pass
 
+    def _log_lighting_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_lighting_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _lighting_item_ids_text(
+        self,
+        item_ids: List[str],
+        active_map: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        ids = [str(x or "").strip() for x in (item_ids or []) if str(x or "").strip()]
+        if not ids:
+            return "-"
+        if not active_map:
+            return "、".join(ids)
+        parts = []
+        for iid in ids:
+            item = active_map.get(iid) or {}
+            name = str(item.get("name") or "").strip()
+            fee = int(item.get("fee") or 0)
+            if name:
+                parts.append(f"{iid}:{name}({fee})")
+            else:
+                parts.append(iid)
+        return "、".join(parts) if parts else "-"
+
     def _resolve_person_name(self, person_id: str) -> str:
         pid = str(person_id or "").strip()
         if not pid or not self._table_exists("people"):
@@ -413,6 +446,7 @@ class AppController:
         name = (name or "").strip()
         kind = (kind or "JI_XIANG").strip().upper()
         if not name:
+            self._log_lighting_system_event("新增安燈燈別失敗（原因：燈別名稱為空）", level="WARN")
             raise ValueError("lighting name is required")
         try:
             fee_value = int(fee or 0)
@@ -421,48 +455,139 @@ class AppController:
         item_id = self._next_lighting_item_id()
         now_text = self._now()
         cur = self.conn.cursor()
-        next_sort = cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM lighting_items").fetchone()[0]
-        cur.execute(
-            """
-            INSERT INTO lighting_items
-            (id, name, fee, kind, sort_order, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-            """,
-            (item_id, name, fee_value, kind, int(next_sort or 1), now_text, now_text),
+        try:
+            next_sort = cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM lighting_items").fetchone()[0]
+            cur.execute(
+                """
+                INSERT INTO lighting_items
+                (id, name, fee, kind, sort_order, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (item_id, name, fee_value, kind, int(next_sort or 1), now_text, now_text),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"新增安燈燈別失敗（燈別名稱 {name}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_lighting_data_change(
+            "LIGHTING.ITEM.CREATE",
+            f"新增安燈燈別（燈別ID {item_id}，燈別名稱 {name}，費用 {fee_value}，類型 {kind}，狀態 啟用）",
         )
-        self.conn.commit()
         return item_id
 
     def update_lighting_item(self, item_id: str, name: str, fee: int, kind: str = "JI_XIANG") -> bool:
         name = (name or "").strip()
         kind = (kind or "JI_XIANG").strip().upper()
         if not name:
+            self._log_lighting_system_event(
+                f"修改安燈燈別失敗（燈別ID {item_id}，原因：燈別名稱為空）",
+                level="WARN",
+            )
             raise ValueError("lighting name is required")
-        fee_value = int(fee or 0)
+        try:
+            fee_value = int(fee or 0)
+        except Exception:
+            fee_value = 0
         cur = self.conn.cursor()
-        cur.execute(
+        before = cur.execute(
             """
-            UPDATE lighting_items
-            SET name = ?, fee = ?, kind = ?, updated_at = ?
+            SELECT id, name, fee, kind, COALESCE(is_active, 1) AS is_active
+            FROM lighting_items
             WHERE id = ?
+            LIMIT 1
             """,
-            (name, fee_value, kind, self._now(), item_id),
-        )
-        self.conn.commit()
-        return cur.rowcount > 0
+            (item_id,),
+        ).fetchone()
+        if not before:
+            self._log_lighting_system_event(
+                f"修改安燈燈別失敗（燈別ID {item_id} 不存在）",
+                level="WARN",
+            )
+            return False
+        try:
+            cur.execute(
+                """
+                UPDATE lighting_items
+                SET name = ?, fee = ?, kind = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (name, fee_value, kind, self._now(), item_id),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"修改安燈燈別失敗（燈別ID {item_id}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        ok = cur.rowcount > 0
+        if ok:
+            self._log_lighting_data_change(
+                "LIGHTING.ITEM.UPDATE",
+                (
+                    f"修改安燈燈別（燈別ID {item_id}，"
+                    f"燈別名稱：{self._fmt_log_val(before['name'])} -> {self._fmt_log_val(name)}，"
+                    f"費用：{self._fmt_log_val(before['fee'])} -> {self._fmt_log_val(fee_value)}，"
+                    f"類型：{self._fmt_log_val(before['kind'])} -> {self._fmt_log_val(kind)}，"
+                    f"狀態 {'啟用' if int(before['is_active'] or 0) == 1 else '停用'}）"
+                ),
+            )
+        else:
+            self._log_lighting_system_event(
+                f"修改安燈燈別失敗（燈別ID {item_id} 未更新任何資料）",
+                level="WARN",
+            )
+        return ok
 
     def toggle_lighting_item_active(self, item_id: str) -> bool:
         cur = self.conn.cursor()
-        row = cur.execute("SELECT COALESCE(is_active, 1) FROM lighting_items WHERE id = ?", (item_id,)).fetchone()
+        row = cur.execute(
+            """
+            SELECT name, COALESCE(is_active, 1) AS is_active
+            FROM lighting_items
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (item_id,),
+        ).fetchone()
         if not row:
+            self._log_lighting_system_event(
+                f"停用/啟用安燈燈別失敗（燈別ID {item_id} 不存在）",
+                level="WARN",
+            )
             return False
-        next_active = 0 if int(row[0] or 0) == 1 else 1
-        cur.execute(
-            "UPDATE lighting_items SET is_active = ?, updated_at = ? WHERE id = ?",
-            (next_active, self._now(), item_id),
-        )
-        self.conn.commit()
-        return cur.rowcount > 0
+        current_active = int(row["is_active"] or 0)
+        next_active = 0 if current_active == 1 else 1
+        try:
+            cur.execute(
+                "UPDATE lighting_items SET is_active = ?, updated_at = ? WHERE id = ?",
+                (next_active, self._now(), item_id),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"停用/啟用安燈燈別失敗（燈別ID {item_id}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        ok = cur.rowcount > 0
+        if ok:
+            self._log_lighting_data_change(
+                "LIGHTING.ITEM.TOGGLE_ACTIVE",
+                (
+                    f"安燈燈別狀態變更（燈別ID {item_id}，燈別名稱 {self._fmt_log_val(row['name'])}，"
+                    f"狀態：{'啟用' if current_active == 1 else '停用'} -> {'啟用' if next_active == 1 else '停用'}）"
+                ),
+            )
+        else:
+            self._log_lighting_system_event(
+                f"停用/啟用安燈燈別失敗（燈別ID {item_id} 未更新任何資料）",
+                level="WARN",
+            )
+        return ok
 
     def _ensure_lighting_signup_schema(self):
         cur = self.conn.cursor()
@@ -696,7 +821,14 @@ class AppController:
         - 僅接受目前啟用中的燈別
         """
         year_value = int(signup_year)
-        payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        try:
+            payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"安燈報名新增/修改失敗（年度 {year_value}，person_id {self._fmt_log_val(person_id)}，原因：{e}）",
+                level="WARN",
+            )
+            raise
         pid = str(payload["person_id"])
         normalized_item_ids = list(payload["item_ids"])
         active_map = dict(payload["active_map"])
@@ -704,6 +836,10 @@ class AppController:
         cur = self.conn.cursor()
         now = self._now()
         note_text = (note or "").strip() or None
+        person_name = self._resolve_person_name(pid) or "-"
+        old_total = None
+        old_item_ids: List[str] = []
+        action = "LIGHTING.SIGNUP.CREATE"
 
         try:
             cur.execute("BEGIN;")
@@ -728,7 +864,22 @@ class AppController:
             if existing:
                 signup_id = str(existing["id"] or "")
                 if int(existing["is_paid"] or 0) == 1 and not bool(allow_paid_update):
+                    self._log_lighting_system_event(
+                        f"安燈報名修改失敗（signup_id {signup_id}，原因：已繳費且未允許修改）",
+                        level="WARN",
+                    )
                     raise ValueError("此筆安燈報名已繳費，不可直接修改")
+                old_total_row = cur.execute(
+                    "SELECT COALESCE(total_amount, 0) FROM lighting_signups WHERE id = ? LIMIT 1",
+                    (signup_id,),
+                ).fetchone()
+                old_total = int((old_total_row[0] if old_total_row else 0) or 0)
+                old_rows = cur.execute(
+                    "SELECT lighting_item_id FROM lighting_signup_items WHERE signup_id = ? ORDER BY lighting_item_id",
+                    (signup_id,),
+                ).fetchall()
+                old_item_ids = [str(r[0] or "").strip() for r in old_rows if str(r[0] or "").strip()]
+                action = "LIGHTING.SIGNUP.UPDATE"
                 cur.execute(
                     """
                     UPDATE lighting_signups
@@ -766,9 +917,28 @@ class AppController:
                 )
 
             cur.execute("COMMIT;")
+            self._log_lighting_data_change(
+                action,
+                (
+                    f"安燈報名{'修改' if action.endswith('UPDATE') else '新增'}（signup_id {signup_id}，年度 {year_value}，"
+                    f"報名人 {person_name}（person_id {pid}），"
+                    f"燈別 {self._lighting_item_ids_text(normalized_item_ids, active_map)}，"
+                    f"總金額 {total_amount}，備註 {self._fmt_log_val(note_text)}"
+                    + (
+                        f"，原燈別 {self._lighting_item_ids_text(old_item_ids)}，原總金額 {self._fmt_log_val(old_total)}"
+                        if action.endswith("UPDATE")
+                        else ""
+                    )
+                    + "）"
+                ),
+            )
             return signup_id
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"安燈報名新增/修改失敗（年度 {year_value}，person_id {pid}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
 
     def create_lighting_signup_append(self, signup_year: int, person_id: str, lighting_item_ids: List[str], note: str = "") -> Dict[str, Any]:
@@ -777,7 +947,14 @@ class AppController:
         已繳費後不修改原單，改為新增一筆「追加」紀錄。
         """
         year_value = int(signup_year)
-        payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        try:
+            payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"新增安燈追加報名失敗（年度 {year_value}，person_id {self._fmt_log_val(person_id)}，原因：{e}）",
+                level="WARN",
+            )
+            raise
         pid = str(payload["person_id"])
         normalized_item_ids = list(payload["item_ids"])
         active_map = dict(payload["active_map"])
@@ -785,6 +962,7 @@ class AppController:
         note_text = (note or "").strip() or None
         now = self._now()
         cur = self.conn.cursor()
+        person_name = self._resolve_person_name(pid) or "-"
 
         existing_rows = cur.execute(
             """
@@ -834,9 +1012,22 @@ class AppController:
                     (signup_id, iid, str(item.get("name") or ""), int(item.get("fee") or 0)),
                 )
             cur.execute("COMMIT;")
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.APPEND",
+                (
+                    f"新增安燈追加報名（signup_id {signup_id}，年度 {year_value}，"
+                    f"報名人 {person_name}（person_id {pid}），group_id {group_id}，kind {signup_kind}，"
+                    f"燈別 {self._lighting_item_ids_text(normalized_item_ids, active_map)}，"
+                    f"總金額 {total_amount}，備註 {self._fmt_log_val(note_text)}）"
+                ),
+            )
             return {"signup_id": signup_id, "group_id": group_id, "signup_kind": signup_kind}
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"新增安燈追加報名失敗（年度 {year_value}，person_id {pid}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
 
     def update_lighting_signup_items_by_signup_id(
@@ -848,6 +1039,7 @@ class AppController:
     ) -> str:
         sid = str(signup_id or "").strip()
         if not sid:
+            self._log_lighting_system_event("安燈報名修改失敗（原因：signup_id 為空）", level="WARN")
             raise ValueError("signup_id 為必填")
         cur = self.conn.cursor()
         row = cur.execute(
@@ -860,16 +1052,40 @@ class AppController:
             (sid,),
         ).fetchone()
         if not row:
+            self._log_lighting_system_event(f"安燈報名修改失敗（signup_id {sid} 不存在）", level="WARN")
             raise ValueError("找不到安燈報名資料")
         if int(row["is_paid"] or 0) == 1 and not bool(allow_paid_update):
+            self._log_lighting_system_event(
+                f"安燈報名修改失敗（signup_id {sid} 已繳費，未允許修改）",
+                level="WARN",
+            )
             raise ValueError("此筆安燈報名已繳費，不可直接修改")
 
-        payload = self._prepare_lighting_signup_payload(str(row["person_id"] or ""), lighting_item_ids)
+        try:
+            payload = self._prepare_lighting_signup_payload(str(row["person_id"] or ""), lighting_item_ids)
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"安燈報名修改失敗（signup_id {sid}，原因：{e}）",
+                level="WARN",
+            )
+            raise
         normalized_item_ids = list(payload["item_ids"])
         active_map = dict(payload["active_map"])
         total_amount = int(payload["total_amount"])
         now = self._now()
         note_text = (note or "").strip() or None
+        person_id = str(row["person_id"] or "")
+        person_name = self._resolve_person_name(person_id) or "-"
+        before_total_row = cur.execute(
+            "SELECT COALESCE(total_amount, 0) FROM lighting_signups WHERE id = ? LIMIT 1",
+            (sid,),
+        ).fetchone()
+        before_total = int((before_total_row[0] if before_total_row else 0) or 0)
+        before_item_rows = cur.execute(
+            "SELECT lighting_item_id FROM lighting_signup_items WHERE signup_id = ? ORDER BY lighting_item_id",
+            (sid,),
+        ).fetchall()
+        before_item_ids = [str(r[0] or "").strip() for r in before_item_rows if str(r[0] or "").strip()]
 
         try:
             cur.execute("BEGIN;")
@@ -893,9 +1109,22 @@ class AppController:
                     (sid, iid, str(item.get("name") or ""), int(item.get("fee") or 0)),
                 )
             cur.execute("COMMIT;")
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.UPDATE_ITEMS",
+                (
+                    f"修改安燈報名燈別（signup_id {sid}，報名人 {person_name}（person_id {person_id}），"
+                    f"原燈別 {self._lighting_item_ids_text(before_item_ids)}，"
+                    f"新燈別 {self._lighting_item_ids_text(normalized_item_ids, active_map)}，"
+                    f"原總金額 {before_total}，新總金額 {total_amount}，備註 {self._fmt_log_val(note_text)}）"
+                ),
+            )
             return sid
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"安燈報名修改失敗（signup_id {sid}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
 
     def delete_lighting_signup(self, signup_year: int, signup_id: str) -> bool:
@@ -905,6 +1134,7 @@ class AppController:
         """
         sid = str(signup_id or "").strip()
         if not sid:
+            self._log_lighting_system_event("刪除安燈報名失敗（原因：signup_id 為空）", level="WARN")
             return False
         year_value = int(signup_year)
         cur = self.conn.cursor()
@@ -918,7 +1148,18 @@ class AppController:
             (year_value, sid),
         ).fetchone()
         if not row:
+            self._log_lighting_system_event(
+                f"刪除安燈報名失敗（年度 {year_value}，signup_id {sid} 不存在）",
+                level="WARN",
+            )
             return False
+        person_id_row = cur.execute(
+            "SELECT person_id FROM lighting_signups WHERE id = ? LIMIT 1",
+            (sid,),
+        ).fetchone()
+        person_id = str((person_id_row[0] if person_id_row else "") or "")
+        person_name = self._resolve_person_name(person_id) or "-"
+        voided_txn_count = 0
         try:
             cur.execute("BEGIN;")
             if int(row["is_paid"] or 0) == 1 and self._table_exists("transactions"):
@@ -934,12 +1175,25 @@ class AppController:
                         """,
                         (sid,),
                     )
+                    voided_txn_count = int(cur.rowcount or 0)
             cur.execute("DELETE FROM lighting_signup_items WHERE signup_id = ?", (sid,))
             cur.execute("DELETE FROM lighting_signups WHERE id = ? AND signup_year = ?", (sid, year_value))
             cur.execute("COMMIT;")
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.DELETE",
+                (
+                    f"刪除安燈報名（年度 {year_value}，signup_id {sid}，"
+                    f"報名人 {person_name}（person_id {person_id or '-'}），"
+                    f"已繳費 {int(row['is_paid'] or 0)}，作廢交易筆數 {voided_txn_count}）"
+                ),
+            )
             return True
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"刪除安燈報名失敗（年度 {year_value}，signup_id {sid}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
 
     def _resolve_lighting_income_item(self) -> Optional[Dict[str, Any]]:
@@ -1031,6 +1285,14 @@ class AppController:
         self.set_setting("lighting/hint_year", str(int(year)))
         self.set_setting("lighting/hint_tai_sui_text", (tai_sui_text or "").strip())
         self.set_setting("lighting/hint_ji_gai_text", (ji_gai_text or "").strip())
+        self._log_lighting_data_change(
+            "LIGHTING.HINT.UPDATE",
+            (
+                f"更新安燈提示設定（年度 {int(year)}，"
+                f"犯太歲提示 {self._fmt_log_val((tai_sui_text or '').strip())}，"
+                f"祭改提示 {self._fmt_log_val((ji_gai_text or '').strip())}）"
+            ),
+        )
 
     def mark_lighting_signups_paid(self, signup_year: int, signup_ids: List[str], handler: str = "") -> Dict[str, Any]:
         normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
@@ -1038,10 +1300,18 @@ class AppController:
             return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
         handler_text = (handler or "").strip()
         if not handler_text:
+            self._log_lighting_system_event(
+                f"安燈報名繳費失敗（年度 {int(signup_year)}，原因：經手人為空）",
+                level="WARN",
+            )
             raise ValueError("經手人為必填")
 
         income_item = self._resolve_lighting_income_item()
         if not income_item:
+            self._log_lighting_system_event(
+                f"安燈報名繳費失敗（年度 {int(signup_year)}，原因：找不到點燈收入項目 91）",
+                level="WARN",
+            )
             raise ValueError("找不到可用的點燈收入項目（91 點燈收入），請先確認類別設定")
 
         cur = self.conn.cursor()
@@ -1073,11 +1343,16 @@ class AppController:
         paid_count = 0
         skipped_count = 0
         receipts: List[str] = []
+        paid_details: List[str] = []
+        skipped_details: List[str] = []
         try:
             cur.execute("BEGIN;")
             for row in rows:
                 if int(row.get("is_paid") or 0) == 1:
                     skipped_count += 1
+                    skipped_details.append(
+                        f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, signup_id {str(row.get('signup_id') or '-')})"
+                    )
                     continue
                 signup_kind = str(row.get("signup_kind") or "INITIAL").strip().upper()
                 adjustment_kind = "SUPPLEMENT" if signup_kind == "APPEND" else "PRIMARY"
@@ -1105,10 +1380,34 @@ class AppController:
                 )
                 paid_count += 1
                 receipts.append(receipt)
+                paid_details.append(
+                    f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, "
+                    f"signup_id {str(row.get('signup_id') or '-')}, kind {signup_kind}, "
+                    f"金額 {int(row.get('total_amount') or 0)}, 收據 {receipt}）"
+                )
             cur.execute("COMMIT;")
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"安燈報名繳費失敗（年度 {int(signup_year)}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
+        if paid_count > 0:
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.PAY",
+                (
+                    f"安燈報名繳費完成（年度 {int(signup_year)}，經手人 {handler_text}，"
+                    f"成功 {paid_count} 筆，略過 {skipped_count} 筆，"
+                    f"繳費名單：{'；'.join(paid_details) if paid_details else '-'}，"
+                    f"已繳費略過：{'；'.join(skipped_details) if skipped_details else '-'}）"
+                ),
+            )
+        elif skipped_count > 0:
+            self._log_lighting_system_event(
+                f"安燈報名繳費未處理（年度 {int(signup_year)}，全部皆已繳費，略過 {skipped_count} 筆）",
+                level="WARN",
+            )
         return {"paid_count": paid_count, "skipped_count": skipped_count, "receipt_numbers": receipts}
 
     def update_paid_lighting_signup_with_adjustment(
@@ -1127,9 +1426,14 @@ class AppController:
         """
         pid = str(person_id or "").strip()
         if not pid:
+            self._log_lighting_system_event("安燈報名差額調整失敗（原因：person_id 為空）", level="WARN")
             raise ValueError("person_id 為必填")
         handler_text = (handler or "").strip()
         if not handler_text:
+            self._log_lighting_system_event(
+                f"安燈報名差額調整失敗（person_id {pid}，原因：經手人為空）",
+                level="WARN",
+            )
             raise ValueError("經手人為必填")
 
         cur = self.conn.cursor()
@@ -1150,6 +1454,10 @@ class AppController:
             (int(signup_year), pid),
         ).fetchone()
         if not existing:
+            self._log_lighting_system_event(
+                f"安燈報名差額調整失敗（年度 {int(signup_year)}，person_id {pid}，原因：找不到安燈報名資料）",
+                level="WARN",
+            )
             raise ValueError("找不到安燈報名資料")
 
         old_total = int(existing["total_amount"] or 0)
@@ -1176,6 +1484,14 @@ class AppController:
         delta = new_total - old_total
 
         if (not is_paid) or delta == 0:
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.ADJUST",
+                (
+                    f"安燈報名調整（無差額交易）（signup_id {signup_id}，"
+                    f"報名人 {person_name or '-'}（person_id {pid}），"
+                    f"舊金額 {old_total}，新金額 {new_total}，delta {delta}，is_paid {1 if is_paid else 0}）"
+                ),
+            )
             return {
                 "signup_id": signup_id,
                 "old_total": old_total,
@@ -1197,6 +1513,10 @@ class AppController:
             if delta > 0:
                 income_item = self._resolve_lighting_income_item()
                 if not income_item:
+                    self._log_lighting_system_event(
+                        f"安燈報名差額調整失敗（signup_id {signup_id}，原因：找不到點燈收入項目 91）",
+                        level="WARN",
+                    )
                     raise ValueError("找不到可用的點燈收入項目（91 點燈收入）")
                 receipt_number = self.generate_receipt_number(today)
                 cur.execute(
@@ -1228,6 +1548,10 @@ class AppController:
             else:
                 refund_item = self._resolve_lighting_refund_expense_item()
                 if not refund_item:
+                    self._log_lighting_system_event(
+                        f"安燈報名差額調整失敗（signup_id {signup_id}，原因：找不到安燈退費項目 91R）",
+                        level="WARN",
+                    )
                     raise ValueError("找不到可用的安燈退費項目（91R 安燈退費）")
                 cur.execute(
                     """
@@ -1258,9 +1582,23 @@ class AppController:
 
             adjustment_txn_id = cur.lastrowid
             cur.execute("COMMIT;")
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"安燈報名差額調整失敗（signup_id {signup_id}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
+
+        self._log_lighting_data_change(
+            "LIGHTING.SIGNUP.ADJUST",
+            (
+                f"安燈報名差額調整完成（signup_id {signup_id}，報名人 {person_name or '-'}（person_id {pid}），"
+                f"舊金額 {old_total}，新金額 {new_total}，delta {delta}，"
+                f"調整型態 {adjustment_type or '-'}，交易ID {adjustment_txn_id or '-'}，"
+                f"收據 {receipt_number or '-'}）"
+            ),
+        )
 
         return {
             "signup_id": signup_id,
