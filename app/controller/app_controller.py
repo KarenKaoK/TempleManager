@@ -62,9 +62,6 @@ class AppController:
     def _now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    def _log_transaction_change(self, action: str, tx_id, data: Optional[Dict[str, Any]] = None) -> None:
-        self._log_transaction_change(action=action, tx_id=tx_id, data=data, before=None)
-
     def _log_finance_data_change(self, action: str, message: str) -> None:
         try:
             log_data_change(action=action, message=message, level="INFO")
