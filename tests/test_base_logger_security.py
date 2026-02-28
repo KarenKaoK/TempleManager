@@ -58,3 +58,26 @@ def test_read_log_text_raises_when_ciphertext_invalid(tmp_path, monkeypatch):
     log_path.write_text("not-encrypted-line\n", encoding="utf-8")
     with pytest.raises(Exception):
         base_logger.read_log_text()
+
+
+def test_write_log_sanitizes_exception_like_secret_formats(tmp_path, monkeypatch):
+    log_path = tmp_path / "log.log"
+    monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
+    key = Fernet.generate_key()
+    monkeypatch.setattr(base_logger, "_get_or_create_log_fernet_key", lambda: key)
+
+    msg = (
+        "Google OAuth failed: {'refresh_token':'rt_123', 'access_token': 'at_456', "
+        "'client_secret':\"cs_789\"}, Authorization: Bearer bearer_token_001, "
+        "redirect_uri?code=abc999&access_token=tok999"
+    )
+    base_logger.write_log(level="ERROR", tag="SYSTEM", message=msg)
+    text = base_logger.read_log_text()
+
+    assert "rt_123" not in text
+    assert "at_456" not in text
+    assert "cs_789" not in text
+    assert "bearer_token_001" not in text
+    assert "abc999" not in text
+    assert "tok999" not in text
+    assert text.count("[REDACTED]") >= 4

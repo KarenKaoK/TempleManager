@@ -22,6 +22,34 @@ _SENSITIVE_PATTERNS = (
     ),
     re.compile(r"(身分證字號)\s*([:=：])\s*([^\s,，;；\)）]+)"),
 )
+_SENSITIVE_QUOTED_VALUE_PATTERNS = (
+    re.compile(
+        r"""(?ix)
+        ("?(?:access_token|refresh_token|id_token|client_secret|authorization_code|password|passwd|pwd|token|secret|api[_-]?key|id_number)"?\s*[:=]\s*["'])
+        ([^"']+)
+        (["'])
+        """
+    ),
+    re.compile(
+        r"""(?ix)
+        (['"](?:access_token|refresh_token|id_token|client_secret|authorization_code|password|passwd|pwd|token|secret|api[_-]?key|id_number)['"]\s*:\s*['"])
+        ([^'"]+)
+        (['"])
+        """
+    ),
+)
+_SENSITIVE_UNQUOTED_VALUE_PATTERNS = (
+    re.compile(
+        r"""(?ix)
+        ("?(?:access_token|refresh_token|id_token|client_secret|authorization_code|password|passwd|pwd|token|secret|api[_-]?key|id_number)"?\s*[:=]\s*)
+        ([^\s,，;；\)）\}\]]+)
+        """
+    ),
+)
+_BEARER_PATTERN = re.compile(r"(?i)\b((?:authorization|auth)\s*[:=]\s*bearer\s+)([A-Za-z0-9._~+\-/=]+)")
+_QUERY_TOKEN_PATTERN = re.compile(
+    r"(?i)\b((?:access_token|refresh_token|id_token|client_secret|authorization_code|code)=)([^&\s]+)"
+)
 _ROC_ID_PATTERN = re.compile(r"\b[A-Z][12]\d{8}\b")
 
 
@@ -37,8 +65,15 @@ def _normalize_tag(tag: str) -> str:
 
 def _sanitize_message(message: str) -> str:
     text = str(message or "")
+    # 先處理 Bearer 與 query token，避免被一般 key/value 規則先吃掉而漏遮罩
+    text = _BEARER_PATTERN.sub(lambda m: f"{m.group(1)}{_REDACTED}", text)
+    text = _QUERY_TOKEN_PATTERN.sub(lambda m: f"{m.group(1)}{_REDACTED}", text)
     for p in _SENSITIVE_PATTERNS:
         text = p.sub(lambda m: f"{m.group(1)}{m.group(2)}{_REDACTED}", text)
+    for p in _SENSITIVE_QUOTED_VALUE_PATTERNS:
+        text = p.sub(lambda m: f"{m.group(1)}{_REDACTED}{m.group(3)}", text)
+    for p in _SENSITIVE_UNQUOTED_VALUE_PATTERNS:
+        text = p.sub(lambda m: f"{m.group(1)}{_REDACTED}", text)
     text = _ROC_ID_PATTERN.sub(_REDACTED, text)
     return text
 

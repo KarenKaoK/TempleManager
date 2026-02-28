@@ -200,20 +200,31 @@ def _insert_income_tx(controller, tx_id, tx_date):
     controller.conn.commit()
 
 
+def _non_today_same_month_iso() -> str:
+    today = date.today()
+    # 月初用 2 號，其餘用 1 號，確保同月份且非今日
+    d = today.replace(day=2) if today.day == 1 else today.replace(day=1)
+    return d.isoformat()
+
+
 def test_staff_only_can_edit_today(qtbot, temp_db):
     controller = AppController(db_path=str(temp_db))
     dlg = IncomeExpenseDialog(controller, parent=None, user_role="廟務人員")
     qtbot.addWidget(dlg)
     tab = dlg.income_tab
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    # 避免月初跨月造成列表篩選不到資料（例如 3/1 的昨天是 2/28）
+    today = date.today()
+    non_today_same_month = today.replace(day=2) if today.day == 1 else today.replace(day=1)
+    yesterday = non_today_same_month.isoformat()
     _insert_income_tx(controller, "T-STAFF-Y", yesterday)
     tab.refresh_list()
     tab.table.selectRow(0)
     tab._sync_row_action_buttons()
 
     assert tab.btn_edit_row.isEnabled() is False
-    with patch("app.dialogs.income_expense_dialog.QMessageBox.information") as mock_info:
+    with patch("app.dialogs.income_expense_dialog.QMessageBox.information") as mock_info, \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.warning"):
         tab._edit_selected_row()
         mock_info.assert_called_once()
     assert tab.editing_transaction_id is None
@@ -225,7 +236,7 @@ def test_accountant_can_edit_non_today(qtbot, temp_db):
     qtbot.addWidget(dlg)
     tab = dlg.income_tab
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = _non_today_same_month_iso()
     _insert_income_tx(controller, "T-ACC-Y", yesterday)
     tab.refresh_list()
     tab.table.selectRow(0)
@@ -243,7 +254,7 @@ def test_admin_can_edit_non_today(qtbot, temp_db):
     qtbot.addWidget(dlg)
     tab = dlg.income_tab
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = _non_today_same_month_iso()
     _insert_income_tx(controller, "T-ADMIN-Y", yesterday)
     tab.refresh_list()
     tab.table.selectRow(0)
@@ -261,7 +272,7 @@ def test_admin_update_non_today_is_allowed(qtbot, temp_db):
     qtbot.addWidget(dlg)
     tab = dlg.income_tab
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = _non_today_same_month_iso()
     _insert_income_tx(controller, "T-ADMIN-SAVE", yesterday)
 
     tab.editing_transaction_id = "T-ADMIN-SAVE"
@@ -290,7 +301,7 @@ def test_staff_update_is_blocked_when_editing_source_date_not_today(qtbot, temp_
     qtbot.addWidget(dlg)
     tab = dlg.income_tab
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = _non_today_same_month_iso()
     _insert_income_tx(controller, "T-STAFF-GUARD", yesterday)
     tab.editing_transaction_id = "T-STAFF-GUARD"
     tab.editing_source_date = yesterday
@@ -320,7 +331,7 @@ def test_staff_delete_non_today_is_blocked(qtbot, temp_db):
     qtbot.addWidget(dlg)
     tab = dlg.income_tab
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = _non_today_same_month_iso()
     _insert_income_tx(controller, "T-STAFF-DEL", yesterday)
     tab.refresh_list()
     tab.table.selectRow(0)
@@ -339,7 +350,7 @@ def test_admin_delete_non_today_is_allowed(qtbot, temp_db):
     qtbot.addWidget(dlg)
     tab = dlg.income_tab
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = _non_today_same_month_iso()
     _insert_income_tx(controller, "T-ADMIN-DEL", yesterday)
     tab.refresh_list()
     tab.table.selectRow(0)
