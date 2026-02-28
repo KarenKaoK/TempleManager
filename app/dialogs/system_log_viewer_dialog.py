@@ -3,7 +3,7 @@ from pathlib import Path
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QPushButton, QPlainTextEdit, QVBoxLayout
 
-from app.logging.base_logger import LOG_FILE_PATH
+from app.logging.base_logger import LOG_FILE_PATH, read_log_text
 
 
 class SystemLogViewerDialog(QDialog):
@@ -41,7 +41,7 @@ class SystemLogViewerDialog(QDialog):
             self.txt_log.setPlainText("目前尚無 log 紀錄。")
             return
         try:
-            text = path.read_text(encoding="utf-8")
+            text = read_log_text()
             self.txt_log.setPlainText(text or "目前尚無 log 紀錄。")
             self.txt_log.moveCursor(self.txt_log.textCursor().End)
         except Exception as e:

@@ -1,9 +1,13 @@
 from app.logging import base_logger
+from cryptography.fernet import Fernet
+import pytest
 
 
 def test_write_log_redacts_sensitive_values(tmp_path, monkeypatch):
     log_path = tmp_path / "log.log"
     monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
+    key = Fernet.generate_key()
+    monkeypatch.setattr(base_logger, "_get_or_create_log_fernet_key", lambda: key)
 
     base_logger.write_log(
         level="INFO",
@@ -14,19 +18,24 @@ def test_write_log_redacts_sensitive_values(tmp_path, monkeypatch):
         ),
     )
 
-    content = log_path.read_text(encoding="utf-8")
-    assert "abc123" not in content
-    assert "tok_xyz" not in content
-    assert "s3cr3t" not in content
-    assert "BearerXYZ" not in content
-    assert "K001" not in content
-    assert "A123456789" not in content
-    assert "[REDACTED]" in content
+    raw = log_path.read_text(encoding="utf-8")
+    assert "abc123" not in raw
+    assert "tok_xyz" not in raw
+    assert "s3cr3t" not in raw
+    assert "BearerXYZ" not in raw
+    assert "K001" not in raw
+    assert "A123456789" not in raw
+    assert "[REDACTED]" not in raw
+
+    decrypted = base_logger.read_log_text()
+    assert "[REDACTED]" in decrypted
 
 
 def test_write_log_attempts_to_harden_permissions(tmp_path, monkeypatch):
     log_path = tmp_path / "log.log"
     monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
+    key = Fernet.generate_key()
+    monkeypatch.setattr(base_logger, "_get_or_create_log_fernet_key", lambda: key)
 
     called = {}
 
@@ -39,3 +48,13 @@ def test_write_log_attempts_to_harden_permissions(tmp_path, monkeypatch):
     base_logger.write_log(level="INFO", tag="DATA", message="一般訊息")
     assert called["path"] == str(log_path)
     assert called["mode"] == 0o600
+
+
+def test_read_log_text_raises_when_ciphertext_invalid(tmp_path, monkeypatch):
+    log_path = tmp_path / "log.log"
+    monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
+    key = Fernet.generate_key()
+    monkeypatch.setattr(base_logger, "_get_or_create_log_fernet_key", lambda: key)
+    log_path.write_text("not-encrypted-line\n", encoding="utf-8")
+    with pytest.raises(Exception):
+        base_logger.read_log_text()

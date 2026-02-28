@@ -6,10 +6,13 @@ from pathlib import Path
 import re
 from threading import Lock
 from typing import Final
+import app.utils.secret_store as secret_store
+from cryptography.fernet import Fernet
 
 _WRITE_LOCK: Final[Lock] = Lock()
 _PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 LOG_FILE_PATH: Final[Path] = _PROJECT_ROOT / "log.log"
+LOG_ENCRYPTION_SECRET_KEY: Final[str] = "logging/file_encryption_fernet_key"
 _ALLOWED_LEVELS = {"INFO", "WARN", "ERROR"}
 _ALLOWED_TAGS = {"SYSTEM", "DATA"}
 _REDACTED = "[REDACTED]"
@@ -48,6 +51,43 @@ def _harden_log_file_permissions(path: Path) -> None:
         pass
 
 
+def _get_or_create_log_fernet_key() -> bytes:
+    try:
+        existing = (secret_store.get_secret(LOG_ENCRYPTION_SECRET_KEY) or "").strip()
+    except Exception:
+        existing = ""
+    if existing:
+        key = existing.encode("utf-8")
+        Fernet(key)  # 驗證 key 格式
+        return key
+    key = Fernet.generate_key()
+    secret_store.set_secret(LOG_ENCRYPTION_SECRET_KEY, key.decode("utf-8"))
+    return key
+
+
+def _encrypt_line(line: str) -> str:
+    f = Fernet(_get_or_create_log_fernet_key())
+    return f.encrypt(line.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt_line(token: str) -> str:
+    f = Fernet(_get_or_create_log_fernet_key())
+    # 不做舊明文 fallback：解不開直接拋錯
+    return f.decrypt((token or "").strip().encode("utf-8")).decode("utf-8")
+
+
+def read_log_text() -> str:
+    if not LOG_FILE_PATH.exists():
+        return ""
+    out_lines = []
+    for raw in LOG_FILE_PATH.read_text(encoding="utf-8").splitlines():
+        text = (raw or "").strip()
+        if not text:
+            continue
+        out_lines.append(_decrypt_line(text))
+    return "\n".join(out_lines).strip()
+
+
 def write_log(*, level: str, tag: str, message: str) -> None:
     """
     統一輸出格式：
@@ -58,8 +98,9 @@ def write_log(*, level: str, tag: str, message: str) -> None:
     tg = _normalize_tag(tag)
     text = _sanitize_message(str(message or "").strip() or "-")
     line = f"{ts} [{lv}] [{tg}] {text}\n"
+    encrypted_line = _encrypt_line(line.rstrip("\n"))
 
     with _WRITE_LOCK:
         with LOG_FILE_PATH.open("a", encoding="utf-8") as f:
-            f.write(line)
+            f.write(encrypted_line + "\n")
         _harden_log_file_permissions(LOG_FILE_PATH)

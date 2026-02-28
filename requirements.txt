@@ -11,6 +11,7 @@ google-auth==2.38.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
 keyring==25.*
+cryptography==43.*
 iniconfig==2.0.0
 ipykernel==6.29.5
 ipython==8.32.0
