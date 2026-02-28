@@ -82,7 +82,9 @@ def controller_with_payment_db(tmp_path):
             id TEXT PRIMARY KEY,
             activity_id TEXT NOT NULL,
             name TEXT NOT NULL,
-            price_type TEXT NOT NULL
+            price_type TEXT NOT NULL,
+            fixed_price INTEGER DEFAULT 0,
+            min_price INTEGER DEFAULT 0
         )
         """
     )
@@ -93,7 +95,10 @@ def controller_with_payment_db(tmp_path):
             signup_id TEXT NOT NULL,
             plan_id TEXT NOT NULL,
             qty INTEGER NOT NULL DEFAULT 1,
-            line_total INTEGER NOT NULL DEFAULT 0
+            unit_price_snapshot INTEGER DEFAULT 0,
+            amount_override INTEGER,
+            line_total INTEGER NOT NULL DEFAULT 0,
+            note TEXT
         )
         """
     )
@@ -159,3 +164,53 @@ def test_mark_activity_paid_maps_category_and_note(controller_with_payment_db):
     assert row["category_name"] == "活動收入"
     assert row["note"].startswith("[2026/02/28 虎爺聖誕]")
     assert "雙虎祝壽×2" in row["note"]
+
+
+def test_create_activity_signup_log_contains_person_name(controller_with_payment_db, monkeypatch):
+    c = controller_with_payment_db
+    logs = []
+
+    def fake_log(*args, **kwargs):
+        logs.append({"args": args, "kwargs": kwargs})
+
+    monkeypatch.setattr("app.controller.app_controller.log_data_change", fake_log)
+
+    sid = c.create_activity_signup(
+        "A1",
+        "P1",
+        [{"plan_id": "PL1", "qty": 1}],
+        note="新增測試",
+    )
+    assert sid
+
+    msg = next(
+        call["kwargs"].get("message", "")
+        for call in logs
+        if call["kwargs"].get("action") == "ACTIVITY.SIGNUP.CREATE"
+    )
+    assert "報名人 王小明" in msg
+    assert "活動 虎爺聖誕" in msg
+    assert f"signup_id {sid}" in msg
+
+
+def test_mark_activity_paid_log_contains_payer_details(controller_with_payment_db, monkeypatch):
+    c = controller_with_payment_db
+    logs = []
+
+    def fake_log(*args, **kwargs):
+        logs.append({"args": args, "kwargs": kwargs})
+
+    monkeypatch.setattr("app.controller.app_controller.log_data_change", fake_log)
+
+    result = c.mark_activity_signups_paid("A1", ["S1"], handler="櫃台A")
+    receipt = result["receipt_numbers"][0]
+
+    msg = next(
+        call["kwargs"].get("message", "")
+        for call in logs
+        if call["kwargs"].get("action") == "ACTIVITY.SIGNUP.PAY"
+    )
+    assert "繳費名單：" in msg
+    assert "王小明" in msg
+    assert "signup_id S1" in msg
+    assert f"收據 {receipt}" in msg

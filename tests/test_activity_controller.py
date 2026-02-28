@@ -6,6 +6,21 @@ from app.controller.app_controller import AppController
 
 
 @pytest.fixture
+def mock_activity_logs(monkeypatch):
+    calls = {"data": [], "system": []}
+
+    def fake_data(*args, **kwargs):
+        calls["data"].append({"args": args, "kwargs": kwargs})
+
+    def fake_system(message: str, level: str = "INFO"):
+        calls["system"].append({"message": message, "level": level})
+
+    monkeypatch.setattr("app.controller.app_controller.log_data_change", fake_data)
+    monkeypatch.setattr("app.controller.app_controller.log_system", fake_system)
+    return calls
+
+
+@pytest.fixture
 def controller_with_activity_db(tmp_path):
     """
     建立新版活動 schema 測試 DB，回傳 AppController。
@@ -180,3 +195,38 @@ def test_delete_activity_success_and_not_found(controller_with_activity_db):
 
     ok2 = c.delete_activity(aid)
     assert ok2 is False
+
+
+def test_insert_activity_writes_data_log(controller_with_activity_db, mock_activity_logs):
+    c = controller_with_activity_db
+    aid = _insert_sample_activity(c, name="活動Log測試")
+    assert aid
+    assert any(
+        call["kwargs"].get("action") == "ACTIVITY.CREATE"
+        for call in mock_activity_logs["data"]
+    )
+
+
+def test_update_missing_activity_writes_system_log(controller_with_activity_db, mock_activity_logs):
+    c = controller_with_activity_db
+    c.update_activity("NOT_EXISTS", {
+        "name": "不存在",
+        "activity_start_date": "2026-02-10",
+        "activity_end_date": "2026-02-11",
+        "note": "",
+        "status": 1,
+    })
+    assert any(
+        call.get("level") == "WARN" and "活動更新失敗" in call.get("message", "")
+        for call in mock_activity_logs["system"]
+    )
+
+
+def test_delete_missing_activity_writes_system_log(controller_with_activity_db, mock_activity_logs):
+    c = controller_with_activity_db
+    ok = c.delete_activity("NOT_EXISTS")
+    assert ok is False
+    assert any(
+        call.get("level") == "WARN" and "活動刪除失敗" in call.get("message", "")
+        for call in mock_activity_logs["system"]
+    )

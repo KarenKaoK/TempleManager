@@ -94,6 +94,40 @@ class AppController:
         except Exception:
             pass
 
+    def _log_activity_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_activity_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _resolve_person_name(self, person_id: str) -> str:
+        pid = str(person_id or "").strip()
+        if not pid or not self._table_exists("people"):
+            return ""
+        try:
+            cur = self.conn.cursor()
+            row = cur.execute("SELECT name FROM people WHERE id = ? LIMIT 1", (pid,)).fetchone()
+            return str((row["name"] if row and "name" in row.keys() else "") or "").strip()
+        except Exception:
+            return ""
+
+    def _resolve_activity_name(self, activity_id: str) -> str:
+        aid = str(activity_id or "").strip()
+        if not aid or not self._table_exists("activities"):
+            return ""
+        try:
+            cur = self.conn.cursor()
+            row = cur.execute("SELECT name FROM activities WHERE id = ? LIMIT 1", (aid,)).fetchone()
+            return str((row["name"] if row and "name" in row.keys() else "") or "").strip()
+        except Exception:
+            return ""
+
     @staticmethod
     def _fmt_log_val(value: Any) -> str:
         if value is None:
@@ -3046,6 +3080,19 @@ class AppController:
             ),
         )
         self.conn.commit()
+        if cursor.rowcount > 0:
+            self._log_activity_data_change(
+                "ACTIVITY.UPDATE",
+                (
+                    f"更新活動（activity_id {activity_id}，名稱 {data.get('name') or '-'}，"
+                    f"活動日期 {data.get('activity_start_date') or '-'} ~ {data.get('activity_end_date') or '-'}）"
+                ),
+            )
+        else:
+            self._log_activity_system_event(
+                f"活動更新失敗（activity_id {activity_id} 不存在或已刪除）",
+                level="WARN",
+            )
 
     def get_activity_delete_stats(self, activity_id: str) -> dict:
         """
@@ -3078,7 +3125,18 @@ class AppController:
             AND COALESCE(status, 1) != -1
         """, (now_text, activity_id))
         self.conn.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+        if ok:
+            self._log_activity_data_change(
+                "ACTIVITY.DELETE",
+                f"刪除活動（軟刪除）（activity_id {activity_id}）",
+            )
+        else:
+            self._log_activity_system_event(
+                f"活動刪除失敗（activity_id {activity_id} 不存在或已刪除）",
+                level="WARN",
+            )
+        return ok
 
 
 
@@ -3359,6 +3417,10 @@ class AppController:
 
         if plan_id is None:
             conn.close()
+            self._log_activity_system_event(
+                f"新增活動方案失敗（activity_id {activity_id}，原因：無法產生唯一方案 ID）",
+                level="WARN",
+            )
             raise RuntimeError("無法產生唯一的方案 ID")
 
         # ---- 2. fee_type → DB schema mapping ----
@@ -3398,6 +3460,13 @@ class AppController:
 
         conn.commit()
         conn.close()
+        self._log_activity_data_change(
+            "ACTIVITY.PLAN.CREATE",
+            (
+                f"新增活動方案（plan_id {plan_id}，activity_id {activity_id}，名稱 {name or '-'}，"
+                f"計費 {price_type}，固定金額 {fixed_price if fixed_price is not None else '-'}）"
+            ),
+        )
         return plan_id
 
     def update_activity_plan(self, plan_id: str, plan: dict) -> bool:
@@ -3479,6 +3548,10 @@ class AppController:
             params.append(self._now())
 
         if not set_parts:
+            self._log_activity_system_event(
+                f"更新活動方案失敗（plan_id {plan_id}，原因：schema 無可更新欄位）",
+                level="WARN",
+            )
             raise RuntimeError("activity_plans schema has no updatable columns")
 
         sql = f"UPDATE activity_plans SET {', '.join(set_parts)} WHERE id = ?"
@@ -3487,13 +3560,35 @@ class AppController:
         cur = self.conn.cursor()
         cur.execute(sql, params)
         self.conn.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+        if ok:
+            self._log_activity_data_change(
+                "ACTIVITY.PLAN.UPDATE",
+                f"更新活動方案（plan_id {plan_id}，名稱 {payload.get('name') or '-'}）",
+            )
+        else:
+            self._log_activity_system_event(
+                f"更新活動方案失敗（plan_id {plan_id} 不存在）",
+                level="WARN",
+            )
+        return ok
 
     def delete_activity_plan(self, plan_id: str) -> bool:
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM activity_plans WHERE id = ?", (plan_id,))
         self.conn.commit()
-        return cursor.rowcount > 0
+        ok = cursor.rowcount > 0
+        if ok:
+            self._log_activity_data_change(
+                "ACTIVITY.PLAN.DELETE",
+                f"刪除活動方案（plan_id {plan_id}）",
+            )
+        else:
+            self._log_activity_system_event(
+                f"刪除活動方案失敗（plan_id {plan_id} 不存在）",
+                level="WARN",
+            )
+        return ok
 
     def _table_columns(self, table: str) -> set[str]:
         """Return a set of column names for a sqlite table."""
@@ -3632,6 +3727,8 @@ class AppController:
         resolved_group_id = str(group_id or "").strip() or signup_id
         now = self._now()
         cursor = self.conn.cursor()
+        person_name = self._resolve_person_name(person_id)
+        activity_name = self._resolve_activity_name(activity_id)
 
         try:
             cursor.execute("BEGIN;")
@@ -3645,6 +3742,7 @@ class AppController:
 
             # 2) 逐筆寫明細 + 計算總額
             total_amount = 0
+            plan_log_parts = []
 
             for row in selected_plans:
                 plan_id = row.get("plan_id")
@@ -3682,6 +3780,11 @@ class AppController:
                 else:
                     raise ValueError(f"未知 price_type: {price_type}")
 
+                part = f"plan_id {plan_id} qty {qty} line_total {int(line_total)}"
+                if amount_override_db is not None:
+                    part += f" amount_override {int(amount_override_db)}"
+                plan_log_parts.append(part)
+
                 item_id = self._uuid()
                 cursor.execute("""
                     INSERT INTO activity_signup_plans (
@@ -3703,10 +3806,24 @@ class AppController:
             """, (total_amount, now, signup_id))
 
             cursor.execute("COMMIT;")
+            self._log_activity_data_change(
+                "ACTIVITY.SIGNUP.CREATE",
+                (
+                    f"新增活動報名（signup_id {signup_id}，activity_id {activity_id}，活動 {activity_name or '-'}，"
+                    f"報名人 {person_name or '-'}（person_id {person_id}），group_id {resolved_group_id}，"
+                    f"kind {kind}，總金額 {total_amount}，方案筆數 {len(selected_plans or [])}，"
+                    f"方案明細：{'；'.join(plan_log_parts) if plan_log_parts else '-'}）"
+                ),
+            )
             return signup_id
 
         except Exception as e:
             cursor.execute("ROLLBACK;")
+            self._log_activity_system_event(
+                f"新增活動報名失敗（activity_id {activity_id}，活動 {activity_name or '-'}，"
+                f"報名人 {person_name or '-'}（person_id {person_id}），原因：{e}）",
+                level="WARN",
+            )
             raise e
 
     def create_activity_signup_append(self, activity_id: str, person_id: str, selected_plans: list, note: str = None) -> Dict[str, Any]:
@@ -3717,6 +3834,10 @@ class AppController:
         aid = str(activity_id or "").strip()
         pid = str(person_id or "").strip()
         if not aid or not pid:
+            self._log_activity_system_event(
+                "新增活動追加報名失敗（原因：activity_id / person_id 為空）",
+                level="WARN",
+            )
             raise ValueError("activity_id / person_id 為必填")
         cur = self.conn.cursor()
         rows = cur.execute(
@@ -3745,6 +3866,13 @@ class AppController:
             note=note,
             group_id=group_id,
             signup_kind=signup_kind,
+        )
+        self._log_activity_data_change(
+            "ACTIVITY.SIGNUP.APPEND",
+            (
+                f"新增活動追加報名（signup_id {signup_id}，activity_id {aid}，person_id {pid}，"
+                f"group_id {(group_id or signup_id)}，kind {signup_kind}）"
+            ),
         )
         return {"signup_id": signup_id, "group_id": (group_id or signup_id), "signup_kind": signup_kind}
 
@@ -3864,20 +3992,33 @@ class AppController:
         aid = (activity_id or "").strip()
         normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
         if not aid:
+            self._log_activity_system_event("活動報名繳費失敗（原因：activity_id 為空）", level="WARN")
             raise ValueError("activity_id is required")
         if not normalized_ids:
             return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
         handler_text = (handler or "").strip()
         if not handler_text:
+            self._log_activity_system_event(
+                f"活動報名繳費失敗（activity_id {aid}，原因：經手人為空）",
+                level="WARN",
+            )
             raise ValueError("經手人為必填")
 
         income_item = self._resolve_activity_income_item()
         if not income_item:
+            self._log_activity_system_event(
+                f"活動報名繳費失敗（activity_id {aid}，原因：找不到活動收入項目 90）",
+                level="WARN",
+            )
             raise ValueError("找不到可用的收入項目，請先到類別設定建立收入項目")
 
         category_id = str(income_item.get("id") or "").strip()
         category_name = str(income_item.get("name") or "活動收入").strip() or "活動收入"
         if not category_id:
+            self._log_activity_system_event(
+                f"活動報名繳費失敗（activity_id {aid}，原因：收入項目 category_id 缺失）",
+                level="WARN",
+            )
             raise ValueError("收入項目設定不完整，缺少 category_id")
 
         cur = self.conn.cursor()
@@ -3917,6 +4058,8 @@ class AppController:
         paid_count = 0
         skipped_count = 0
         receipt_numbers: List[str] = []
+        paid_details: List[str] = []
+        skipped_details: List[str] = []
         now = self._now()
         today = datetime.now().strftime("%Y-%m-%d")
 
@@ -3925,6 +4068,9 @@ class AppController:
             for row in rows:
                 if int(row.get("is_paid") or 0) == 1:
                     skipped_count += 1
+                    skipped_details.append(
+                        f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, signup_id {str(row.get('signup_id') or '-')})"
+                    )
                     continue
                 signup_kind = str(row.get("signup_kind") or "INITIAL").strip().upper()
                 adjustment_kind = "SUPPLEMENT" if signup_kind == "APPEND" else "PRIMARY"
@@ -3975,11 +4121,37 @@ class AppController:
                 )
                 paid_count += 1
                 receipt_numbers.append(receipt)
+                paid_details.append(
+                    f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, "
+                    f"signup_id {str(row.get('signup_id') or '-')}, kind {signup_kind}, "
+                    f"金額 {int(row.get('total_amount') or 0)}, 收據 {receipt}）"
+                )
 
             cur.execute("COMMIT;")
         except Exception:
             cur.execute("ROLLBACK;")
+            self._log_activity_system_event(
+                f"活動報名繳費失敗（activity_id {aid}，原因：交易回滾）",
+                level="WARN",
+            )
             raise
+
+        if paid_count > 0:
+            activity_name = str(rows[0].get("activity_name") or "").strip() if rows else ""
+            self._log_activity_data_change(
+                "ACTIVITY.SIGNUP.PAY",
+                (
+                    f"活動報名繳費完成（activity_id {aid}，活動 {activity_name or '-'}，經手人 {handler_text}，"
+                    f"成功 {paid_count} 筆，略過 {skipped_count} 筆，"
+                    f"繳費名單：{'；'.join(paid_details) if paid_details else '-'}，"
+                    f"已繳費略過：{'；'.join(skipped_details) if skipped_details else '-'}）"
+                ),
+            )
+        elif skipped_count > 0:
+            self._log_activity_system_event(
+                f"活動報名繳費未處理（activity_id {aid}，全部皆已繳費，略過 {skipped_count} 筆）",
+                level="WARN",
+            )
 
         return {
             "paid_count": paid_count,
@@ -4002,9 +4174,14 @@ class AppController:
         """
         sid = str(signup_id or "").strip()
         if not sid:
+            self._log_activity_system_event("活動報名差額調整失敗（原因：signup_id 為空）", level="WARN")
             raise ValueError("signup_id 為必填")
         handler_text = (handler or "").strip()
         if not handler_text:
+            self._log_activity_system_event(
+                f"活動報名差額調整失敗（signup_id {sid}，原因：經手人為空）",
+                level="WARN",
+            )
             raise ValueError("經手人為必填")
 
         cur = self.conn.cursor()
@@ -4029,6 +4206,10 @@ class AppController:
             (sid,),
         ).fetchone()
         if not existing:
+            self._log_activity_system_event(
+                f"活動報名差額調整失敗（signup_id {sid} 不存在）",
+                level="WARN",
+            )
             raise ValueError("找不到活動報名資料")
 
         old_total = int(existing["total_amount"] or 0)
@@ -4042,6 +4223,10 @@ class AppController:
 
         ok = self.update_activity_signup_items(sid, qty_by_plan_id or {}, free_amount_by_plan_id or {})
         if not ok:
+            self._log_activity_system_event(
+                f"活動報名差額調整失敗（signup_id {sid}，原因：報名資料未更新）",
+                level="WARN",
+            )
             raise ValueError("報名資料未更新")
 
         updated = cur.execute(
@@ -4057,6 +4242,13 @@ class AppController:
         delta = new_total - old_total
 
         if (not is_paid) or delta == 0:
+            self._log_activity_data_change(
+                "ACTIVITY.SIGNUP.ADJUST",
+                (
+                    f"活動報名調整（無差額交易）（signup_id {sid}，舊金額 {old_total}，新金額 {new_total}，"
+                    f"delta {delta}，is_paid {1 if is_paid else 0}）"
+                ),
+            )
             return {
                 "signup_id": sid,
                 "old_total": old_total,
@@ -4078,6 +4270,10 @@ class AppController:
             if delta > 0:
                 income_item = self._resolve_activity_income_item()
                 if not income_item:
+                    self._log_activity_system_event(
+                        f"活動報名差額調整失敗（signup_id {sid}，原因：找不到活動收入項目 90）",
+                        level="WARN",
+                    )
                     raise ValueError("找不到可用的活動收入項目（90 活動收入）")
                 receipt_number = self.generate_receipt_number(today)
                 cur.execute(
@@ -4109,6 +4305,10 @@ class AppController:
             else:
                 refund_item = self._resolve_activity_refund_expense_item()
                 if not refund_item:
+                    self._log_activity_system_event(
+                        f"活動報名差額調整失敗（signup_id {sid}，原因：找不到活動退費項目 90R）",
+                        level="WARN",
+                    )
                     raise ValueError("找不到可用的活動退費項目（90R 活動退費）")
                 cur.execute(
                     """
@@ -4141,7 +4341,20 @@ class AppController:
             cur.execute("COMMIT;")
         except Exception:
             cur.execute("ROLLBACK;")
+            self._log_activity_system_event(
+                f"活動報名差額調整失敗（signup_id {sid}，原因：交易回滾）",
+                level="WARN",
+            )
             raise
+
+        self._log_activity_data_change(
+            "ACTIVITY.SIGNUP.ADJUST",
+            (
+                f"活動報名差額調整完成（signup_id {sid}，舊金額 {old_total}，新金額 {new_total}，"
+                f"delta {delta}，調整型態 {adjustment_type or '-'}，交易ID {adjustment_txn_id or '-'}，"
+                f"收據 {receipt_number or '-'}）"
+            ),
+        )
 
         return {
             "signup_id": sid,
@@ -4523,17 +4736,35 @@ class AppController:
             (signup_id,),
         ).fetchone()
         if not row:
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {signup_id} 不存在）",
+                level="WARN",
+            )
             return False
         if int(row["is_paid"] or 0) == 1:
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {signup_id} 已繳費，不可直接刪除）",
+                level="WARN",
+            )
             raise ValueError("此筆活動報名已繳費，不可刪除")
         try:
             cur.execute("BEGIN;")
             cur.execute("DELETE FROM activity_signup_plans WHERE signup_id = ?", (signup_id,))
             cur.execute("DELETE FROM activity_signups WHERE id = ?", (signup_id,))
             self.conn.commit()
-            return cur.rowcount > 0
+            ok = cur.rowcount > 0
+            if ok:
+                self._log_activity_data_change(
+                    "ACTIVITY.SIGNUP.DELETE",
+                    f"刪除活動報名（signup_id {signup_id}，是否作廢交易 否）",
+                )
+            return ok
         except Exception:
             self.conn.rollback()
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {signup_id}，原因：交易回滾）",
+                level="WARN",
+            )
             raise
 
     def delete_activity_signup_with_void_transactions(self, signup_id: str) -> bool:
@@ -4544,6 +4775,7 @@ class AppController:
         """
         sid = str(signup_id or "").strip()
         if not sid:
+            self._log_activity_system_event("刪除活動報名失敗（原因：signup_id 為空）", level="WARN")
             return False
         cur = self.conn.cursor()
         row = cur.execute(
@@ -4551,9 +4783,14 @@ class AppController:
             (sid,),
         ).fetchone()
         if not row:
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {sid} 不存在）",
+                level="WARN",
+            )
             return False
         try:
             cur.execute("BEGIN;")
+            voided = False
             if int(row["is_paid"] or 0) == 1 and self._table_exists("transactions"):
                 cols = self._table_columns("transactions")
                 if "is_voided" in cols:
@@ -4567,12 +4804,23 @@ class AppController:
                         """,
                         (sid,),
                     )
+                    voided = True
             cur.execute("DELETE FROM activity_signup_plans WHERE signup_id = ?", (sid,))
             cur.execute("DELETE FROM activity_signups WHERE id = ?", (sid,))
             self.conn.commit()
-            return cur.rowcount > 0
+            ok = cur.rowcount > 0
+            if ok:
+                self._log_activity_data_change(
+                    "ACTIVITY.SIGNUP.DELETE",
+                    f"刪除活動報名（signup_id {sid}，是否作廢交易 {'是' if voided else '否'}）",
+                )
+            return ok
         except Exception:
             self.conn.rollback()
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {sid}，原因：交易回滾）",
+                level="WARN",
+            )
             raise
 
     def get_activity_signup_id_by_person(self, activity_id: str, person_id: str) -> Optional[str]:
@@ -4627,6 +4875,13 @@ class AppController:
             now_text,
         ))
         self.conn.commit()
+        self._log_activity_data_change(
+            "ACTIVITY.CREATE",
+            (
+                f"新增活動（activity_id {activity_id}，名稱 {data.get('name') or '-'}，"
+                f"活動日期 {data.get('activity_start_date') or '-'} ~ {data.get('activity_end_date') or '-'}）"
+            ),
+        )
         return activity_id
 
     def _parse_dt(self, s: Optional[str]) -> Optional[datetime]:
