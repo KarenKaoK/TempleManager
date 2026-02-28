@@ -71,11 +71,14 @@ def test_income_dialog_load_empty_data(qtbot, empty_income_db):
 
 
 
-def test_income_dialog_add_item_success(qtbot, temp_income_db):
+def test_income_dialog_add_item_success(qtbot, temp_income_db, monkeypatch):
     """測試成功新增收入項目（代號自動遞增）"""
     from app.dialogs.income_dialog import IncomeSetupDialog
     dialog = IncomeSetupDialog(db_path=str(temp_income_db))
     qtbot.addWidget(dialog)
+
+    calls = []
+    monkeypatch.setattr("app.dialogs.income_dialog.log_data_change", lambda **kw: calls.append(kw))
 
     next_id = dialog._generate_next_item_id()
     with patch("app.dialogs.income_dialog.QMessageBox.information"):
@@ -96,6 +99,7 @@ def test_income_dialog_add_item_success(qtbot, temp_income_db):
         for i in range(dialog.table.rowCount())
     ]
     assert ("03", "平安金", "3000") in rows
+    assert any(c.get("action") == "INCOME_ITEM.CREATE" for c in calls), f"logs: {calls}"
 
 
 def test_income_dialog_generate_next_id_from_empty_db(qtbot, empty_income_db):

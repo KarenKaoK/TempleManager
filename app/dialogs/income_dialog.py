@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QHeaderView
 )
 from app.config import DB_NAME
+from app.logging import log_data_change, log_system
 
 class IncomeSetupDialog(QDialog):
     """收入項目建檔作業 視窗"""
@@ -65,6 +66,25 @@ class IncomeSetupDialog(QDialog):
     def _can_maintain_items(self):
         return self._can_toggle_active()
 
+    @staticmethod
+    def _fmt_log_val(value):
+        if value is None:
+            return "-"
+        text = str(value).strip()
+        return text if text else "-"
+
+    def _log_system(self, message, level="WARN"):
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _log_data_change(self, action, message):
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
     def load_data(self):
         """從 SQLite 載入收入項目"""
         conn = sqlite3.connect(self.db_path)
@@ -111,6 +131,7 @@ class IncomeSetupDialog(QDialog):
     def add_income_item(self):
         """新增收入項目（一次輸入完整資料）"""
         if not self._can_maintain_items():
+            self._log_system("收入項目新增失敗（原因：權限不足）", level="WARN")
             QMessageBox.warning(self, "權限不足", "目前角色無權限新增收入項目。")
             return
 
@@ -181,10 +202,12 @@ class IncomeSetupDialog(QDialog):
         """確認並新增收入項目"""
         id = id.strip()  # ✅ 確保 ID 不能是空白
         if not id:
+            self._log_system("收入項目新增失敗（原因：收入項目代號為空）", level="WARN")
             QMessageBox.warning(self, "錯誤", "收入項目代號不可為空！")
             return
 
         if not name.strip():
+            self._log_system(f"收入項目新增失敗（收入項目代號 {id}，原因：收入項目名稱為空）", level="WARN")
             QMessageBox.warning(self, "錯誤", "請填寫收入項目名稱！")
             return
 
@@ -194,6 +217,7 @@ class IncomeSetupDialog(QDialog):
         # 🔍 檢查 ID 是否已存在
         cursor.execute("SELECT id FROM income_items WHERE id = ?", (id,))
         if cursor.fetchone():
+            self._log_system(f"收入項目新增失敗（收入項目代號 {id}，原因：代號重複）", level="WARN")
             QMessageBox.warning(self, "錯誤", f"收入項目代號 {id} 已存在，請輸入其他代號！")
             conn.close()
             return
@@ -204,9 +228,18 @@ class IncomeSetupDialog(QDialog):
                 (id, name, int(amount))
             )
             conn.commit()
+            self._log_data_change(
+                action="INCOME_ITEM.CREATE",
+                message=(
+                    f"新增收入項目（收入項目代號 {self._fmt_log_val(id)}，"
+                    f"收入項目名稱 {self._fmt_log_val(name)}，"
+                    f"捐助金額 {self._fmt_log_val(amount)}，狀態 啟用）"
+                ),
+            )
             QMessageBox.information(self, "成功", "收入項目新增成功！")
             self.load_data()
         except sqlite3.IntegrityError:
+            self._log_system(f"收入項目新增失敗（收入項目代號 {id}，原因：資料庫完整性錯誤）", level="ERROR")
             QMessageBox.warning(self, "錯誤", "收入項目新增失敗！")
         finally:
             conn.close()
@@ -217,11 +250,13 @@ class IncomeSetupDialog(QDialog):
     def edit_income_item(self):
         """一次修改選中的收入項目（名稱 & 金額）"""
         if not self._can_maintain_items():
+            self._log_system("收入項目修改失敗（原因：權限不足）", level="WARN")
             QMessageBox.warning(self, "權限不足", "目前角色無權限修改收入項目。")
             return
 
         selected_row = self.table.currentRow()
         if selected_row < 0:
+            self._log_system("收入項目修改失敗（原因：未選擇資料）", level="WARN")
             QMessageBox.warning(self, "錯誤", "請選擇要修改的收入項目！")
             return
 
@@ -262,14 +297,41 @@ class IncomeSetupDialog(QDialog):
     def confirm_edit_income_item(self, dialog, id, name, amount):
         """確認並修改收入項目"""
         if not name:
+            self._log_system(f"收入項目修改失敗（收入項目代號 {id}，原因：收入項目名稱為空）", level="WARN")
             QMessageBox.warning(self, "錯誤", "請填寫收入項目名稱！")
             return
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        before = cursor.execute(
+            "SELECT name, CAST(amount AS INTEGER), COALESCE(is_active, 1) FROM income_items WHERE id = ?",
+            (id,),
+        ).fetchone()
+        if before is None:
+            conn.close()
+            self._log_system(f"收入項目修改失敗（收入項目代號 {id}，原因：資料不存在）", level="WARN")
+            QMessageBox.warning(self, "錯誤", "收入項目不存在，無法修改！")
+            return
         cursor.execute("UPDATE income_items SET name = ?, amount = ? WHERE id = ?", (name, int(amount), id))
         conn.commit()
         conn.close()
+        old_name, old_amount, old_active = before
+        changes = []
+        if str(old_name) != str(name):
+            changes.append(f"收入項目名稱：{self._fmt_log_val(old_name)} -> {self._fmt_log_val(name)}")
+        if int(old_amount or 0) != int(amount):
+            changes.append(f"捐助金額：{self._fmt_log_val(old_amount)} -> {self._fmt_log_val(amount)}")
+        change_text = "；".join(changes) if changes else "無欄位變更"
+        self._log_data_change(
+            action="INCOME_ITEM.UPDATE",
+            message=(
+                f"修改收入項目（收入項目代號 {self._fmt_log_val(id)}，"
+                f"收入項目名稱 {self._fmt_log_val(name)}，"
+                f"捐助金額 {self._fmt_log_val(amount)}，"
+                f"狀態 {'啟用' if int(old_active or 0) == 1 else '停用'}，"
+                f"變更：{change_text}）"
+            ),
+        )
 
         self.load_data()
         QMessageBox.information(self, "成功", "收入項目修改成功！")
@@ -278,11 +340,13 @@ class IncomeSetupDialog(QDialog):
     def delete_income_item(self):
         """停用/啟用選中的收入項目（不可刪除歷史資料）。"""
         if not self._can_toggle_active():
+            self._log_system("收入項目停用/啟用失敗（原因：權限不足）", level="WARN")
             QMessageBox.warning(self, "權限不足", "目前角色無權限停用/啟用收入項目。")
             return
 
         selected_row = self.table.currentRow()
         if selected_row < 0:
+            self._log_system("收入項目停用/啟用失敗（原因：未選擇資料）", level="WARN")
             QMessageBox.warning(self, "錯誤", "請選擇要停用/啟用的收入項目！")
             return
 
@@ -290,6 +354,7 @@ class IncomeSetupDialog(QDialog):
             current_id = self.table.item(selected_row, 0).text().strip()  # ✅ ID 可以是文字或數字
             current_name = self.table.item(selected_row, 1).text().strip()
         except ValueError:
+            self._log_system("收入項目停用/啟用失敗（原因：無效收入項目代號）", level="WARN")
             QMessageBox.warning(self, "錯誤", "無效的收入項目 ID！")
             return
 
@@ -298,6 +363,7 @@ class IncomeSetupDialog(QDialog):
         cursor.execute("SELECT COALESCE(is_active, 1) FROM income_items WHERE id = ?", (current_id,))
         row = cursor.fetchone()
         if row is None:
+            self._log_system(f"收入項目停用/啟用失敗（收入項目代號 {current_id}，原因：資料不存在）", level="WARN")
             QMessageBox.warning(self, "錯誤", "收入項目不存在，無法停用/啟用！")
             conn.close()
             return
@@ -316,7 +382,20 @@ class IncomeSetupDialog(QDialog):
         if msg_box.exec_() == QMessageBox.StandardButton.Yes:
             cursor.execute("UPDATE income_items SET is_active = ? WHERE id = ?", (next_active, current_id))
             conn.commit()
+            self._log_data_change(
+                action="INCOME_ITEM.TOGGLE_ACTIVE",
+                message=(
+                    f"{action}收入項目（收入項目代號 {self._fmt_log_val(current_id)}，"
+                    f"收入項目名稱 {self._fmt_log_val(current_name)}，"
+                    f"狀態：{'啟用' if current_active == 1 else '停用'} -> {'啟用' if next_active == 1 else '停用'}）"
+                ),
+            )
             self.load_data()  # ✅ 重新載入資料，確保 UI 更新
             QMessageBox.information(self, "成功", f"收入項目{action}成功！")
+        else:
+            self._log_system(
+                f"使用者取消收入項目停用/啟用（收入項目代號 {self._fmt_log_val(current_id)}，收入項目名稱 {self._fmt_log_val(current_name)}）",
+                level="INFO",
+            )
 
         conn.close()

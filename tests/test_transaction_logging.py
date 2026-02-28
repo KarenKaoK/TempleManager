@@ -70,7 +70,11 @@ def test_income_transaction_crud_writes_data_change_log(controller_with_tx_db, m
     })
     tx_id = _latest_tx_id(c)
     assert tx_id is not None
-    assert any(call.get("action") == "INCOME.CREATE" for call in calls), f"logs: {calls}"
+    create_log = next((call for call in calls if call.get("action") == "INCOME.CREATE"), None)
+    assert create_log is not None, f"logs: {calls}"
+    assert "新增收入資料" in create_log.get("message", "")
+    assert "項目代號 90" in create_log.get("message", "")
+    assert "收據 1150001" in create_log.get("message", "")
 
     c.update_transaction(tx_id, {
         "date": "2026-02-26",
@@ -82,10 +86,16 @@ def test_income_transaction_crud_writes_data_change_log(controller_with_tx_db, m
         "handler": "櫃台B",
         "note": "測試收入更新",
     })
-    assert any(call.get("action") == "INCOME.UPDATE" for call in calls), f"logs: {calls}"
+    update_log = next((call for call in calls if call.get("action") == "INCOME.UPDATE"), None)
+    assert update_log is not None, f"logs: {calls}"
+    assert "修改收入資料" in update_log.get("message", "")
+    assert "變更：" in update_log.get("message", "")
+    assert "金額：1200 -> 1500" in update_log.get("message", "")
 
     c.delete_transaction(tx_id)
-    assert any(call.get("action") == "INCOME.DELETE" for call in calls), f"logs: {calls}"
+    delete_log = next((call for call in calls if call.get("action") == "INCOME.DELETE"), None)
+    assert delete_log is not None, f"logs: {calls}"
+    assert "刪除收入資料" in delete_log.get("message", "")
 
 
 def test_expense_transaction_crud_writes_data_change_log(controller_with_tx_db, monkeypatch):
@@ -111,7 +121,10 @@ def test_expense_transaction_crud_writes_data_change_log(controller_with_tx_db, 
     })
     tx_id = _latest_tx_id(c)
     assert tx_id is not None
-    assert any(call.get("action") == "EXPENSE.CREATE" for call in calls), f"logs: {calls}"
+    create_log = next((call for call in calls if call.get("action") == "EXPENSE.CREATE"), None)
+    assert create_log is not None, f"logs: {calls}"
+    assert "新增支出資料" in create_log.get("message", "")
+    assert "項目代號 E01" in create_log.get("message", "")
 
     c.update_transaction(tx_id, {
         "date": "2026-02-26",
@@ -123,7 +136,13 @@ def test_expense_transaction_crud_writes_data_change_log(controller_with_tx_db, 
         "handler": "會計B",
         "note": "測試支出更新",
     })
-    assert any(call.get("action") == "EXPENSE.UPDATE" for call in calls), f"logs: {calls}"
+    update_log = next((call for call in calls if call.get("action") == "EXPENSE.UPDATE"), None)
+    assert update_log is not None, f"logs: {calls}"
+    assert "修改支出資料" in update_log.get("message", "")
+    assert "變更：" in update_log.get("message", "")
+    assert "金額：800 -> 900" in update_log.get("message", "")
 
     c.delete_transaction(tx_id)
-    assert any(call.get("action") == "EXPENSE.DELETE" for call in calls), f"logs: {calls}"
+    delete_log = next((call for call in calls if call.get("action") == "EXPENSE.DELETE"), None)
+    assert delete_log is not None, f"logs: {calls}"
+    assert "刪除支出資料" in delete_log.get("message", "")

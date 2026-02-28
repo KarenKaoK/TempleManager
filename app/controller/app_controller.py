@@ -63,24 +63,96 @@ class AppController:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def _log_transaction_change(self, action: str, tx_id, data: Optional[Dict[str, Any]] = None) -> None:
-        payload = dict(data or {})
-        tx_type = str(payload.get("type") or "").strip().lower()
-        tx_label = "收入" if tx_type == "income" else "支出" if tx_type == "expense" else "交易"
-        date_text = str(payload.get("date") or "").strip() or "-"
-        amount_val = payload.get("amount")
-        amount_text = str(amount_val) if amount_val not in (None, "") else "-"
-        payer_name = str(payload.get("payer_name") or "").strip()
+        self._log_transaction_change(action=action, tx_id=tx_id, data=data, before=None)
 
-        msg = f"{tx_label}資料異動（ID {tx_id}，日期 {date_text}，金額 {amount_text}"
-        if payer_name:
-            msg += f"，對象 {payer_name}"
-        msg += "）"
-
+    def _log_finance_data_change(self, action: str, message: str) -> None:
         try:
-            log_data_change(action=action, message=msg, level="INFO")
+            log_data_change(action=action, message=message, level="INFO")
         except Exception:
-            # log 寫入失敗不應影響主交易流程
             pass
+
+    def _log_finance_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _tx_type_label(tx_type: str) -> str:
+        t = str(tx_type or "").strip().lower()
+        if t == "income":
+            return "收入"
+        if t == "expense":
+            return "支出"
+        return "交易"
+
+    def _build_transaction_detail(self, data: Dict[str, Any]) -> str:
+        d = dict(data or {})
+        parts = [
+            f"日期 {self._fmt_log_val(d.get('date'))}",
+            f"類型 {self._fmt_log_val(d.get('type'))}",
+            f"項目代號 {self._fmt_log_val(d.get('category_id'))}",
+            f"項目名稱 {self._fmt_log_val(d.get('category_name'))}",
+            f"金額 {self._fmt_log_val(d.get('amount'))}",
+            f"對象 {self._fmt_log_val(d.get('payer_name'))}",
+            f"信眾ID {self._fmt_log_val(d.get('payer_person_id'))}",
+            f"經手人 {self._fmt_log_val(d.get('handler'))}",
+            f"收據 {self._fmt_log_val(d.get('receipt_number'))}",
+            f"備註 {self._fmt_log_val(d.get('note'))}",
+            f"來源類型 {self._fmt_log_val(d.get('source_type'))}",
+            f"來源ID {self._fmt_log_val(d.get('source_id'))}",
+            f"調整類型 {self._fmt_log_val(d.get('adjustment_kind'))}",
+            f"系統產生 {self._fmt_log_val(d.get('is_system_generated'))}",
+        ]
+        return "，".join(parts)
+
+    def _build_transaction_diff(self, before: Dict[str, Any], after: Dict[str, Any]) -> str:
+        fields = [
+            ("date", "日期"),
+            ("category_id", "項目代號"),
+            ("category_name", "項目名稱"),
+            ("amount", "金額"),
+            ("payer_person_id", "信眾ID"),
+            ("payer_name", "對象"),
+            ("handler", "經手人"),
+            ("receipt_number", "收據"),
+            ("note", "備註"),
+            ("source_type", "來源類型"),
+            ("source_id", "來源ID"),
+            ("adjustment_kind", "調整類型"),
+        ]
+        changes = []
+        for key, label in fields:
+            old = self._fmt_log_val(before.get(key))
+            new = self._fmt_log_val(after.get(key))
+            if old != new:
+                changes.append(f"{label}：{old} -> {new}")
+        return "；".join(changes) if changes else "無欄位變更"
+
+    def _log_transaction_change(
+        self,
+        action: str,
+        tx_id,
+        data: Optional[Dict[str, Any]] = None,
+        before: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        payload = dict(data or {})
+        before_payload = dict(before or {})
+        tx_type = str(payload.get("type") or before_payload.get("type") or "").strip().lower()
+        tx_label = self._tx_type_label(tx_type)
+        action_u = str(action or "").strip().upper()
+        detail = self._build_transaction_detail(payload)
+
+        if action_u.endswith(".UPDATE"):
+            diff = self._build_transaction_diff(before_payload, payload)
+            msg = f"修改{tx_label}資料（ID {tx_id}，{detail}，變更：{diff}）"
+        elif action_u.endswith(".DELETE"):
+            msg = f"刪除{tx_label}資料（ID {tx_id}，{detail}）"
+        elif action_u.endswith(".CREATE"):
+            msg = f"新增{tx_label}資料（ID {tx_id}，{detail}）"
+        else:
+            msg = f"{tx_label}資料異動（ID {tx_id}，{detail}）"
+        self._log_finance_data_change(action=action, message=msg)
 
     def _log_people_data_change(self, action: str, message: str) -> None:
         try:
@@ -5110,6 +5182,10 @@ class AppController:
             prefix = f"{roc_year}"
         except ValueError:
             # Fallback
+            self._log_finance_system_event(
+                f"收據號碼產生使用 fallback 日期（輸入日期格式異常：{date_str}）",
+                level="WARN",
+            )
             dt = datetime.now()
             roc_year = dt.year - 1911
             prefix = f"{roc_year}"
@@ -5159,13 +5235,15 @@ class AppController:
         """
         # 簡易檢查
         if not data.get("category_id"):
+            tx_label = self._tx_type_label(data.get("type"))
+            self._log_finance_system_event(f"新增{tx_label}失敗（原因：category_id 缺失）", level="WARN")
             raise ValueError("category_id is required")
         if data.get("type") == "income" and not data.get("payer_person_id"):
-             # 雖然 DB 允許 NULL (為了彈性)，但業務邏輯上我們盡量要求 UI 傳入
-             pass 
+             self._log_finance_system_event("新增收入資料警示（payer_person_id 未提供）", level="WARN")
 
         cursor = self.conn.cursor()
-        cursor.execute("""
+        try:
+            cursor.execute("""
             INSERT INTO transactions (
                 date, type, category_id, category_name, amount, 
                 payer_person_id, payer_name, handler, receipt_number, note,
@@ -5188,11 +5266,15 @@ class AppController:
             data.get("adjusts_txn_id"),
             int(data.get("is_system_generated") or 0),
         ))
-        self.conn.commit()
+            self.conn.commit()
+        except Exception as e:
+            tx_label = self._tx_type_label(data.get("type"))
+            self._log_finance_system_event(f"新增{tx_label}失敗（原因：{e}）", level="ERROR")
+            raise
         tx_id = cursor.lastrowid
         tx_type = str(data.get("type") or "").strip().lower()
         action_prefix = "INCOME" if tx_type == "income" else "EXPENSE" if tx_type == "expense" else "TRANSACTION"
-        self._log_transaction_change(f"{action_prefix}.CREATE", tx_id, data)
+        self._log_transaction_change(f"{action_prefix}.CREATE", tx_id, data=data, before=None)
         return tx_id
     
     def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None, voided_filter="all"):
@@ -5454,28 +5536,40 @@ class AppController:
         """軟刪除"""
         cursor = self.conn.cursor()
         before = cursor.execute(
-            "SELECT type, date, amount, payer_name FROM transactions WHERE id=?",
+            "SELECT * FROM transactions WHERE id=?",
             (transaction_id,),
         ).fetchone()
-        cursor.execute("UPDATE transactions SET is_deleted=1 WHERE id=?", (transaction_id,))
-        self.conn.commit()
+        if not before:
+            self._log_finance_system_event(f"刪除交易失敗（transaction_id {transaction_id} 不存在）", level="WARN")
+            return
+        try:
+            cursor.execute("UPDATE transactions SET is_deleted=1 WHERE id=?", (transaction_id,))
+            self.conn.commit()
+        except Exception as e:
+            self._log_finance_system_event(f"刪除交易失敗（transaction_id {transaction_id}，原因：{e}）", level="ERROR")
+            raise
         tx_type = str((before["type"] if before else "") or "").strip().lower()
         action_prefix = "INCOME" if tx_type == "income" else "EXPENSE" if tx_type == "expense" else "TRANSACTION"
-        payload = dict(before) if before else {}
+        payload = dict(before)
         if tx_type:
             payload["type"] = tx_type
-        self._log_transaction_change(f"{action_prefix}.DELETE", transaction_id, payload)
+        self._log_transaction_change(f"{action_prefix}.DELETE", transaction_id, data=payload, before=payload)
 
     def update_transaction(self, transaction_id, data):
         """更新交易紀錄"""
         cursor = self.conn.cursor()
-        before = cursor.execute("SELECT type FROM transactions WHERE id=?", (transaction_id,)).fetchone()
+        before = cursor.execute("SELECT * FROM transactions WHERE id=?", (transaction_id,)).fetchone()
+        if not before:
+            self._log_finance_system_event(f"修改交易失敗（transaction_id {transaction_id} 不存在）", level="WARN")
+            return
+        before_payload = dict(before)
         
         # 這裡只允許更新部分欄位，確保資料一致性
         # 注意：如果 user 修改了日期，receipt_number 是否要重算？
         # 目前策略：不重算單號，保留原單號，除非 user 自己想改(但 UI 不開放改單號)
         
-        cursor.execute("""
+        try:
+            cursor.execute("""
             UPDATE transactions
             SET date=?, category_id=?, category_name=?, amount=?, 
                 payer_person_id=?, payer_name=?, handler=?, note=?
@@ -5491,15 +5585,25 @@ class AppController:
             data.get("note"),
             transaction_id
         ))
-        self.conn.commit()
+            self.conn.commit()
+        except Exception as e:
+            tx_label = self._tx_type_label(data.get("type") or before_payload.get("type"))
+            self._log_finance_system_event(f"修改{tx_label}失敗（ID {transaction_id}，原因：{e}）", level="ERROR")
+            raise
         tx_type = str(
-            data.get("type") or (before["type"] if before else "")
+            data.get("type") or before_payload.get("type")
         ).strip().lower()
         action_prefix = "INCOME" if tx_type == "income" else "EXPENSE" if tx_type == "expense" else "TRANSACTION"
-        payload = dict(data or {})
+        payload = dict(before_payload)
+        payload.update(dict(data or {}))
         if tx_type:
             payload["type"] = tx_type
-        self._log_transaction_change(f"{action_prefix}.UPDATE", transaction_id, payload)
+        self._log_transaction_change(
+            f"{action_prefix}.UPDATE",
+            transaction_id,
+            data=payload,
+            before=before_payload,
+        )
 
     # -------------------------
     # Believers (UX Improvements)
