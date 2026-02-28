@@ -132,6 +132,48 @@ python -c "from pathlib import Path; from app.scheduler.worker import load_cfg; 
 ```
 
 
+## 🧾 Log 設計
+
+系統 log 統一寫入專案根目錄的 `log.log`，分成兩類：
+
+- `[SYSTEM]`：系統行為與錯誤（例如登入、登出、排程、備份、例外）
+- `[DATA]`：資料新增、修改、刪除等異動紀錄
+
+### 格式
+
+每一行固定格式如下：
+
+```text
+YYYY-MM-DD HH:MM:SS [LEVEL] [DATA|SYSTEM] 內容描述
+```
+
+- `LEVEL`：`INFO` / `WARN` / `ERROR`
+- `[DATA|SYSTEM]`：事件分類
+- 後面直接寫中文描述，不使用 `kind=...`、`action=...` 等欄位
+
+### 撰寫原則
+
+- 內容要能回答「誰、在何時、做了什麼」。
+- 資料異動建議描述「哪筆資料、做了哪種操作（新增/修改/刪除）」。
+- 若是修改資料，建議描述重點欄位的變更前後內容。
+- 錯誤訊息要包含可排查資訊（例如失敗原因）。
+
+### 範例
+
+```text
+2026-02-28 15:01:12 [INFO] [DATA] 管理員 admin 新增戶長資料（戶號 123，姓名 張三，手機 0912345678）
+2026-02-28 15:03:45 [INFO] [DATA] 管理員 admin 修改成員資料（ID 456）：姓名由 張三 改為 張三豐，手機已更新
+2026-02-28 15:05:00 [INFO] [DATA] 出納 cashier 刪除收入資料（ID 789，金額 5000，日期 2026-02-01）
+2026-02-28 15:10:22 [INFO] [SYSTEM] 使用者 admin 登入成功（角色：管理員）
+2026-02-28 15:11:05 [WARN] [SYSTEM] 使用者 guest 登入失敗（原因：密碼錯誤）
+2026-02-28 15:12:40 [ERROR] [SYSTEM] 備份執行失敗（原因：disk full）
+```
+
+### 後端模組
+
+- `app/logging/system_logger.py`
+- `app/logging/data_change_logger.py`
+
 ## 環境需求與安裝
 
 ### 系統需求
