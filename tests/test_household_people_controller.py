@@ -47,6 +47,21 @@ def controller_with_household_db(tmp_path):
         pass
 
 
+@pytest.fixture
+def mock_people_logs(monkeypatch):
+    calls = {"data": [], "system": []}
+
+    def fake_data(*args, **kwargs):
+        calls["data"].append({"args": args, "kwargs": kwargs})
+
+    def fake_system(message: str, level: str = "INFO"):
+        calls["system"].append({"message": message, "level": level})
+
+    monkeypatch.setattr("app.controller.app_controller.log_data_change", fake_data)
+    monkeypatch.setattr("app.controller.app_controller.log_system", fake_system)
+    return calls
+
+
 def _new_head_payload(name="王大明", mobile="0912000000"):
     return {
         "name": name,
@@ -165,3 +180,83 @@ def test_get_household_people_by_person_id_returns_same_household_members(contro
     assert len(rows) == 2
     assert {r["household_id"] for r in rows} == {household_id}
     assert {r["name"] for r in rows} == {"王戶長", "戶員A"}
+
+
+def test_create_household_writes_data_log(controller_with_household_db, mock_people_logs):
+    c = controller_with_household_db
+    person_id, household_id = c.create_household(_new_head_payload(name="記錄戶長", mobile="0912555000"))
+
+    assert person_id
+    assert household_id
+    assert any(
+        call["kwargs"].get("action") == "PEOPLE.HOUSEHOLD.CREATE"
+        for call in mock_people_logs["data"]
+    )
+    msg = next(
+        call["kwargs"].get("message", "")
+        for call in mock_people_logs["data"]
+        if call["kwargs"].get("action") == "PEOPLE.HOUSEHOLD.CREATE"
+    )
+    assert "姓名 記錄戶長" in msg
+    assert "國曆生日 1980-01-01" in msg
+    assert "地址 台北市" in msg
+    assert "聯絡電話 02-1111-2222" in msg
+    assert "手機號碼 0912555000" in msg
+    assert "年齡偏移" not in msg
+
+
+def test_update_person_writes_data_log(controller_with_household_db, mock_people_logs):
+    c = controller_with_household_db
+    head_id, _ = c.create_household(_new_head_payload(name="原名", mobile="0912666000"))
+    rc = c.update_person(head_id, {"name": "新名", "phone_mobile": "0912666999"})
+    assert rc == 1
+
+    assert any(
+        call["kwargs"].get("action") == "PEOPLE.UPDATE"
+        for call in mock_people_logs["data"]
+    )
+    msg = next(
+        call["kwargs"].get("message", "")
+        for call in mock_people_logs["data"]
+        if call["kwargs"].get("action") == "PEOPLE.UPDATE"
+    )
+    assert "姓名：原名 -> 新名" in msg
+    assert "手機號碼：0912666000 -> 0912666999" in msg
+    assert "原資料：姓名 原名" in msg
+    assert "新資料：姓名 新名" in msg
+    assert "年齡偏移" not in msg
+
+
+def test_create_people_requires_active_head_writes_system_log(controller_with_household_db, mock_people_logs):
+    c = controller_with_household_db
+    with pytest.raises(ValueError, match="head person not found"):
+        c.create_people("NON_EXIST_HEAD", _new_member_payload())
+
+    assert any(
+        call.get("level") == "WARN" and "新增戶員失敗" in call.get("message", "")
+        for call in mock_people_logs["system"]
+    )
+
+
+def test_update_person_invalid_age_writes_system_log(controller_with_household_db, mock_people_logs):
+    c = controller_with_household_db
+    head_id, _ = c.create_household(_new_head_payload(name="年齡測試", mobile="0912888000"))
+
+    with pytest.raises(ValueError, match="age must be an integer"):
+        c.update_person(head_id, {"age": "abc"})
+
+    assert any(
+        call.get("level") == "WARN" and "欄位 年齡 非整數" in call.get("message", "")
+        for call in mock_people_logs["system"]
+    )
+
+
+def test_reactivate_person_empty_id_writes_system_log(controller_with_household_db, mock_people_logs):
+    c = controller_with_household_db
+    with pytest.raises(ValueError, match="person_id is required"):
+        c.reactivate_person("")
+
+    assert any(
+        call.get("level") == "WARN" and "恢復信眾失敗（原因：person_id 為空）" in call.get("message", "")
+        for call in mock_people_logs["system"]
+    )

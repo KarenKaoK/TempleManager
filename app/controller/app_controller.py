@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
 from app.utils.id_utils import generate_activity_id_safe, new_plan_id
 from app.config import DB_NAME
-from app.logging import log_data_change
+from app.logging import log_data_change, log_system
 
 
 
@@ -81,6 +81,42 @@ class AppController:
         except Exception:
             # log 寫入失敗不應影響主交易流程
             pass
+
+    def _log_people_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_people_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _fmt_log_val(value: Any) -> str:
+        if value is None:
+            return "-"
+        text = str(value).strip()
+        return text if text else "-"
+
+    def _build_people_profile_detail(self, data: Dict[str, Any]) -> str:
+        return (
+            f"姓名 {self._fmt_log_val(data.get('name'))}，"
+            f"性別 {self._fmt_log_val(data.get('gender'))}，"
+            f"國曆生日 {self._fmt_log_val(data.get('birthday_ad'))}，"
+            f"農曆生日 {self._fmt_log_val(data.get('birthday_lunar'))}，"
+            f"農曆生日為閏月 {self._fmt_log_val(data.get('lunar_is_leap'))}，"
+            f"出生時辰 {self._fmt_log_val(data.get('birth_time'))}，"
+            f"手機號碼 {self._fmt_log_val(data.get('phone_mobile'))}，"
+            f"聯絡電話 {self._fmt_log_val(data.get('phone_home'))}，"
+            f"地址 {self._fmt_log_val(data.get('address'))}，"
+            f"郵遞區號 {self._fmt_log_val(data.get('zip_code'))}，"
+            f"年齡 {self._fmt_log_val(data.get('age'))}，"
+            f"生肖 {self._fmt_log_val(data.get('zodiac'))}，"
+            f"備註 {self._fmt_log_val(data.get('note'))}"
+        )
 
     def _column_exists(self, table: str, column: str) -> bool:
         cur = self.conn.cursor()
@@ -1918,6 +1954,10 @@ class AppController:
                 cleaned_required[field] = v
 
         if missing:
+            self._log_people_system_event(
+                f"新增戶長失敗（原因：缺少必填欄位，{'; '.join(missing)}）",
+                level="WARN",
+            )
             raise ValueError(" / ".join(missing))
 
         # 2) 檢查通過後，才開始組資料（填寫輸入）
@@ -1959,6 +1999,13 @@ class AppController:
             tuple(data[k] for k in keys),
         )
         self.conn.commit()
+        self._log_people_data_change(
+            "PEOPLE.HOUSEHOLD.CREATE",
+            (
+                f"新增戶長資料（person_id {person_id}，household_id {household_id}，"
+                f"{self._build_people_profile_detail(data)}）"
+            ),
+        )
         return person_id, household_id
 
     def create_people(self, household_id: str, person_payload: dict) -> str:
@@ -1967,8 +2014,9 @@ class AppController:
         return: person_id
         """
 
-        household_id = (household_id or "").strip()
-        if not household_id:
+        head_person_id = (household_id or "").strip()
+        if not head_person_id:
+            self._log_people_system_event("新增戶員失敗（原因：head_person_id 為空）", level="WARN")
             raise ValueError("household_id is required")
 
         cur = self.conn.cursor()
@@ -1982,10 +2030,14 @@ class AppController:
             AND role_in_household = 'HEAD'
             AND status = 'ACTIVE'
             """,
-            (household_id,),
+            (head_person_id,),
         ).fetchone()
 
         if not row:
+            self._log_people_system_event(
+                f"新增戶員失敗（head_person_id {head_person_id} 不存在或非 ACTIVE 戶長）",
+                level="WARN",
+            )
             raise ValueError("head person not found or not ACTIVE HEAD")
 
         household_id = row[0]
@@ -2015,6 +2067,10 @@ class AppController:
                 cleaned_required[field] = v
 
         if missing:
+            self._log_people_system_event(
+                f"新增戶員失敗（head_person_id {head_person_id}，原因：缺少必填欄位）",
+                level="WARN",
+            )
             raise ValueError(" / ".join(missing))
 
         # 2) 檢查通過後，才開始組資料
@@ -2063,6 +2119,13 @@ class AppController:
             tuple(data[k] for k in keys),
         )
         self.conn.commit()
+        self._log_people_data_change(
+            "PEOPLE.MEMBER.CREATE",
+            (
+                f"新增戶員資料（person_id {person_id}，household_id {household_id}，"
+                f"{self._build_people_profile_detail(data)}）"
+            ),
+        )
 
         return person_id
 
@@ -2266,20 +2329,34 @@ class AppController:
         }
         person_id = (person_id or "").strip()
         if not person_id:
+            self._log_people_system_event("修改信眾失敗（原因：person_id 為空）", level="WARN")
             raise ValueError("person_id is required")
 
         if payload is None or not isinstance(payload, dict):
+            self._log_people_system_event(
+                f"修改信眾失敗（person_id {person_id}，原因：payload 非 dict）",
+                level="WARN",
+            )
             raise ValueError("payload must be a dict")
 
         # 1) 先確認 person 存在（同時拿既有生日，供年齡校正計算）
         cur = self.conn.cursor()
         existing = cur.execute(
-            "SELECT birthday_ad, phone_home, phone_mobile FROM people WHERE id = ?",
+            """
+            SELECT
+                household_id, role_in_household,
+                name, gender, birthday_ad, birthday_lunar, lunar_is_leap,
+                birth_time, age, age_offset, zodiac, phone_home, phone_mobile,
+                address, zip_code, note
+            FROM people
+            WHERE id = ?
+            """,
             (person_id,),
         ).fetchone()
         if not existing:
+            self._log_people_system_event(f"修改信眾失敗（person_id {person_id} 不存在）", level="WARN")
             raise ValueError("person not found")
-        existing_birthday_ad = existing[0]
+        existing_birthday_ad = existing["birthday_ad"]
 
         # 2) 過濾出允許更新的欄位
         updates: Dict[str, Any] = {}
@@ -2300,16 +2377,32 @@ class AppController:
                 try:
                     v = int(v)
                 except Exception:
+                    self._log_people_system_event(
+                        f"修改信眾失敗（person_id {person_id}，欄位 農曆生日為閏月 格式錯誤）",
+                        level="WARN",
+                    )
                     raise ValueError("lunar_is_leap must be 0 or 1")
                 if v not in (0, 1):
+                    self._log_people_system_event(
+                        f"修改信眾失敗（person_id {person_id}，欄位 農曆生日為閏月 只允許 0/1）",
+                        level="WARN",
+                    )
                     raise ValueError("lunar_is_leap must be 0 or 1")
 
             if k == "age" and v not in (None, ""):
                 try:
                     v = int(v)
                 except Exception:
+                    self._log_people_system_event(
+                        f"修改信眾失敗（person_id {person_id}，欄位 年齡 非整數）",
+                        level="WARN",
+                    )
                     raise ValueError("age must be an integer")
                 if v < 0 or v > 150:
+                    self._log_people_system_event(
+                        f"修改信眾失敗（person_id {person_id}，欄位 年齡 超出範圍）",
+                        level="WARN",
+                    )
                     raise ValueError("age must be between 0 and 150")
                 birthday_for_age = payload.get("birthday_ad", existing_birthday_ad)
                 offset = self._derive_age_offset(birthday_for_age, v)
@@ -2318,6 +2411,7 @@ class AppController:
             updates[k] = v
 
         if not updates:
+            self._log_people_system_event(f"修改信眾失敗（person_id {person_id} 無可更新欄位）", level="WARN")
             raise ValueError("no updatable fields in payload")
 
         # 2.5) 電話規則：聯絡電話/手機號碼至少一個有值
@@ -2325,6 +2419,10 @@ class AppController:
             new_mobile = updates["phone_mobile"] if "phone_mobile" in updates else (existing["phone_mobile"] or "")
             new_home = updates["phone_home"] if "phone_home" in updates else (existing["phone_home"] or "")
             if not str(new_mobile).strip() and not str(new_home).strip():
+                self._log_people_system_event(
+                    f"修改信眾失敗（person_id {person_id}，原因：聯絡電話與手機號碼不可同時為空）",
+                    level="WARN",
+                )
                 raise ValueError("聯絡電話與手機號碼不可同時為空，請至少保留一個")
 
         # 3) 組 SQL
@@ -2334,6 +2432,63 @@ class AppController:
         params = list(updates.values()) + [person_id]
         cur.execute(sql, tuple(params))
         self.conn.commit()
+        if cur.rowcount > 0:
+            label_map = {
+                "name": "姓名",
+                "gender": "性別",
+                "birthday_ad": "國曆生日",
+                "birthday_lunar": "農曆生日",
+                "lunar_is_leap": "農曆生日為閏月",
+                "birth_time": "出生時辰",
+                "age": "年齡",
+                "zodiac": "生肖",
+                "phone_home": "聯絡電話",
+                "phone_mobile": "手機號碼",
+                "address": "地址",
+                "zip_code": "郵遞區號",
+                "note": "備註",
+            }
+            change_parts = []
+            for field in sorted(updates.keys()):
+                if field == "age_offset":
+                    continue
+                old_v = self._fmt_log_val(existing[field])
+                new_v = self._fmt_log_val(updates[field])
+                if old_v == new_v:
+                    continue
+                change_parts.append(
+                    f"{label_map.get(field, field)}：{old_v} -> {new_v}"
+                )
+            changes_text = "；".join(change_parts) if change_parts else "欄位值無異動"
+            before_profile = {
+                "name": existing["name"],
+                "gender": existing["gender"],
+                "birthday_ad": existing["birthday_ad"],
+                "birthday_lunar": existing["birthday_lunar"],
+                "lunar_is_leap": existing["lunar_is_leap"],
+                "birth_time": existing["birth_time"],
+                "phone_mobile": existing["phone_mobile"],
+                "phone_home": existing["phone_home"],
+                "address": existing["address"],
+                "zip_code": existing["zip_code"],
+                "age": existing["age"],
+                "zodiac": existing["zodiac"],
+                "note": existing["note"],
+            }
+            after_profile = dict(before_profile)
+            for field, value in updates.items():
+                if field == "age_offset":
+                    continue
+                after_profile[field] = value
+            self._log_people_data_change(
+                "PEOPLE.UPDATE",
+                (
+                    f"修改信眾資料（person_id {person_id}，household_id {existing['household_id']}，"
+                    f"角色 {existing['role_in_household']}，變更：{changes_text}；"
+                    f"原資料：{self._build_people_profile_detail(before_profile)}；"
+                    f"新資料：{self._build_people_profile_detail(after_profile)}）"
+                ),
+            )
 
         return cur.rowcount
 
@@ -2355,6 +2510,7 @@ class AppController:
 
         member_person_id = (member_person_id or "").strip()
         if not member_person_id:
+            self._log_people_system_event("分戶失敗（原因：member_person_id 為空）", level="WARN")
             raise ValueError("member_person_id is required")
 
         cur = self.conn.cursor()
@@ -2370,14 +2526,17 @@ class AppController:
         ).fetchone()
 
         if not row:
+            self._log_people_system_event(f"分戶失敗（person_id {member_person_id} 不存在）", level="WARN")
             raise ValueError("person not found")
 
         _id, old_household_id, role, status = row
 
         if role != "MEMBER":
+            self._log_people_system_event(f"分戶失敗（person_id {member_person_id} 不是戶員）", level="WARN")
             raise ValueError("only MEMBER can be split to a new household")
 
         if require_active and status != "ACTIVE":
+            self._log_people_system_event(f"分戶失敗（person_id {member_person_id} 非 ACTIVE）", level="WARN")
             raise ValueError("only ACTIVE person can be split")
 
         # 2) 確認原 household 的 HEAD 存在（避免資料已壞）
@@ -2393,6 +2552,10 @@ class AppController:
         ).fetchone()
 
         if not head:
+            self._log_people_system_event(
+                f"分戶失敗（person_id {member_person_id}，來源戶 {old_household_id} 無戶長）",
+                level="WARN",
+            )
             raise ValueError("source household has no HEAD (data integrity issue)")
 
         new_household_id = self._uuid()
@@ -2418,6 +2581,10 @@ class AppController:
                 raise ValueError("split failed (person role changed concurrently?)")
 
             self.conn.commit()
+            self._log_people_data_change(
+                "PEOPLE.HOUSEHOLD.SPLIT",
+                f"分戶完成（person_id {member_person_id}，原戶 {old_household_id}，新戶 {new_household_id}）",
+            )
 
         except Exception:
             self.conn.rollback()
@@ -2475,8 +2642,10 @@ class AppController:
         target_head_person_id = (target_head_person_id or "").strip()
 
         if not member_person_id:
+            self._log_people_system_event("變更戶長失敗（原因：member_person_id 為空）", level="WARN")
             raise ValueError("member_person_id is required")
         if not target_head_person_id:
+            self._log_people_system_event("變更戶長失敗（原因：target_head_person_id 為空）", level="WARN")
             raise ValueError("target_head_person_id is required")
 
         cur = self.conn.cursor()
@@ -2491,12 +2660,15 @@ class AppController:
             (member_person_id,),
         ).fetchone()
         if not m:
+            self._log_people_system_event(f"變更戶長失敗（member_person_id {member_person_id} 不存在）", level="WARN")
             raise ValueError("member not found")
 
         if m["role_in_household"] != "MEMBER":
+            self._log_people_system_event(f"變更戶長失敗（person_id {member_person_id} 不是戶員）", level="WARN")
             raise ValueError("only MEMBER can be transferred")
 
         if require_active and m["status"] != "ACTIVE":
+            self._log_people_system_event(f"變更戶長失敗（person_id {member_person_id} 非 ACTIVE）", level="WARN")
             raise ValueError("only ACTIVE member can be transferred")
 
         source_household_id = m["household_id"]
@@ -2512,14 +2684,26 @@ class AppController:
             (target_head_person_id,),
         ).fetchone()
         if not t:
+            self._log_people_system_event(
+                f"變更戶長失敗（target_head_person_id {target_head_person_id} 不存在或非戶長）",
+                level="WARN",
+            )
             raise ValueError("target head not found")
 
         if require_active and t["status"] != "ACTIVE":
+            self._log_people_system_event(
+                f"變更戶長失敗（target_head_person_id {target_head_person_id} 非 ACTIVE）",
+                level="WARN",
+            )
             raise ValueError("target head is not ACTIVE")
 
         target_household_id = t["household_id"]
 
         if target_household_id == source_household_id:
+            self._log_people_system_event(
+                f"變更戶長失敗（person_id {member_person_id} 已在目標戶 {target_household_id}）",
+                level="WARN",
+            )
             raise ValueError("member already belongs to this household")
 
         # 3) 交易更新
@@ -2537,6 +2721,10 @@ class AppController:
             if cur.rowcount != 1:
                 raise RuntimeError("transfer failed")
             self.conn.commit()
+            self._log_people_data_change(
+                "PEOPLE.HOUSEHOLD.TRANSFER",
+                f"變更戶長完成（person_id {member_person_id}，來源戶 {source_household_id}，目標戶 {target_household_id}，目標戶長 {target_head_person_id}）",
+            )
             return target_household_id
         except Exception:
             self.conn.rollback()
@@ -2551,6 +2739,7 @@ class AppController:
 
         person_id = (person_id or "").strip()
         if not person_id:
+            self._log_people_system_event("停用信眾失敗（原因：person_id 為空）", level="WARN")
             raise ValueError("person_id is required")
 
         cur = self.conn.cursor()
@@ -2566,6 +2755,7 @@ class AppController:
         ).fetchone()
 
         if not row:
+            self._log_people_system_event(f"停用信眾失敗（person_id {person_id} 不存在）", level="WARN")
             raise ValueError("person not found")
 
         role, status, household_id = row
@@ -2576,6 +2766,7 @@ class AppController:
 
         # 3) 安全：預設不允許停用戶長
         if role == "HEAD" and not allow_head:
+            self._log_people_system_event(f"停用信眾失敗（person_id {person_id} 為戶長，不允許直接停用）", level="WARN")
             raise ValueError("cannot deactivate HEAD (use change_head / dissolve household flow)")
 
         # 4) 更新狀態
@@ -2589,6 +2780,11 @@ class AppController:
             (person_id,),
         )
         self.conn.commit()
+        if cur.rowcount > 0:
+            self._log_people_data_change(
+                "PEOPLE.STATUS.DEACTIVATE",
+                f"停用信眾（person_id {person_id}，household_id {household_id}，角色 {role}）",
+            )
         return cur.rowcount
 
     def deactivate_household_head_if_no_members(
@@ -2608,8 +2804,10 @@ class AppController:
         household_id = (household_id or "").strip()
         head_person_id = (head_person_id or "").strip()
         if not household_id:
+            self._log_people_system_event("刪除戶籍失敗（原因：household_id 為空）", level="WARN")
             raise ValueError("household_id is required")
         if not head_person_id:
+            self._log_people_system_event("刪除戶籍失敗（原因：head_person_id 為空）", level="WARN")
             raise ValueError("head_person_id is required")
 
         cur = self.conn.cursor()
@@ -2627,9 +2825,17 @@ class AppController:
         ).fetchone()
 
         if not head:
+            self._log_people_system_event(
+                f"刪除戶籍失敗（head_person_id {head_person_id} 不存在於 household_id {household_id}）",
+                level="WARN",
+            )
             raise ValueError("head person not found in this household")
 
         if require_active and head["status"] != "ACTIVE":
+            self._log_people_system_event(
+                f"刪除戶籍失敗（head_person_id {head_person_id} 非 ACTIVE）",
+                level="WARN",
+            )
             raise ValueError("head person is not ACTIVE")
 
         # 1) 檢查是否有 ACTIVE MEMBER
@@ -2645,6 +2851,10 @@ class AppController:
         ).fetchone()[0]
 
         if int(cnt or 0) > 0:
+            self._log_people_system_event(
+                f"刪除戶籍失敗（household_id {household_id} 尚有 {int(cnt)} 位 ACTIVE 戶員）",
+                level="WARN",
+            )
             raise ValueError("此戶籍底下仍有會員，請先刪除/移轉/分戶所有會員後才能刪除戶長")
 
         # 2) 停用戶長
@@ -2660,6 +2870,11 @@ class AppController:
             (head_person_id, household_id),
         )
         self.conn.commit()
+        if cur.rowcount > 0:
+            self._log_people_data_change(
+                "PEOPLE.HEAD.DEACTIVATE",
+                f"刪除戶籍（停用戶長）（head_person_id {head_person_id}，household_id {household_id}）",
+            )
         return cur.rowcount
 
     def reactivate_person(self, person_id: str) -> int:
@@ -2671,6 +2886,7 @@ class AppController:
         """
         person_id = (person_id or "").strip()
         if not person_id:
+            self._log_people_system_event("恢復信眾失敗（原因：person_id 為空）", level="WARN")
             raise ValueError("person_id is required")
 
         cur = self.conn.cursor()
@@ -2683,6 +2899,7 @@ class AppController:
             (person_id,),
         ).fetchone()
         if not row:
+            self._log_people_system_event(f"恢復信眾失敗（person_id {person_id} 不存在）", level="WARN")
             raise ValueError("person not found")
 
         household_id, role, status = row
@@ -2701,6 +2918,10 @@ class AppController:
                 (household_id,),
             ).fetchone()[0]
             if int(active_head_cnt or 0) > 0:
+                self._log_people_system_event(
+                    f"恢復信眾失敗（person_id {person_id}：同戶已有啟用中的戶長）",
+                    level="WARN",
+                )
                 raise ValueError("此戶已有啟用中的戶長，無法恢復原戶長")
         else:
             active_head_cnt = cur.execute(
@@ -2714,6 +2935,10 @@ class AppController:
                 (household_id,),
             ).fetchone()[0]
             if int(active_head_cnt or 0) == 0:
+                self._log_people_system_event(
+                    f"恢復信眾失敗（person_id {person_id}：同戶無啟用中的戶長）",
+                    level="WARN",
+                )
                 raise ValueError("此戶無啟用中的戶長，請先恢復戶長")
 
         cur.execute(
@@ -2726,6 +2951,11 @@ class AppController:
             (person_id,),
         )
         self.conn.commit()
+        if cur.rowcount > 0:
+            self._log_people_data_change(
+                "PEOPLE.STATUS.REACTIVATE",
+                f"恢復信眾（person_id {person_id}，household_id {household_id}，角色 {role}）",
+            )
         return cur.rowcount
 
     # -------------------------
