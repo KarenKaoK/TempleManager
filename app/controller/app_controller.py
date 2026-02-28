@@ -14,6 +14,7 @@ from datetime import datetime, date, timedelta
 from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
 from app.utils.id_utils import generate_activity_id_safe, new_plan_id
 from app.config import DB_NAME
+from app.logging import log_data_change
 
 
 
@@ -60,6 +61,26 @@ class AppController:
 
     def _now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _log_transaction_change(self, action: str, tx_id, data: Optional[Dict[str, Any]] = None) -> None:
+        payload = dict(data or {})
+        tx_type = str(payload.get("type") or "").strip().lower()
+        tx_label = "收入" if tx_type == "income" else "支出" if tx_type == "expense" else "交易"
+        date_text = str(payload.get("date") or "").strip() or "-"
+        amount_val = payload.get("amount")
+        amount_text = str(amount_val) if amount_val not in (None, "") else "-"
+        payer_name = str(payload.get("payer_name") or "").strip()
+
+        msg = f"{tx_label}資料異動（ID {tx_id}，日期 {date_text}，金額 {amount_text}"
+        if payer_name:
+            msg += f"，對象 {payer_name}"
+        msg += "）"
+
+        try:
+            log_data_change(action=action, message=msg, level="INFO")
+        except Exception:
+            # log 寫入失敗不應影響主交易流程
+            pass
 
     def _column_exists(self, table: str, column: str) -> bool:
         cur = self.conn.cursor()
@@ -4683,7 +4704,11 @@ class AppController:
             int(data.get("is_system_generated") or 0),
         ))
         self.conn.commit()
-        return cursor.lastrowid
+        tx_id = cursor.lastrowid
+        tx_type = str(data.get("type") or "").strip().lower()
+        action_prefix = "INCOME" if tx_type == "income" else "EXPENSE" if tx_type == "expense" else "TRANSACTION"
+        self._log_transaction_change(f"{action_prefix}.CREATE", tx_id, data)
+        return tx_id
     
     def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None, voided_filter="all"):
         cursor = self.conn.cursor()
@@ -4943,12 +4968,23 @@ class AppController:
     def delete_transaction(self, transaction_id):
         """軟刪除"""
         cursor = self.conn.cursor()
+        before = cursor.execute(
+            "SELECT type, date, amount, payer_name FROM transactions WHERE id=?",
+            (transaction_id,),
+        ).fetchone()
         cursor.execute("UPDATE transactions SET is_deleted=1 WHERE id=?", (transaction_id,))
         self.conn.commit()
+        tx_type = str((before["type"] if before else "") or "").strip().lower()
+        action_prefix = "INCOME" if tx_type == "income" else "EXPENSE" if tx_type == "expense" else "TRANSACTION"
+        payload = dict(before) if before else {}
+        if tx_type:
+            payload["type"] = tx_type
+        self._log_transaction_change(f"{action_prefix}.DELETE", transaction_id, payload)
 
     def update_transaction(self, transaction_id, data):
         """更新交易紀錄"""
         cursor = self.conn.cursor()
+        before = cursor.execute("SELECT type FROM transactions WHERE id=?", (transaction_id,)).fetchone()
         
         # 這裡只允許更新部分欄位，確保資料一致性
         # 注意：如果 user 修改了日期，receipt_number 是否要重算？
@@ -4971,6 +5007,14 @@ class AppController:
             transaction_id
         ))
         self.conn.commit()
+        tx_type = str(
+            data.get("type") or (before["type"] if before else "")
+        ).strip().lower()
+        action_prefix = "INCOME" if tx_type == "income" else "EXPENSE" if tx_type == "expense" else "TRANSACTION"
+        payload = dict(data or {})
+        if tx_type:
+            payload["type"] = tx_type
+        self._log_transaction_change(f"{action_prefix}.UPDATE", transaction_id, payload)
 
     # -------------------------
     # Believers (UX Improvements)
