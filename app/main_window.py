@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QAction, QMessageBox, QWidget, QStackedWidget, QDialog,
-    QHBoxLayout, QPushButton, QVBoxLayout, QFrame
+    QHBoxLayout, QPushButton, QVBoxLayout, QFrame, QInputDialog, QLineEdit
 )
 from PyQt5.QtCore import QEvent, QTimer
 import time
@@ -21,6 +21,7 @@ from app.dialogs.account_management_dialog import AccountManagementDialog
 from app.dialogs.cover_settings_dialog import CoverSettingsDialog
 from app.dialogs.backup_settings_dialog import BackupSettingsDialog
 from app.dialogs.report_schedule_settings_dialog import ReportScheduleSettingsDialog
+from app.dialogs.system_log_viewer_dialog import SystemLogViewerDialog
 from app.logging import log_system
 
 
@@ -195,14 +196,17 @@ class MainWindow(QMainWindow):
             cover_action = QAction("封面設定", self)
             backup_action = QAction("資料備份", self)
             report_schedule_action = QAction("報表排程設定", self)
+            system_log_action = QAction("系統日誌", self)
             account_action.triggered.connect(self.open_account_management_dialog)
             cover_action.triggered.connect(self.open_cover_settings_dialog)
             backup_action.triggered.connect(self.open_backup_settings_dialog)
             report_schedule_action.triggered.connect(self.open_report_schedule_settings_dialog)
+            system_log_action.triggered.connect(self.open_system_log_dialog)
             system_menu.addAction(account_action)
             system_menu.addAction(cover_action)
             system_menu.addAction(backup_action)
             system_menu.addAction(report_schedule_action)
+            system_menu.addAction(system_log_action)
 
     # -------------------------
     # Dialogs
@@ -386,6 +390,35 @@ class MainWindow(QMainWindow):
     def _can_manage_accounts(self):
         return (self.role or "").strip() in {"管理員", "管理者"}
 
+    def _reauth_admin_for_sensitive_action(self, action_name: str) -> bool:
+        verifier = getattr(self.controller, "verify_user_password", None)
+        if not callable(verifier):
+            QMessageBox.warning(self, "功能不可用", "目前系統不支援二次驗證。")
+            return False
+
+        password, ok = QInputDialog.getText(
+            self,
+            "二次驗證",
+            f"請輸入目前帳號密碼以繼續「{action_name}」",
+            QLineEdit.Password,
+        )
+        if not ok:
+            return False
+        if not (password or "").strip():
+            QMessageBox.warning(self, "驗證失敗", "密碼不可空白。")
+            return False
+
+        try:
+            valid = bool(verifier(self.username, password, require_active=True))
+        except Exception:
+            QMessageBox.warning(self, "驗證失敗", "密碼驗證時發生錯誤，請稍後重試。")
+            return False
+
+        if not valid:
+            QMessageBox.warning(self, "驗證失敗", "密碼錯誤或帳號已停用。")
+            return False
+        return True
+
     def open_finance_report_dialog(self):
         if not self._can_access_finance_report():
             QMessageBox.warning(self, "權限不足", "此功能僅限管理員與會計人員。")
@@ -433,6 +466,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "權限不足", "此功能僅限管理員。")
             return
         dialog = ReportScheduleSettingsDialog(self.controller, self)
+        dialog.exec_()
+
+    def open_system_log_dialog(self):
+        if not self._can_manage_accounts():
+            QMessageBox.warning(self, "權限不足", "此功能僅限管理員。")
+            return
+        if not self._reauth_admin_for_sensitive_action("系統日誌"):
+            return
+        dialog = SystemLogViewerDialog(self)
         dialog.exec_()
 
     def _setup_idle_logout(self):

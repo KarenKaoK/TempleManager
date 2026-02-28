@@ -138,6 +138,18 @@ class FakeReportScheduleSettingsDialog:
         self.exec_called = True
 
 
+class FakeSystemLogViewerDialog:
+    last_instance = None
+
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.exec_called = False
+        FakeSystemLogViewerDialog.last_instance = self
+
+    def exec_(self):
+        self.exec_called = True
+
+
 # -------------------------
 # Tests
 # -------------------------
@@ -499,6 +511,43 @@ def test_staff_open_report_schedule_settings_dialog_is_blocked(qtbot, monkeypatc
 
     window.open_report_schedule_settings_dialog()
     warn_mock.assert_called_once()
+
+
+def test_admin_open_system_log_dialog_requires_reauth_success(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "SystemLogViewerDialog", FakeSystemLogViewerDialog)
+    FakeSystemLogViewerDialog.last_instance = None
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    window = MainWindow("admin", "管理員", mock_controller)
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(window, "_reauth_admin_for_sensitive_action", MagicMock(return_value=True))
+    window.open_system_log_dialog()
+
+    instance = FakeSystemLogViewerDialog.last_instance
+    assert instance is not None
+    assert instance.parent is window
+    assert instance.exec_called is True
+
+
+def test_admin_open_system_log_dialog_blocked_when_reauth_failed(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "SystemLogViewerDialog", FakeSystemLogViewerDialog)
+    FakeSystemLogViewerDialog.last_instance = None
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    window = MainWindow("admin", "管理員", mock_controller)
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(window, "_reauth_admin_for_sensitive_action", MagicMock(return_value=False))
+    window.open_system_log_dialog()
+
+    assert FakeSystemLogViewerDialog.last_instance is None
 
 
 def test_main_window_no_builtin_backup_timer(qtbot, monkeypatch):

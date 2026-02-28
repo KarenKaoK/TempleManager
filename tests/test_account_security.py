@@ -1,6 +1,7 @@
 import sqlite3
 
 import pytest
+import bcrypt
 
 from app.controller.app_controller import AppController
 
@@ -181,3 +182,41 @@ def test_create_user_duplicate_writes_system_log(security_db, mock_account_logs)
         call.get("level") == "WARN" and "新增帳號失敗" in call.get("message", "")
         for call in mock_account_logs["system"]
     )
+
+
+def test_verify_user_password_success(security_db):
+    conn = sqlite3.connect(security_db)
+    cur = conn.cursor()
+    pw_hash = bcrypt.hashpw("abcd1234".encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    cur.execute(
+        """
+        INSERT INTO users (id, username, display_name, password_hash, role, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """,
+        ("U100", "admin", "admin", pw_hash, "管理員", 1),
+    )
+    conn.commit()
+    conn.close()
+
+    controller = AppController(db_path=str(security_db))
+    assert controller.verify_user_password("admin", "abcd1234", require_active=True) is True
+    assert controller.verify_user_password("admin", "wrong", require_active=True) is False
+
+
+def test_verify_user_password_rejects_inactive_when_required(security_db):
+    conn = sqlite3.connect(security_db)
+    cur = conn.cursor()
+    pw_hash = bcrypt.hashpw("abcd1234".encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    cur.execute(
+        """
+        INSERT INTO users (id, username, display_name, password_hash, role, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """,
+        ("U101", "admin_disabled", "admin_disabled", pw_hash, "管理員", 0),
+    )
+    conn.commit()
+    conn.close()
+
+    controller = AppController(db_path=str(security_db))
+    assert controller.verify_user_password("admin_disabled", "abcd1234", require_active=True) is False
+    assert controller.verify_user_password("admin_disabled", "abcd1234", require_active=False) is True
