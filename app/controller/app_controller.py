@@ -2343,6 +2343,31 @@ class AppController:
         if username and password == username:
             raise ValueError("password must not be the same as username")
 
+    def verify_user_password(self, username: str, password: str, require_active: bool = True) -> bool:
+        username = (username or "").strip()
+        if not username:
+            return False
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT password_hash, COALESCE(is_active, 1) FROM users WHERE username = ?",
+            (username,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        if require_active and int(row[1] or 0) != 1:
+            return False
+        stored_hash = row[0]
+        if not stored_hash:
+            return False
+        if isinstance(stored_hash, str):
+            stored_hash = stored_hash.encode("utf-8")
+        try:
+            import bcrypt
+            return bool(bcrypt.checkpw(str(password or "").encode("utf-8"), stored_hash))
+        except Exception:
+            return False
+
     def create_user_account(self, actor_username: str, username: str, password: str, role: str, display_name: str = ""):
         username = (username or "").strip()
         display_name = (display_name or "").strip()
