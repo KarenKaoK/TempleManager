@@ -162,8 +162,7 @@ class GoogleSettingsDialog(QDialog):
         self,
         controller,
         drive_folder_id: str,
-        oauth_client_secret_path: str,
-        oauth_token_path: str,
+        drive_credentials_path: str,
         parent=None,
     ):
         super().__init__(parent)
@@ -189,17 +188,10 @@ class GoogleSettingsDialog(QDialog):
 
         self.edt_oauth_client_secret = QLineEdit()
         self.edt_oauth_client_secret.setPlaceholderText("OAuth client credentials.json 路徑")
-        self.edt_oauth_client_secret.setText(oauth_client_secret_path or "")
+        self.edt_oauth_client_secret.setText(drive_credentials_path or "")
         self.btn_pick_oauth_client = QPushButton("選擇檔案")
         self.btn_pick_oauth_client.clicked.connect(self._pick_oauth_client_file)
         form.addRow("OAuth 憑證 JSON", self._line_with_button(self.edt_oauth_client_secret, self.btn_pick_oauth_client))
-
-        self.edt_oauth_token = QLineEdit()
-        self.edt_oauth_token.setPlaceholderText("OAuth token 檔案路徑（可留空；預設存安全儲存，不產生 token.json）")
-        self.edt_oauth_token.setText(oauth_token_path or "")
-        self.btn_pick_oauth_token = QPushButton("選擇檔案")
-        self.btn_pick_oauth_token.clicked.connect(self._pick_oauth_token_file)
-        form.addRow("OAuth Token 檔案", self._line_with_button(self.edt_oauth_token, self.btn_pick_oauth_token))
 
         self.btn_google_auth = QPushButton("Google 授權（首次）")
         self.btn_google_auth.clicked.connect(self._authorize_google)
@@ -230,29 +222,17 @@ class GoogleSettingsDialog(QDialog):
         if path:
             self.edt_oauth_client_secret.setText(path)
 
-    def _pick_oauth_token_file(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "選擇 OAuth token 檔案（選填）",
-            self.edt_oauth_token.text() or "",
-            "JSON Files (*.json);;All Files (*)",
-        )
-        if path:
-            self.edt_oauth_token.setText(path)
-
     def _authorize_google(self):
         old_text = self.btn_google_auth.text()
         try:
             client_path = (self.edt_oauth_client_secret.text() or "").strip()
-            token_path = (self.edt_oauth_token.text() or "").strip()
             if not client_path:
                 QMessageBox.warning(self, "設定錯誤", "請先設定 OAuth 憑證 JSON")
                 return
             self.btn_google_auth.setEnabled(False)
             self.btn_google_auth.setText("授權中...")
             QApplication.processEvents()
-            result = self.controller.authorize_google_drive_oauth(client_path, token_path)
-            self.edt_oauth_token.setText(result.get("token_path", token_path))
+            result = self.controller.authorize_google_drive_oauth(client_path)
             email = result.get("email", "")
             tip = f"Google 授權成功\n帳號：{email}" if email else "Google 授權成功"
             QMessageBox.information(self, "成功", tip)
@@ -265,8 +245,7 @@ class GoogleSettingsDialog(QDialog):
     def get_values(self) -> dict:
         return {
             "drive_folder_id": (self.edt_drive_folder.text() or "").strip(),
-            "oauth_client_secret_path": (self.edt_oauth_client_secret.text() or "").strip(),
-            "oauth_token_path": (self.edt_oauth_token.text() or "").strip(),
+            "drive_credentials_path": (self.edt_oauth_client_secret.text() or "").strip(),
         }
 
 
@@ -316,7 +295,6 @@ class BackupSettingsDialog(QDialog):
         self._schedule_monthday = 1
         self._google_drive_folder_id = ""
         self._google_oauth_client_secret_path = ""
-        self._google_oauth_token_path = ""
         self._schedule_use_cli = False
         self._last_run_at_text = ""
         self._backup_job_enabled = True
@@ -575,8 +553,7 @@ class BackupSettingsDialog(QDialog):
         self.edt_local_dir.setText(str(s.get("local_dir", "")))
         self.chk_enable_local.setChecked(bool(s.get("enable_local", True)))
         self.chk_enable_drive.setChecked(bool(s.get("enable_drive", False)))
-        self._google_oauth_client_secret_path = str(s.get("oauth_client_secret_path", ""))
-        self._google_oauth_token_path = str(s.get("oauth_token_path", ""))
+        self._google_oauth_client_secret_path = str(s.get("drive_credentials_path", ""))
         self._google_drive_folder_id = str(s.get("drive_folder_id", ""))
         self._update_google_summary()
         self._update_schedule_summary()
@@ -654,18 +631,12 @@ class BackupSettingsDialog(QDialog):
 
     def _update_google_summary(self):
         cred_text = "已設定" if (self._google_oauth_client_secret_path or "").strip() else "未設定"
-        token_path_set = bool((self._google_oauth_token_path or "").strip())
         token_secret_set = False
         try:
             token_secret_set = bool(secret_store.has_secret(AppController.BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY))
         except Exception:
             token_secret_set = False
-        if token_secret_set:
-            token_text = "已設定（安全儲存）"
-        elif token_path_set:
-            token_text = "已設定（檔案）"
-        else:
-            token_text = "未設定"
+        token_text = "已設定（安全儲存）" if token_secret_set else "未設定"
         folder_text = self._google_drive_folder_id if (self._google_drive_folder_id or "").strip() else "未設定"
         self.lbl_google_summary.setText(f"憑證：{cred_text}｜Token：{token_text}｜資料夾：{folder_text}")
 
@@ -673,16 +644,14 @@ class BackupSettingsDialog(QDialog):
         dialog = GoogleSettingsDialog(
             controller=self.controller,
             drive_folder_id=self._google_drive_folder_id,
-            oauth_client_secret_path=self._google_oauth_client_secret_path,
-            oauth_token_path=self._google_oauth_token_path,
+            drive_credentials_path=self._google_oauth_client_secret_path,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
         values = dialog.get_values()
         self._google_drive_folder_id = values.get("drive_folder_id", "")
-        self._google_oauth_client_secret_path = values.get("oauth_client_secret_path", "")
-        self._google_oauth_token_path = values.get("oauth_token_path", "")
+        self._google_oauth_client_secret_path = values.get("drive_credentials_path", "")
         self._update_google_summary()
 
     def _build_settings_payload(self) -> dict:
@@ -696,8 +665,7 @@ class BackupSettingsDialog(QDialog):
             "local_dir": (self.edt_local_dir.text() or "").strip(),
             "enable_local": self.chk_enable_local.isChecked(),
             "enable_drive": self.chk_enable_drive.isChecked(),
-            "oauth_client_secret_path": (self._google_oauth_client_secret_path or "").strip(),
-            "oauth_token_path": (self._google_oauth_token_path or "").strip(),
+            "drive_credentials_path": (self._google_oauth_client_secret_path or "").strip(),
             "drive_folder_id": (self._google_drive_folder_id or "").strip(),
             "use_cli_scheduler": self._schedule_use_cli,
         }
@@ -909,7 +877,7 @@ class BackupSettingsDialog(QDialog):
 <p><b>第三步：系統內填寫路徑與資料夾</b></p>
 <ol>
   <li>填入 OAuth 憑證 JSON 路徑（credentials.json）</li>
-  <li>OAuth token 路徑可留空（預設寫入系統安全儲存，不產生 token.json）</li>
+  <li>OAuth token 由系統安全儲存管理，不需指定 token.json 路徑</li>
   <li>按「Google 授權（首次）」完成授權後，token 會存入系統安全儲存</li>
   <li>填入 Drive 資料夾 ID</li>
 </ol>

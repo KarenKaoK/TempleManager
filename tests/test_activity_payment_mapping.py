@@ -12,14 +12,20 @@ def controller_with_payment_db(tmp_path):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    # for _ensure_security_schema()
     cur.execute(
         """
         CREATE TABLE users (
             id TEXT PRIMARY KEY,
             username TEXT,
             password_hash TEXT,
-            role TEXT
+            display_name TEXT,
+            role TEXT,
+            is_active INTEGER DEFAULT 1,
+            must_change_password INTEGER DEFAULT 0,
+            password_changed_at TEXT,
+            last_login_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
@@ -61,6 +67,10 @@ def controller_with_payment_db(tmp_path):
             signup_time TEXT NOT NULL,
             note TEXT,
             total_amount INTEGER NOT NULL DEFAULT 0,
+            is_paid INTEGER DEFAULT 0,
+            paid_at TEXT,
+            payment_txn_id INTEGER,
+            payment_receipt_number TEXT,
             created_at TEXT,
             updated_at TEXT
         )

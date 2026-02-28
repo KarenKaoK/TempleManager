@@ -14,8 +14,7 @@ class DummyController:
             "keep_latest": 20,
             "local_dir": "",
             "drive_folder_id": "",
-            "oauth_client_secret_path": "",
-            "oauth_token_path": "",
+            "drive_credentials_path": "",
             "enable_local": True,
             "enable_drive": False,
             "use_cli_scheduler": False,
@@ -31,8 +30,8 @@ class DummyController:
     def list_backup_logs(self, limit=200):
         return []
 
-    def authorize_google_drive_oauth(self, _client, _token):
-        return {"email": "test@example.com", "token_path": "/tmp/token.json"}
+    def authorize_google_drive_oauth(self, _client):
+        return {"email": "test@example.com"}
 
     def create_local_backup(self, manual=True):
         return {"backup_file": "x.db", "file_size_bytes": 1}
@@ -157,8 +156,7 @@ def test_google_settings_dialog_authorize_button_state_restored(qtbot, monkeypat
     dialog = GoogleSettingsDialog(
         controller=ctrl,
         drive_folder_id="",
-        oauth_client_secret_path="/tmp/credentials.json",
-        oauth_token_path="",
+        drive_credentials_path="/tmp/credentials.json",
     )
     qtbot.addWidget(dialog)
 

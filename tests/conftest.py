@@ -28,9 +28,17 @@ def temp_db(tmp_path):
     # ✅ 建立 users 表
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
+            id TEXT PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            display_name TEXT,
             password_hash TEXT NOT NULL,
-            role TEXT NOT NULL
+            role TEXT NOT NULL,
+            is_active INTEGER DEFAULT 1,
+            must_change_password INTEGER DEFAULT 0,
+            password_changed_at TEXT,
+            last_login_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
 

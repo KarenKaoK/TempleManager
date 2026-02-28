@@ -35,6 +35,7 @@ def controller_with_db(tmp_path):
         lunar_is_leap INTEGER DEFAULT 0,
         birth_time TEXT,
         age INTEGER,
+        age_offset INTEGER DEFAULT 0,
         zodiac TEXT,
         phone_home TEXT,
         phone_mobile TEXT,

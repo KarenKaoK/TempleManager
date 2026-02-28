@@ -53,8 +53,6 @@ class IncomeSetupDialog(QDialog):
         self.btn_close.clicked.connect(self.close)
         self.table.itemSelectionChanged.connect(self._sync_toggle_button_text)
 
-        self._ensure_active_column()
-
         # 載入資料
         self.load_data()
 
@@ -66,16 +64,6 @@ class IncomeSetupDialog(QDialog):
 
     def _can_maintain_items(self):
         return self._can_toggle_active()
-
-    def _ensure_active_column(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(income_items)")
-        cols = [r[1] for r in cursor.fetchall()]
-        if "is_active" not in cols:
-            cursor.execute("ALTER TABLE income_items ADD COLUMN is_active INTEGER DEFAULT 1")
-            conn.commit()
-        conn.close()
 
     def load_data(self):
         """從 SQLite 載入收入項目"""

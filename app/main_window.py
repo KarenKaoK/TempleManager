@@ -338,6 +338,8 @@ class MainWindow(QMainWindow):
             if hasattr(self.income_expense_page, "tabs"):
                 idx = 0 if int(initial_tab or 0) == 0 else 1
                 self.income_expense_page.tabs.setCurrentIndex(idx)
+            if hasattr(self.income_expense_page, "refresh_current_tab"):
+                self.income_expense_page.refresh_current_tab()
 
         self._show_page(self.income_expense_page)
 
