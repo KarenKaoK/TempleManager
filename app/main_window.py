@@ -21,6 +21,7 @@ from app.dialogs.account_management_dialog import AccountManagementDialog
 from app.dialogs.cover_settings_dialog import CoverSettingsDialog
 from app.dialogs.backup_settings_dialog import BackupSettingsDialog
 from app.dialogs.report_schedule_settings_dialog import ReportScheduleSettingsDialog
+from app.logging import log_system
 
 
 class MainWindow(QMainWindow):
@@ -473,6 +474,10 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_idle_timer") and self._idle_timer is not None:
                 self._idle_timer.stop()
             self._is_logout = True
+            try:
+                log_system(f"使用者 {self.username} 因閒置 {minutes} 分鐘自動登出", level="WARN")
+            except Exception:
+                pass
             self.close()
 
     def closeEvent(self, event):
@@ -506,6 +511,10 @@ class MainWindow(QMainWindow):
         )
         if reply == QMessageBox.Yes:
             self._is_logout = True
+            try:
+                log_system(f"使用者 {self.username} 手動登出", level="INFO")
+            except Exception:
+                pass
             self.close()
 
     def _on_close(self):

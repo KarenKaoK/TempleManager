@@ -12,7 +12,14 @@ def login_dialog(qtbot):
     qtbot.addWidget(dialog)
     return dialog
 
-def test_login_success(login_dialog, mocker):
+@pytest.fixture(autouse=True)
+def _mock_login_logs(mocker):
+    return {
+        "system": mocker.patch("app.auth.login.log_system"),
+        "data": mocker.patch("app.auth.login.log_data_change"),
+    }
+
+def test_login_success(login_dialog, mocker, _mock_login_logs):
     # 模擬 UI 輸入
     login_dialog.ui.lineEditUsername.setText("admin")
     login_dialog.ui.lineEditPassword.setText("admin123")
@@ -43,8 +50,11 @@ def test_login_success(login_dialog, mocker):
         "登入成功，歡迎 管理者 使用！"
     )
     mock_accept.assert_called_once()
+    _mock_login_logs["system"].assert_called_once()
+    assert _mock_login_logs["system"].call_args.kwargs.get("level") == "INFO"
+    assert "登入成功" in _mock_login_logs["system"].call_args.args[0]
 
-def test_login_wrong_password(login_dialog, mocker):
+def test_login_wrong_password(login_dialog, mocker, _mock_login_logs):
     """錯誤密碼登入失敗"""
     login_dialog.ui.lineEditUsername.setText("admin")
     login_dialog.ui.lineEditPassword.setText("wrongpass")
@@ -69,8 +79,11 @@ def test_login_wrong_password(login_dialog, mocker):
         "帳號或密碼錯誤"
     )
     mock_accept.assert_not_called()
+    _mock_login_logs["system"].assert_called_once()
+    assert _mock_login_logs["system"].call_args.kwargs.get("level") == "WARN"
+    assert "登入失敗" in _mock_login_logs["system"].call_args.args[0]
 
-def test_login_wrong_username(login_dialog, mocker):
+def test_login_wrong_username(login_dialog, mocker, _mock_login_logs):
     """錯誤帳號登入失敗"""
     login_dialog.ui.lineEditUsername.setText("wronguser")
     login_dialog.ui.lineEditPassword.setText("admin123")
@@ -93,6 +106,9 @@ def test_login_wrong_username(login_dialog, mocker):
         "帳號或密碼錯誤"
     )
     mock_accept.assert_not_called()
+    _mock_login_logs["system"].assert_called_once()
+    assert _mock_login_logs["system"].call_args.kwargs.get("level") == "WARN"
+    assert "登入失敗" in _mock_login_logs["system"].call_args.args[0]
 
 def test_login_success_password_hash_string(login_dialog, mocker):
     """資料庫回傳 password_hash 為字串時處理正確"""
@@ -164,7 +180,7 @@ def test_cover_pixmap_keeps_aspect_ratio_without_crop(login_dialog):
     assert abs(ratio - 2.0) < 0.05
 
 
-def test_login_updates_last_login_with_local_python_timestamp(login_dialog, mocker):
+def test_login_updates_last_login_with_local_python_timestamp(login_dialog, mocker, _mock_login_logs):
     """登入成功時 last_login_at 應由 Python 顯式寫入（避免 SQLite CURRENT_TIMESTAMP/UTC）"""
     login_dialog.ui.lineEditUsername.setText("admin")
     login_dialog.ui.lineEditPassword.setText("admin123")
@@ -197,3 +213,6 @@ def test_login_updates_last_login_with_local_python_timestamp(login_dialog, mock
     assert params[1] == "admin"
     assert isinstance(params[0], str)
     assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", params[0])
+    _mock_login_logs["data"].assert_called_once()
+    assert _mock_login_logs["data"].call_args.kwargs.get("level") == "INFO"
+    assert "更新最後登入時間" in _mock_login_logs["data"].call_args.kwargs.get("message", "")

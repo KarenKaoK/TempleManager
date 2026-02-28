@@ -141,6 +141,15 @@ class FakeReportScheduleSettingsDialog:
 # -------------------------
 # Tests
 # -------------------------
+@pytest.fixture(autouse=True)
+def _mock_system_log(monkeypatch):
+    calls = []
+    def fake_log(message: str, level: str = "INFO"):
+        calls.append({"message": message, "level": level})
+    monkeypatch.setattr(main_window_module, "log_system", fake_log)
+    return calls
+
+
 def test_main_window_init(qtbot, monkeypatch):
     monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
     mock_controller = MagicMock()
@@ -503,3 +512,43 @@ def test_main_window_no_builtin_backup_timer(qtbot, monkeypatch):
     qtbot.addWidget(window)
 
     assert hasattr(window, "_backup_timer") is False
+
+
+def test_manual_logout_writes_system_log(qtbot, monkeypatch, _mock_system_log):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module.QMessageBox, "question", MagicMock(return_value=QMessageBox.Yes))
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 0
+    window = MainWindow("test_user", "管理者", mock_controller)
+    qtbot.addWidget(window)
+
+    close_mock = MagicMock()
+    monkeypatch.setattr(window, "close", close_mock)
+
+    window._on_logout()
+
+    assert getattr(window, "_is_logout", False) is True
+    close_mock.assert_called_once()
+    assert any(c["level"] == "INFO" and "手動登出" in c["message"] for c in _mock_system_log)
+
+
+def test_idle_logout_writes_system_log(qtbot, monkeypatch, _mock_system_log):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+    mock_controller.get_idle_logout_minutes.return_value = 1
+    window = MainWindow("test_user", "管理者", mock_controller)
+    qtbot.addWidget(window)
+
+    close_mock = MagicMock()
+    monkeypatch.setattr(window, "close", close_mock)
+    window._last_activity_ts = main_window_module.time.monotonic() - 61
+
+    window._check_idle_timeout()
+
+    assert getattr(window, "_is_logout", False) is True
+    close_mock.assert_called_once()
+    assert any(c["level"] == "WARN" and "自動登出" in c["message"] for c in _mock_system_log)
