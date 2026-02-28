@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import QDialog, QMessageBox
 from PyQt5 import QtWidgets, QtCore, QtGui
 from app.dialogs.login_ui import Ui_Dialog  
 from app.config import DB_NAME
+from app.logging import log_system, log_data_change
 from datetime import datetime
 from uuid import uuid4
 
@@ -362,6 +363,10 @@ class LoginDialog(QDialog):
                     password_changed_at = user[idx]
                 if has_active and int(is_active or 0) != 1:
                     conn.close()
+                    try:
+                        log_system(f"使用者 {username} 登入失敗（原因：帳號已停用）", level="WARN")
+                    except Exception:
+                        pass
                     QMessageBox.warning(self, "登入失敗", "此帳號已停用，請聯絡管理員")
                     return
                 self.username = username
@@ -371,11 +376,26 @@ class LoginDialog(QDialog):
                     login_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     cursor.execute("UPDATE users SET last_login_at = ? WHERE username=?", (login_now, username))
                     conn.commit()
+                    try:
+                        log_data_change(
+                            message=f"使用者 {username} 更新最後登入時間為 {login_now}",
+                            level="INFO",
+                        )
+                    except Exception:
+                        pass
                 reminder = self._build_password_reminder(conn, password_changed_at, created_at)
                 conn.close()
+                try:
+                    log_system(f"使用者 {username} 登入成功（角色：{self.role}）", level="INFO")
+                except Exception:
+                    pass
                 QMessageBox.information(self, "登入成功", f"登入成功，歡迎 {self.role} 使用！{reminder}")
                 self.accept()  # 關閉登入視窗
                 return
 
         conn.close()
+        try:
+            log_system(f"使用者 {username} 登入失敗（原因：帳號或密碼錯誤）", level="WARN")
+        except Exception:
+            pass
         QMessageBox.warning(self, "登入失敗", "帳號或密碼錯誤")

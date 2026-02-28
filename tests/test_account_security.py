@@ -47,7 +47,22 @@ def security_db(tmp_path):
     return db
 
 
-def test_delete_last_admin_is_blocked(security_db):
+@pytest.fixture
+def mock_account_logs(monkeypatch):
+    calls = {"data": [], "system": []}
+
+    def fake_data(*args, **kwargs):
+        calls["data"].append({"args": args, "kwargs": kwargs})
+
+    def fake_system(message: str, level: str = "INFO"):
+        calls["system"].append({"message": message, "level": level})
+
+    monkeypatch.setattr("app.controller.app_controller.log_data_change", fake_data)
+    monkeypatch.setattr("app.controller.app_controller.log_system", fake_system)
+    return calls
+
+
+def test_delete_last_admin_is_blocked(security_db, mock_account_logs):
     conn = sqlite3.connect(security_db)
     _insert_user(conn, "U1", "admin", "管理員")
     conn.close()
@@ -55,9 +70,13 @@ def test_delete_last_admin_is_blocked(security_db):
     controller = AppController(db_path=str(security_db))
     with pytest.raises(ValueError, match="至少需要保留一位管理員"):
         controller.delete_user_account("admin", "admin")
+    assert any(
+        call.get("level") == "WARN" and "刪除帳號失敗" in call.get("message", "")
+        for call in mock_account_logs["system"]
+    )
 
 
-def test_delete_admin_allowed_when_multiple_admins(security_db):
+def test_delete_admin_allowed_when_multiple_admins(security_db, mock_account_logs):
     conn = sqlite3.connect(security_db)
     _insert_user(conn, "U1", "admin1", "管理員")
     _insert_user(conn, "U2", "admin2", "管理員")
@@ -69,9 +88,13 @@ def test_delete_admin_allowed_when_multiple_admins(security_db):
     rows = controller.list_users()
     usernames = {r["username"] for r in rows}
     assert usernames == {"admin1"}
+    assert any(
+        call["kwargs"].get("action") == "ACCOUNT.USER.DELETE"
+        for call in mock_account_logs["data"]
+    )
 
 
-def test_create_and_reset_password_write_security_logs(security_db):
+def test_create_and_reset_password_write_security_logs(security_db, mock_account_logs):
     conn = sqlite3.connect(security_db)
     _insert_user(conn, "U1", "admin", "管理員")
     conn.close()
@@ -92,6 +115,14 @@ def test_create_and_reset_password_write_security_logs(security_db):
     assert logs[-1][0] == "reset_password"
     assert logs[-1][1] == "admin"
     assert logs[-1][2] == "staff1"
+    assert any(
+        call["kwargs"].get("action") == "ACCOUNT.USER.CREATE"
+        for call in mock_account_logs["data"]
+    )
+    assert any(
+        call["kwargs"].get("action") == "ACCOUNT.USER.RESET_PASSWORD"
+        for call in mock_account_logs["data"]
+    )
 
 
 def test_create_user_stores_display_name(security_db):
@@ -134,3 +165,19 @@ def test_reset_password_rejects_password_same_as_username(security_db):
     controller = AppController(db_path=str(security_db))
     with pytest.raises(ValueError, match="same as username"):
         controller.reset_user_password("admin", "staff1001", "staff1001", mode="manual")
+
+
+def test_create_user_duplicate_writes_system_log(security_db, mock_account_logs):
+    conn = sqlite3.connect(security_db)
+    _insert_user(conn, "U1", "admin", "管理員")
+    _insert_user(conn, "U2", "staff1", "工作人員")
+    conn.close()
+
+    controller = AppController(db_path=str(security_db))
+    with pytest.raises(ValueError, match="username already exists"):
+        controller.create_user_account("admin", "staff1", "abcd1234", "工作人員", display_name="重複帳號")
+
+    assert any(
+        call.get("level") == "WARN" and "新增帳號失敗" in call.get("message", "")
+        for call in mock_account_logs["system"]
+    )

@@ -6,7 +6,22 @@ import app.controller.app_controller as app_controller_module
 from app.controller.app_controller import AppController
 
 
-def test_backup_defaults_and_save(tmp_path):
+def _mock_backup_logs(monkeypatch):
+    calls = {"data": [], "system": []}
+
+    def fake_data(*args, **kwargs):
+        calls["data"].append({"args": args, "kwargs": kwargs})
+
+    def fake_system(message: str, level: str = "INFO"):
+        calls["system"].append({"message": message, "level": level})
+
+    monkeypatch.setattr("app.controller.app_controller.log_data_change", fake_data)
+    monkeypatch.setattr("app.controller.app_controller.log_system", fake_system)
+    return calls
+
+
+def test_backup_defaults_and_save(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "backup_defaults.db"
     controller = AppController(db_path=str(db))
     defaults = controller.get_backup_settings()
@@ -46,6 +61,10 @@ def test_backup_defaults_and_save(tmp_path):
     assert data["drive_credentials_path"] == "/tmp/credentials.json"
     assert data["enable_local"] is True
     assert data["enable_drive"] is False
+    assert any(
+        call["kwargs"].get("action") == "BACKUP.SETTINGS.UPDATE"
+        for call in logs["data"]
+    )
 
 def test_backup_settings_read_drive_credentials_path(tmp_path):
     db = tmp_path / "backup_legacy_path.db"
@@ -55,7 +74,8 @@ def test_backup_settings_read_drive_credentials_path(tmp_path):
     assert data["drive_credentials_path"] == "/tmp/credentials.json"
 
 
-def test_create_local_backup_and_retention(tmp_path):
+def test_create_local_backup_and_retention(tmp_path, monkeypatch):
+    mock_logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "backup_retention.db"
     controller = AppController(db_path=str(db))
     backup_dir = tmp_path / "backups"
@@ -78,9 +98,40 @@ def test_create_local_backup_and_retention(tmp_path):
     files = sorted([p for p in os.listdir(backup_dir) if p.endswith(".db")])
     assert len(files) == 2
 
-    logs = controller.list_backup_logs(limit=10)
-    assert len(logs) >= 3
-    assert logs[0]["status"] == "SUCCESS"
+    backup_logs = controller.list_backup_logs(limit=10)
+    assert len(backup_logs) >= 3
+    assert backup_logs[0]["status"] == "SUCCESS"
+    assert any(
+        call["kwargs"].get("action") == "BACKUP.RUN.SUCCESS"
+        for call in mock_logs["data"]
+    )
+
+
+def test_create_local_backup_without_target_writes_system_log(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
+    db = tmp_path / "backup_without_target.db"
+    controller = AppController(db_path=str(db))
+    controller.save_backup_settings(
+        {
+            "enabled": True,
+            "frequency": "daily",
+            "time": "00:00",
+            "weekday": 1,
+            "monthday": 1,
+            "keep_latest": 20,
+            "local_dir": str(tmp_path / "backups"),
+            "enable_local": False,
+            "enable_drive": False,
+        }
+    )
+    import pytest
+    with pytest.raises(ValueError, match="請至少啟用一種備份目的地"):
+        controller.create_local_backup(manual=True, now=datetime(2026, 2, 20, 10, 0, 1))
+
+    assert any(
+        call.get("level") in {"WARN", "ERROR"} and "執行備份失敗" in call.get("message", "")
+        for call in logs["system"]
+    )
 
 
 def test_should_run_scheduled_backup(tmp_path):
@@ -145,7 +196,8 @@ def test_manual_backup_mark_does_not_block_scheduled_backup(tmp_path):
     assert controller.should_run_scheduled_backup(now=datetime(2026, 2, 20, 18, 50)) is True
 
 
-def test_scheduler_feature_settings_defaults_and_save(tmp_path):
+def test_scheduler_feature_settings_defaults_and_save(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_feature_settings.db"
     controller = AppController(db_path=str(db))
 
@@ -162,17 +214,27 @@ def test_scheduler_feature_settings_defaults_and_save(tmp_path):
     data = controller.get_scheduler_feature_settings()
     assert data["mail_enabled"] is False
     assert data["backup_enabled"] is True
+    assert any(
+        call["kwargs"].get("action") == "SCHEDULER.FEATURE_FLAGS.UPDATE"
+        for call in logs["data"]
+    )
 
 
-def test_scheduler_config_path_defaults_and_save(tmp_path):
+def test_scheduler_config_path_defaults_and_save(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_config_path.db"
     controller = AppController(db_path=str(db))
     assert controller.get_scheduler_config_path() == "app/scheduler/scheduler_config.yaml"
     controller.save_scheduler_config_path("/tmp/custom_scheduler.yaml")
     assert controller.get_scheduler_config_path() == "/tmp/custom_scheduler.yaml"
+    assert any(
+        call["kwargs"].get("action") == "SCHEDULER.CONFIG_PATH.UPDATE"
+        for call in logs["data"]
+    )
 
 
 def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_mail_settings.db"
     controller = AppController(db_path=str(db))
 
@@ -190,6 +252,10 @@ def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
     user, pwd = controller.get_scheduler_mail_credentials()
     assert user == "temple@gmail.com"
     assert pwd == "app-password"
+    assert any(
+        call["kwargs"].get("action") == "SCHEDULER.MAIL_SETTINGS.UPDATE"
+        for call in logs["data"]
+    )
 
 
 def test_authorize_google_drive_oauth_without_token_path_does_not_fallback(tmp_path, monkeypatch):

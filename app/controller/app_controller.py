@@ -14,6 +14,7 @@ from datetime import datetime, date, timedelta
 from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
 from app.utils.id_utils import generate_activity_id_safe, new_plan_id
 from app.config import DB_NAME
+from app.logging import log_data_change, log_system
 
 
 
@@ -60,6 +61,234 @@ class AppController:
 
     def _now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _log_finance_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_finance_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _tx_type_label(tx_type: str) -> str:
+        t = str(tx_type or "").strip().lower()
+        if t == "income":
+            return "收入"
+        if t == "expense":
+            return "支出"
+        return "交易"
+
+    def _build_transaction_detail(self, data: Dict[str, Any]) -> str:
+        d = dict(data or {})
+        parts = [
+            f"日期 {self._fmt_log_val(d.get('date'))}",
+            f"類型 {self._fmt_log_val(d.get('type'))}",
+            f"項目代號 {self._fmt_log_val(d.get('category_id'))}",
+            f"項目名稱 {self._fmt_log_val(d.get('category_name'))}",
+            f"金額 {self._fmt_log_val(d.get('amount'))}",
+            f"對象 {self._fmt_log_val(d.get('payer_name'))}",
+            f"信眾ID {self._fmt_log_val(d.get('payer_person_id'))}",
+            f"經手人 {self._fmt_log_val(d.get('handler'))}",
+            f"收據 {self._fmt_log_val(d.get('receipt_number'))}",
+            f"備註 {self._fmt_log_val(d.get('note'))}",
+            f"來源類型 {self._fmt_log_val(d.get('source_type'))}",
+            f"來源ID {self._fmt_log_val(d.get('source_id'))}",
+            f"調整類型 {self._fmt_log_val(d.get('adjustment_kind'))}",
+            f"系統產生 {self._fmt_log_val(d.get('is_system_generated'))}",
+        ]
+        return "，".join(parts)
+
+    def _build_transaction_diff(self, before: Dict[str, Any], after: Dict[str, Any]) -> str:
+        fields = [
+            ("date", "日期"),
+            ("category_id", "項目代號"),
+            ("category_name", "項目名稱"),
+            ("amount", "金額"),
+            ("payer_person_id", "信眾ID"),
+            ("payer_name", "對象"),
+            ("handler", "經手人"),
+            ("receipt_number", "收據"),
+            ("note", "備註"),
+            ("source_type", "來源類型"),
+            ("source_id", "來源ID"),
+            ("adjustment_kind", "調整類型"),
+        ]
+        changes = []
+        for key, label in fields:
+            old = self._fmt_log_val(before.get(key))
+            new = self._fmt_log_val(after.get(key))
+            if old != new:
+                changes.append(f"{label}：{old} -> {new}")
+        return "；".join(changes) if changes else "無欄位變更"
+
+    def _log_transaction_change(
+        self,
+        action: str,
+        tx_id,
+        data: Optional[Dict[str, Any]] = None,
+        before: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        payload = dict(data or {})
+        before_payload = dict(before or {})
+        tx_type = str(payload.get("type") or before_payload.get("type") or "").strip().lower()
+        tx_label = self._tx_type_label(tx_type)
+        action_u = str(action or "").strip().upper()
+        detail = self._build_transaction_detail(payload)
+
+        if action_u.endswith(".UPDATE"):
+            diff = self._build_transaction_diff(before_payload, payload)
+            msg = f"修改{tx_label}資料（ID {tx_id}，{detail}，變更：{diff}）"
+        elif action_u.endswith(".DELETE"):
+            msg = f"刪除{tx_label}資料（ID {tx_id}，{detail}）"
+        elif action_u.endswith(".CREATE"):
+            msg = f"新增{tx_label}資料（ID {tx_id}，{detail}）"
+        else:
+            msg = f"{tx_label}資料異動（ID {tx_id}，{detail}）"
+        self._log_finance_data_change(action=action, message=msg)
+
+    def _log_people_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_people_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _log_activity_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_activity_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _log_lighting_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_lighting_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _log_account_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_account_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _log_backup_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_backup_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _log_scheduler_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_scheduler_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _lighting_item_ids_text(
+        self,
+        item_ids: List[str],
+        active_map: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        ids = [str(x or "").strip() for x in (item_ids or []) if str(x or "").strip()]
+        if not ids:
+            return "-"
+        if not active_map:
+            return "、".join(ids)
+        parts = []
+        for iid in ids:
+            item = active_map.get(iid) or {}
+            name = str(item.get("name") or "").strip()
+            fee = int(item.get("fee") or 0)
+            if name:
+                parts.append(f"{iid}:{name}({fee})")
+            else:
+                parts.append(iid)
+        return "、".join(parts) if parts else "-"
+
+    def _resolve_person_name(self, person_id: str) -> str:
+        pid = str(person_id or "").strip()
+        if not pid or not self._table_exists("people"):
+            return ""
+        try:
+            cur = self.conn.cursor()
+            row = cur.execute("SELECT name FROM people WHERE id = ? LIMIT 1", (pid,)).fetchone()
+            return str((row["name"] if row and "name" in row.keys() else "") or "").strip()
+        except Exception:
+            return ""
+
+    def _resolve_activity_name(self, activity_id: str) -> str:
+        aid = str(activity_id or "").strip()
+        if not aid or not self._table_exists("activities"):
+            return ""
+        try:
+            cur = self.conn.cursor()
+            row = cur.execute("SELECT name FROM activities WHERE id = ? LIMIT 1", (aid,)).fetchone()
+            return str((row["name"] if row and "name" in row.keys() else "") or "").strip()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _fmt_log_val(value: Any) -> str:
+        if value is None:
+            return "-"
+        text = str(value).strip()
+        return text if text else "-"
+
+    def _build_people_profile_detail(self, data: Dict[str, Any]) -> str:
+        return (
+            f"姓名 {self._fmt_log_val(data.get('name'))}，"
+            f"性別 {self._fmt_log_val(data.get('gender'))}，"
+            f"國曆生日 {self._fmt_log_val(data.get('birthday_ad'))}，"
+            f"農曆生日 {self._fmt_log_val(data.get('birthday_lunar'))}，"
+            f"農曆生日為閏月 {self._fmt_log_val(data.get('lunar_is_leap'))}，"
+            f"出生時辰 {self._fmt_log_val(data.get('birth_time'))}，"
+            f"手機號碼 {self._fmt_log_val(data.get('phone_mobile'))}，"
+            f"聯絡電話 {self._fmt_log_val(data.get('phone_home'))}，"
+            f"地址 {self._fmt_log_val(data.get('address'))}，"
+            f"郵遞區號 {self._fmt_log_val(data.get('zip_code'))}，"
+            f"年齡 {self._fmt_log_val(data.get('age'))}，"
+            f"生肖 {self._fmt_log_val(data.get('zodiac'))}，"
+            f"備註 {self._fmt_log_val(data.get('note'))}"
+        )
 
     def _column_exists(self, table: str, column: str) -> bool:
         cur = self.conn.cursor()
@@ -253,6 +482,7 @@ class AppController:
         name = (name or "").strip()
         kind = (kind or "JI_XIANG").strip().upper()
         if not name:
+            self._log_lighting_system_event("新增安燈燈別失敗（原因：燈別名稱為空）", level="WARN")
             raise ValueError("lighting name is required")
         try:
             fee_value = int(fee or 0)
@@ -261,48 +491,139 @@ class AppController:
         item_id = self._next_lighting_item_id()
         now_text = self._now()
         cur = self.conn.cursor()
-        next_sort = cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM lighting_items").fetchone()[0]
-        cur.execute(
-            """
-            INSERT INTO lighting_items
-            (id, name, fee, kind, sort_order, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-            """,
-            (item_id, name, fee_value, kind, int(next_sort or 1), now_text, now_text),
+        try:
+            next_sort = cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM lighting_items").fetchone()[0]
+            cur.execute(
+                """
+                INSERT INTO lighting_items
+                (id, name, fee, kind, sort_order, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (item_id, name, fee_value, kind, int(next_sort or 1), now_text, now_text),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"新增安燈燈別失敗（燈別名稱 {name}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_lighting_data_change(
+            "LIGHTING.ITEM.CREATE",
+            f"新增安燈燈別（燈別ID {item_id}，燈別名稱 {name}，費用 {fee_value}，類型 {kind}，狀態 啟用）",
         )
-        self.conn.commit()
         return item_id
 
     def update_lighting_item(self, item_id: str, name: str, fee: int, kind: str = "JI_XIANG") -> bool:
         name = (name or "").strip()
         kind = (kind or "JI_XIANG").strip().upper()
         if not name:
+            self._log_lighting_system_event(
+                f"修改安燈燈別失敗（燈別ID {item_id}，原因：燈別名稱為空）",
+                level="WARN",
+            )
             raise ValueError("lighting name is required")
-        fee_value = int(fee or 0)
+        try:
+            fee_value = int(fee or 0)
+        except Exception:
+            fee_value = 0
         cur = self.conn.cursor()
-        cur.execute(
+        before = cur.execute(
             """
-            UPDATE lighting_items
-            SET name = ?, fee = ?, kind = ?, updated_at = ?
+            SELECT id, name, fee, kind, COALESCE(is_active, 1) AS is_active
+            FROM lighting_items
             WHERE id = ?
+            LIMIT 1
             """,
-            (name, fee_value, kind, self._now(), item_id),
-        )
-        self.conn.commit()
-        return cur.rowcount > 0
+            (item_id,),
+        ).fetchone()
+        if not before:
+            self._log_lighting_system_event(
+                f"修改安燈燈別失敗（燈別ID {item_id} 不存在）",
+                level="WARN",
+            )
+            return False
+        try:
+            cur.execute(
+                """
+                UPDATE lighting_items
+                SET name = ?, fee = ?, kind = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (name, fee_value, kind, self._now(), item_id),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"修改安燈燈別失敗（燈別ID {item_id}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        ok = cur.rowcount > 0
+        if ok:
+            self._log_lighting_data_change(
+                "LIGHTING.ITEM.UPDATE",
+                (
+                    f"修改安燈燈別（燈別ID {item_id}，"
+                    f"燈別名稱：{self._fmt_log_val(before['name'])} -> {self._fmt_log_val(name)}，"
+                    f"費用：{self._fmt_log_val(before['fee'])} -> {self._fmt_log_val(fee_value)}，"
+                    f"類型：{self._fmt_log_val(before['kind'])} -> {self._fmt_log_val(kind)}，"
+                    f"狀態 {'啟用' if int(before['is_active'] or 0) == 1 else '停用'}）"
+                ),
+            )
+        else:
+            self._log_lighting_system_event(
+                f"修改安燈燈別失敗（燈別ID {item_id} 未更新任何資料）",
+                level="WARN",
+            )
+        return ok
 
     def toggle_lighting_item_active(self, item_id: str) -> bool:
         cur = self.conn.cursor()
-        row = cur.execute("SELECT COALESCE(is_active, 1) FROM lighting_items WHERE id = ?", (item_id,)).fetchone()
+        row = cur.execute(
+            """
+            SELECT name, COALESCE(is_active, 1) AS is_active
+            FROM lighting_items
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (item_id,),
+        ).fetchone()
         if not row:
+            self._log_lighting_system_event(
+                f"停用/啟用安燈燈別失敗（燈別ID {item_id} 不存在）",
+                level="WARN",
+            )
             return False
-        next_active = 0 if int(row[0] or 0) == 1 else 1
-        cur.execute(
-            "UPDATE lighting_items SET is_active = ?, updated_at = ? WHERE id = ?",
-            (next_active, self._now(), item_id),
-        )
-        self.conn.commit()
-        return cur.rowcount > 0
+        current_active = int(row["is_active"] or 0)
+        next_active = 0 if current_active == 1 else 1
+        try:
+            cur.execute(
+                "UPDATE lighting_items SET is_active = ?, updated_at = ? WHERE id = ?",
+                (next_active, self._now(), item_id),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"停用/啟用安燈燈別失敗（燈別ID {item_id}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        ok = cur.rowcount > 0
+        if ok:
+            self._log_lighting_data_change(
+                "LIGHTING.ITEM.TOGGLE_ACTIVE",
+                (
+                    f"安燈燈別狀態變更（燈別ID {item_id}，燈別名稱 {self._fmt_log_val(row['name'])}，"
+                    f"狀態：{'啟用' if current_active == 1 else '停用'} -> {'啟用' if next_active == 1 else '停用'}）"
+                ),
+            )
+        else:
+            self._log_lighting_system_event(
+                f"停用/啟用安燈燈別失敗（燈別ID {item_id} 未更新任何資料）",
+                level="WARN",
+            )
+        return ok
 
     def _ensure_lighting_signup_schema(self):
         cur = self.conn.cursor()
@@ -536,7 +857,14 @@ class AppController:
         - 僅接受目前啟用中的燈別
         """
         year_value = int(signup_year)
-        payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        try:
+            payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"安燈報名新增/修改失敗（年度 {year_value}，person_id {self._fmt_log_val(person_id)}，原因：{e}）",
+                level="WARN",
+            )
+            raise
         pid = str(payload["person_id"])
         normalized_item_ids = list(payload["item_ids"])
         active_map = dict(payload["active_map"])
@@ -544,6 +872,10 @@ class AppController:
         cur = self.conn.cursor()
         now = self._now()
         note_text = (note or "").strip() or None
+        person_name = self._resolve_person_name(pid) or "-"
+        old_total = None
+        old_item_ids: List[str] = []
+        action = "LIGHTING.SIGNUP.CREATE"
 
         try:
             cur.execute("BEGIN;")
@@ -568,7 +900,22 @@ class AppController:
             if existing:
                 signup_id = str(existing["id"] or "")
                 if int(existing["is_paid"] or 0) == 1 and not bool(allow_paid_update):
+                    self._log_lighting_system_event(
+                        f"安燈報名修改失敗（signup_id {signup_id}，原因：已繳費且未允許修改）",
+                        level="WARN",
+                    )
                     raise ValueError("此筆安燈報名已繳費，不可直接修改")
+                old_total_row = cur.execute(
+                    "SELECT COALESCE(total_amount, 0) FROM lighting_signups WHERE id = ? LIMIT 1",
+                    (signup_id,),
+                ).fetchone()
+                old_total = int((old_total_row[0] if old_total_row else 0) or 0)
+                old_rows = cur.execute(
+                    "SELECT lighting_item_id FROM lighting_signup_items WHERE signup_id = ? ORDER BY lighting_item_id",
+                    (signup_id,),
+                ).fetchall()
+                old_item_ids = [str(r[0] or "").strip() for r in old_rows if str(r[0] or "").strip()]
+                action = "LIGHTING.SIGNUP.UPDATE"
                 cur.execute(
                     """
                     UPDATE lighting_signups
@@ -606,9 +953,28 @@ class AppController:
                 )
 
             cur.execute("COMMIT;")
+            self._log_lighting_data_change(
+                action,
+                (
+                    f"安燈報名{'修改' if action.endswith('UPDATE') else '新增'}（signup_id {signup_id}，年度 {year_value}，"
+                    f"報名人 {person_name}（person_id {pid}），"
+                    f"燈別 {self._lighting_item_ids_text(normalized_item_ids, active_map)}，"
+                    f"總金額 {total_amount}，備註 {self._fmt_log_val(note_text)}"
+                    + (
+                        f"，原燈別 {self._lighting_item_ids_text(old_item_ids)}，原總金額 {self._fmt_log_val(old_total)}"
+                        if action.endswith("UPDATE")
+                        else ""
+                    )
+                    + "）"
+                ),
+            )
             return signup_id
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"安燈報名新增/修改失敗（年度 {year_value}，person_id {pid}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
 
     def create_lighting_signup_append(self, signup_year: int, person_id: str, lighting_item_ids: List[str], note: str = "") -> Dict[str, Any]:
@@ -617,7 +983,14 @@ class AppController:
         已繳費後不修改原單，改為新增一筆「追加」紀錄。
         """
         year_value = int(signup_year)
-        payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        try:
+            payload = self._prepare_lighting_signup_payload(person_id, lighting_item_ids)
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"新增安燈追加報名失敗（年度 {year_value}，person_id {self._fmt_log_val(person_id)}，原因：{e}）",
+                level="WARN",
+            )
+            raise
         pid = str(payload["person_id"])
         normalized_item_ids = list(payload["item_ids"])
         active_map = dict(payload["active_map"])
@@ -625,6 +998,7 @@ class AppController:
         note_text = (note or "").strip() or None
         now = self._now()
         cur = self.conn.cursor()
+        person_name = self._resolve_person_name(pid) or "-"
 
         existing_rows = cur.execute(
             """
@@ -674,9 +1048,22 @@ class AppController:
                     (signup_id, iid, str(item.get("name") or ""), int(item.get("fee") or 0)),
                 )
             cur.execute("COMMIT;")
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.APPEND",
+                (
+                    f"新增安燈追加報名（signup_id {signup_id}，年度 {year_value}，"
+                    f"報名人 {person_name}（person_id {pid}），group_id {group_id}，kind {signup_kind}，"
+                    f"燈別 {self._lighting_item_ids_text(normalized_item_ids, active_map)}，"
+                    f"總金額 {total_amount}，備註 {self._fmt_log_val(note_text)}）"
+                ),
+            )
             return {"signup_id": signup_id, "group_id": group_id, "signup_kind": signup_kind}
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"新增安燈追加報名失敗（年度 {year_value}，person_id {pid}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
 
     def update_lighting_signup_items_by_signup_id(
@@ -688,6 +1075,7 @@ class AppController:
     ) -> str:
         sid = str(signup_id or "").strip()
         if not sid:
+            self._log_lighting_system_event("安燈報名修改失敗（原因：signup_id 為空）", level="WARN")
             raise ValueError("signup_id 為必填")
         cur = self.conn.cursor()
         row = cur.execute(
@@ -700,16 +1088,40 @@ class AppController:
             (sid,),
         ).fetchone()
         if not row:
+            self._log_lighting_system_event(f"安燈報名修改失敗（signup_id {sid} 不存在）", level="WARN")
             raise ValueError("找不到安燈報名資料")
         if int(row["is_paid"] or 0) == 1 and not bool(allow_paid_update):
+            self._log_lighting_system_event(
+                f"安燈報名修改失敗（signup_id {sid} 已繳費，未允許修改）",
+                level="WARN",
+            )
             raise ValueError("此筆安燈報名已繳費，不可直接修改")
 
-        payload = self._prepare_lighting_signup_payload(str(row["person_id"] or ""), lighting_item_ids)
+        try:
+            payload = self._prepare_lighting_signup_payload(str(row["person_id"] or ""), lighting_item_ids)
+        except Exception as e:
+            self._log_lighting_system_event(
+                f"安燈報名修改失敗（signup_id {sid}，原因：{e}）",
+                level="WARN",
+            )
+            raise
         normalized_item_ids = list(payload["item_ids"])
         active_map = dict(payload["active_map"])
         total_amount = int(payload["total_amount"])
         now = self._now()
         note_text = (note or "").strip() or None
+        person_id = str(row["person_id"] or "")
+        person_name = self._resolve_person_name(person_id) or "-"
+        before_total_row = cur.execute(
+            "SELECT COALESCE(total_amount, 0) FROM lighting_signups WHERE id = ? LIMIT 1",
+            (sid,),
+        ).fetchone()
+        before_total = int((before_total_row[0] if before_total_row else 0) or 0)
+        before_item_rows = cur.execute(
+            "SELECT lighting_item_id FROM lighting_signup_items WHERE signup_id = ? ORDER BY lighting_item_id",
+            (sid,),
+        ).fetchall()
+        before_item_ids = [str(r[0] or "").strip() for r in before_item_rows if str(r[0] or "").strip()]
 
         try:
             cur.execute("BEGIN;")
@@ -733,9 +1145,22 @@ class AppController:
                     (sid, iid, str(item.get("name") or ""), int(item.get("fee") or 0)),
                 )
             cur.execute("COMMIT;")
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.UPDATE_ITEMS",
+                (
+                    f"修改安燈報名燈別（signup_id {sid}，報名人 {person_name}（person_id {person_id}），"
+                    f"原燈別 {self._lighting_item_ids_text(before_item_ids)}，"
+                    f"新燈別 {self._lighting_item_ids_text(normalized_item_ids, active_map)}，"
+                    f"原總金額 {before_total}，新總金額 {total_amount}，備註 {self._fmt_log_val(note_text)}）"
+                ),
+            )
             return sid
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"安燈報名修改失敗（signup_id {sid}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
 
     def delete_lighting_signup(self, signup_year: int, signup_id: str) -> bool:
@@ -745,6 +1170,7 @@ class AppController:
         """
         sid = str(signup_id or "").strip()
         if not sid:
+            self._log_lighting_system_event("刪除安燈報名失敗（原因：signup_id 為空）", level="WARN")
             return False
         year_value = int(signup_year)
         cur = self.conn.cursor()
@@ -758,7 +1184,18 @@ class AppController:
             (year_value, sid),
         ).fetchone()
         if not row:
+            self._log_lighting_system_event(
+                f"刪除安燈報名失敗（年度 {year_value}，signup_id {sid} 不存在）",
+                level="WARN",
+            )
             return False
+        person_id_row = cur.execute(
+            "SELECT person_id FROM lighting_signups WHERE id = ? LIMIT 1",
+            (sid,),
+        ).fetchone()
+        person_id = str((person_id_row[0] if person_id_row else "") or "")
+        person_name = self._resolve_person_name(person_id) or "-"
+        voided_txn_count = 0
         try:
             cur.execute("BEGIN;")
             if int(row["is_paid"] or 0) == 1 and self._table_exists("transactions"):
@@ -774,12 +1211,25 @@ class AppController:
                         """,
                         (sid,),
                     )
+                    voided_txn_count = int(cur.rowcount or 0)
             cur.execute("DELETE FROM lighting_signup_items WHERE signup_id = ?", (sid,))
             cur.execute("DELETE FROM lighting_signups WHERE id = ? AND signup_year = ?", (sid, year_value))
             cur.execute("COMMIT;")
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.DELETE",
+                (
+                    f"刪除安燈報名（年度 {year_value}，signup_id {sid}，"
+                    f"報名人 {person_name}（person_id {person_id or '-'}），"
+                    f"已繳費 {int(row['is_paid'] or 0)}，作廢交易筆數 {voided_txn_count}）"
+                ),
+            )
             return True
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"刪除安燈報名失敗（年度 {year_value}，signup_id {sid}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
 
     def _resolve_lighting_income_item(self) -> Optional[Dict[str, Any]]:
@@ -871,6 +1321,14 @@ class AppController:
         self.set_setting("lighting/hint_year", str(int(year)))
         self.set_setting("lighting/hint_tai_sui_text", (tai_sui_text or "").strip())
         self.set_setting("lighting/hint_ji_gai_text", (ji_gai_text or "").strip())
+        self._log_lighting_data_change(
+            "LIGHTING.HINT.UPDATE",
+            (
+                f"更新安燈提示設定（年度 {int(year)}，"
+                f"犯太歲提示 {self._fmt_log_val((tai_sui_text or '').strip())}，"
+                f"祭改提示 {self._fmt_log_val((ji_gai_text or '').strip())}）"
+            ),
+        )
 
     def mark_lighting_signups_paid(self, signup_year: int, signup_ids: List[str], handler: str = "") -> Dict[str, Any]:
         normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
@@ -878,10 +1336,18 @@ class AppController:
             return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
         handler_text = (handler or "").strip()
         if not handler_text:
+            self._log_lighting_system_event(
+                f"安燈報名繳費失敗（年度 {int(signup_year)}，原因：經手人為空）",
+                level="WARN",
+            )
             raise ValueError("經手人為必填")
 
         income_item = self._resolve_lighting_income_item()
         if not income_item:
+            self._log_lighting_system_event(
+                f"安燈報名繳費失敗（年度 {int(signup_year)}，原因：找不到點燈收入項目 91）",
+                level="WARN",
+            )
             raise ValueError("找不到可用的點燈收入項目（91 點燈收入），請先確認類別設定")
 
         cur = self.conn.cursor()
@@ -913,11 +1379,16 @@ class AppController:
         paid_count = 0
         skipped_count = 0
         receipts: List[str] = []
+        paid_details: List[str] = []
+        skipped_details: List[str] = []
         try:
             cur.execute("BEGIN;")
             for row in rows:
                 if int(row.get("is_paid") or 0) == 1:
                     skipped_count += 1
+                    skipped_details.append(
+                        f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, signup_id {str(row.get('signup_id') or '-')})"
+                    )
                     continue
                 signup_kind = str(row.get("signup_kind") or "INITIAL").strip().upper()
                 adjustment_kind = "SUPPLEMENT" if signup_kind == "APPEND" else "PRIMARY"
@@ -945,10 +1416,34 @@ class AppController:
                 )
                 paid_count += 1
                 receipts.append(receipt)
+                paid_details.append(
+                    f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, "
+                    f"signup_id {str(row.get('signup_id') or '-')}, kind {signup_kind}, "
+                    f"金額 {int(row.get('total_amount') or 0)}, 收據 {receipt}）"
+                )
             cur.execute("COMMIT;")
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"安燈報名繳費失敗（年度 {int(signup_year)}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
+        if paid_count > 0:
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.PAY",
+                (
+                    f"安燈報名繳費完成（年度 {int(signup_year)}，經手人 {handler_text}，"
+                    f"成功 {paid_count} 筆，略過 {skipped_count} 筆，"
+                    f"繳費名單：{'；'.join(paid_details) if paid_details else '-'}，"
+                    f"已繳費略過：{'；'.join(skipped_details) if skipped_details else '-'}）"
+                ),
+            )
+        elif skipped_count > 0:
+            self._log_lighting_system_event(
+                f"安燈報名繳費未處理（年度 {int(signup_year)}，全部皆已繳費，略過 {skipped_count} 筆）",
+                level="WARN",
+            )
         return {"paid_count": paid_count, "skipped_count": skipped_count, "receipt_numbers": receipts}
 
     def update_paid_lighting_signup_with_adjustment(
@@ -967,9 +1462,14 @@ class AppController:
         """
         pid = str(person_id or "").strip()
         if not pid:
+            self._log_lighting_system_event("安燈報名差額調整失敗（原因：person_id 為空）", level="WARN")
             raise ValueError("person_id 為必填")
         handler_text = (handler or "").strip()
         if not handler_text:
+            self._log_lighting_system_event(
+                f"安燈報名差額調整失敗（person_id {pid}，原因：經手人為空）",
+                level="WARN",
+            )
             raise ValueError("經手人為必填")
 
         cur = self.conn.cursor()
@@ -990,6 +1490,10 @@ class AppController:
             (int(signup_year), pid),
         ).fetchone()
         if not existing:
+            self._log_lighting_system_event(
+                f"安燈報名差額調整失敗（年度 {int(signup_year)}，person_id {pid}，原因：找不到安燈報名資料）",
+                level="WARN",
+            )
             raise ValueError("找不到安燈報名資料")
 
         old_total = int(existing["total_amount"] or 0)
@@ -1016,6 +1520,14 @@ class AppController:
         delta = new_total - old_total
 
         if (not is_paid) or delta == 0:
+            self._log_lighting_data_change(
+                "LIGHTING.SIGNUP.ADJUST",
+                (
+                    f"安燈報名調整（無差額交易）（signup_id {signup_id}，"
+                    f"報名人 {person_name or '-'}（person_id {pid}），"
+                    f"舊金額 {old_total}，新金額 {new_total}，delta {delta}，is_paid {1 if is_paid else 0}）"
+                ),
+            )
             return {
                 "signup_id": signup_id,
                 "old_total": old_total,
@@ -1037,6 +1549,10 @@ class AppController:
             if delta > 0:
                 income_item = self._resolve_lighting_income_item()
                 if not income_item:
+                    self._log_lighting_system_event(
+                        f"安燈報名差額調整失敗（signup_id {signup_id}，原因：找不到點燈收入項目 91）",
+                        level="WARN",
+                    )
                     raise ValueError("找不到可用的點燈收入項目（91 點燈收入）")
                 receipt_number = self.generate_receipt_number(today)
                 cur.execute(
@@ -1068,6 +1584,10 @@ class AppController:
             else:
                 refund_item = self._resolve_lighting_refund_expense_item()
                 if not refund_item:
+                    self._log_lighting_system_event(
+                        f"安燈報名差額調整失敗（signup_id {signup_id}，原因：找不到安燈退費項目 91R）",
+                        level="WARN",
+                    )
                     raise ValueError("找不到可用的安燈退費項目（91R 安燈退費）")
                 cur.execute(
                     """
@@ -1098,9 +1618,23 @@ class AppController:
 
             adjustment_txn_id = cur.lastrowid
             cur.execute("COMMIT;")
-        except Exception:
+        except Exception as e:
             cur.execute("ROLLBACK;")
+            self._log_lighting_system_event(
+                f"安燈報名差額調整失敗（signup_id {signup_id}，原因：交易回滾 / {e}）",
+                level="WARN",
+            )
             raise
+
+        self._log_lighting_data_change(
+            "LIGHTING.SIGNUP.ADJUST",
+            (
+                f"安燈報名差額調整完成（signup_id {signup_id}，報名人 {person_name or '-'}（person_id {pid}），"
+                f"舊金額 {old_total}，新金額 {new_total}，delta {delta}，"
+                f"調整型態 {adjustment_type or '-'}，交易ID {adjustment_txn_id or '-'}，"
+                f"收據 {receipt_number or '-'}）"
+            ),
+        )
 
         return {
             "signup_id": signup_id,
@@ -1201,8 +1735,19 @@ class AppController:
             return 15
 
     def save_security_settings(self, reminder_days: int, idle_minutes: int):
-        self.set_setting("security/password_reminder_days", str(max(0, int(reminder_days))))
-        self.set_setting("security/idle_logout_minutes", str(max(0, int(idle_minutes))))
+        old_reminder_days = self.get_password_reminder_days()
+        old_idle_minutes = self.get_idle_logout_minutes()
+        new_reminder_days = max(0, int(reminder_days))
+        new_idle_minutes = max(0, int(idle_minutes))
+        self.set_setting("security/password_reminder_days", str(new_reminder_days))
+        self.set_setting("security/idle_logout_minutes", str(new_idle_minutes))
+        self._log_account_data_change(
+            "ACCOUNT.SECURITY_SETTINGS.UPDATE",
+            (
+                f"更新帳號安全設定（密碼提醒天數：{old_reminder_days} -> {new_reminder_days}；"
+                f"閒置自動登出分鐘：{old_idle_minutes} -> {new_idle_minutes}）"
+            ),
+        )
 
     def get_login_cover_settings(self) -> Dict[str, str]:
         return {
@@ -1224,10 +1769,19 @@ class AppController:
         return (self.get_setting("scheduler/config_path", "app/scheduler/scheduler_config.yaml") or "").strip() or "app/scheduler/scheduler_config.yaml"
 
     def save_scheduler_config_path(self, path: str):
+        before = self.get_scheduler_config_path()
         value = (path or "").strip()
         if not value:
             value = "app/scheduler/scheduler_config.yaml"
         self.set_setting("scheduler/config_path", value)
+        self._log_scheduler_data_change(
+            "SCHEDULER.CONFIG_PATH.UPDATE",
+            (
+                "更新排程設定檔路徑（"
+                f"舊路徑 {self._fmt_log_val(before)}，"
+                f"新路徑 {self._fmt_log_val(value)}）"
+            ),
+        )
 
     def get_scheduler_mail_settings(self) -> Dict[str, Any]:
         username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
@@ -1248,13 +1802,31 @@ class AppController:
     def save_scheduler_mail_settings(self, smtp_username: str, smtp_password: str = ""):
         username = (smtp_username or "").strip()
         if not username:
+            self._log_scheduler_system_event("儲存排程郵件設定失敗（原因：未輸入 Gmail 帳號）", level="WARN")
             raise ValueError("請輸入 Gmail 帳號。")
+        before = self.get_scheduler_mail_settings()
         self.set_setting("scheduler/smtp_username", username)
+        password_updated = False
         if (smtp_password or "").strip():
             try:
                 secret_store.set_secret(self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY, smtp_password)
+                password_updated = True
             except Exception as e:
+                self._log_scheduler_system_event(
+                    f"儲存排程郵件設定失敗（帳號 {self._fmt_log_val(username)}，原因：無法寫入 {secret_store.backend_label()}：{e}）",
+                    level="ERROR",
+                )
                 raise RuntimeError(f"無法寫入 {secret_store.backend_label()}：{e}")
+        self._log_scheduler_data_change(
+            "SCHEDULER.MAIL_SETTINGS.UPDATE",
+            (
+                "更新排程郵件設定（"
+                f"舊帳號 {self._fmt_log_val(before.get('smtp_username'))}，"
+                f"新帳號 {self._fmt_log_val(username)}，"
+                f"密碼更新 {1 if password_updated else 0}，"
+                f"密碼保存位置 {self._fmt_log_val(secret_store.backend_label())}）"
+            ),
+        )
 
     def get_scheduler_mail_credentials(self) -> Tuple[str, str]:
         username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
@@ -1271,9 +1843,20 @@ class AppController:
 
     def save_scheduler_feature_settings(self, settings: Dict[str, Any]):
         if not isinstance(settings, dict):
+            self._log_scheduler_system_event("儲存排程功能設定失敗（原因：settings 非 dict）", level="WARN")
             raise ValueError("settings must be a dict")
+        before = self.get_scheduler_feature_settings()
         self.set_setting("scheduler/mail_enabled", "1" if bool(settings.get("mail_enabled", True)) else "0")
         self.set_setting("scheduler/backup_enabled", "1" if bool(settings.get("backup_enabled", True)) else "0")
+        after = self.get_scheduler_feature_settings()
+        self._log_scheduler_data_change(
+            "SCHEDULER.FEATURE_FLAGS.UPDATE",
+            (
+                "更新排程功能旗標（"
+                f"郵件排程：{int(bool(before.get('mail_enabled')))} -> {int(bool(after.get('mail_enabled')))}；"
+                f"備份排程：{int(bool(before.get('backup_enabled')))} -> {int(bool(after.get('backup_enabled')))}）"
+            ),
+        )
 
     # -------------------------
     # Backup
@@ -1305,7 +1888,9 @@ class AppController:
 
     def save_backup_settings(self, settings: Dict[str, Any]):
         if not isinstance(settings, dict):
+            self._log_backup_system_event("儲存備份設定失敗（原因：settings 非 dict）", level="WARN")
             raise ValueError("settings must be a dict")
+        before = self.get_backup_settings()
         self.set_setting("backup/enabled", "1" if bool(settings.get("enabled")) else "0")
         self.set_setting("backup/frequency", str(settings.get("frequency", "daily")).strip().lower())
         self.set_setting("backup/time", str(settings.get("time", "23:00")).strip())
@@ -1319,6 +1904,22 @@ class AppController:
         self.set_setting("backup/enable_local", "1" if bool(settings.get("enable_local", True)) else "0")
         self.set_setting("backup/enable_drive", "1" if bool(settings.get("enable_drive", False)) else "0")
         self.set_setting("backup/use_cli_scheduler", "1" if bool(settings.get("use_cli_scheduler")) else "0")
+        after = self.get_backup_settings()
+        self._log_backup_data_change(
+            "BACKUP.SETTINGS.UPDATE",
+            (
+                "更新備份設定（"
+                f"啟用：{int(bool(before.get('enabled')))} -> {int(bool(after.get('enabled')))}；"
+                f"頻率：{self._fmt_log_val(before.get('frequency'))} -> {self._fmt_log_val(after.get('frequency'))}；"
+                f"時間：{self._fmt_log_val(before.get('time'))} -> {self._fmt_log_val(after.get('time'))}；"
+                f"保留數：{self._fmt_log_val(before.get('keep_latest'))} -> {self._fmt_log_val(after.get('keep_latest'))}；"
+                f"本機路徑：{self._fmt_log_val(before.get('local_dir'))} -> {self._fmt_log_val(after.get('local_dir'))}；"
+                f"啟用本機：{int(bool(before.get('enable_local')))} -> {int(bool(after.get('enable_local')))}；"
+                f"啟用Drive：{int(bool(before.get('enable_drive')))} -> {int(bool(after.get('enable_drive')))}；"
+                f"CLI排程：{int(bool(before.get('use_cli_scheduler')))} -> {int(bool(after.get('use_cli_scheduler')))}"
+                "）"
+            ),
+        )
 
     def _default_backup_dir(self) -> str:
         return os.path.join(os.path.dirname(DB_NAME), "backups")
@@ -1362,6 +1963,10 @@ class AppController:
         enable_local = bool(settings.get("enable_local"))
         enable_drive = bool(settings.get("enable_drive"))
         if not enable_local and not enable_drive:
+            self._log_backup_system_event(
+                f"執行備份失敗（trigger {'MANUAL' if manual else 'SCHEDULED'}，原因：未啟用任何備份目的地）",
+                level="WARN",
+            )
             raise ValueError("請至少啟用一種備份目的地（本機或 Google Drive）")
 
         return self._create_backup_with_targets(
@@ -1445,6 +2050,14 @@ class AppController:
                 drive_file_name=os.path.basename(backup_file),
             )
             self._insert_backup_log(created_at, trigger, "SUCCESS", backup_file_display, size, "")
+            self._log_backup_data_change(
+                "BACKUP.RUN.SUCCESS",
+                (
+                    f"備份成功（trigger {trigger}，時間 {created_at}，"
+                    f"目的地 本機:{int(enable_local)} / Drive:{int(enable_drive)}，"
+                    f"檔案 {self._fmt_log_val(backup_file_display)}，大小 {size} bytes）"
+                ),
+            )
             return {
                 "created_at": created_at,
                 "status": "SUCCESS",
@@ -1463,6 +2076,14 @@ class AppController:
                 drive_file_name=os.path.basename(backup_file) if backup_file else "",
             )
             self._insert_backup_log(created_at, trigger, "FAILED", backup_file_display, 0, str(e))
+            self._log_backup_system_event(
+                (
+                    f"備份失敗（trigger {trigger}，時間 {created_at}，"
+                    f"目的地 本機:{int(enable_local)} / Drive:{int(enable_drive)}，"
+                    f"檔案 {self._fmt_log_val(backup_file_display)}，原因：{e}）"
+                ),
+                level="WARN",
+            )
             raise
 
     def _upload_backup_to_drive(
@@ -1507,13 +2128,24 @@ class AppController:
         return str(res.get("id") or ""), folder_name
 
     def authorize_google_drive_oauth(self, oauth_client_secret_path: str) -> Dict[str, str]:
-        service = self._build_drive_service_oauth(
-            oauth_client_secret_path=(oauth_client_secret_path or "").strip(),
-            interactive=True,
-        )
-        about = service.about().get(fields="user(emailAddress)").execute()
-        email = str((about.get("user") or {}).get("emailAddress") or "")
-        return {"email": email}
+        try:
+            service = self._build_drive_service_oauth(
+                oauth_client_secret_path=(oauth_client_secret_path or "").strip(),
+                interactive=True,
+            )
+            about = service.about().get(fields="user(emailAddress)").execute()
+            email = str((about.get("user") or {}).get("emailAddress") or "")
+            self._log_backup_data_change(
+                "BACKUP.OAUTH.AUTHORIZED",
+                f"Google Drive 授權成功（email {self._fmt_log_val(email)}）",
+            )
+            return {"email": email}
+        except Exception as e:
+            self._log_backup_system_event(
+                f"Google Drive 授權失敗（原因：{e}）",
+                level="WARN",
+            )
+            raise
 
     def _build_drive_service_oauth(
         self,
@@ -1670,6 +2302,10 @@ class AppController:
         - 若達條件並完成備份：回傳 True
         """
         if not self.should_run_scheduled_backup(now=now):
+            self._log_backup_system_event(
+                f"排程備份略過（時間 {self._fmt_log_val((now or datetime.now()).strftime('%Y-%m-%d %H:%M:%S'))}，原因：未達觸發條件）",
+                level="INFO",
+            )
             return False
         self.create_local_backup(manual=False, now=now)
         self.mark_backup_run(now=now, scheduled=True)
@@ -1712,48 +2348,97 @@ class AppController:
         display_name = (display_name or "").strip()
         role = (role or "").strip()
         if not username:
+            self._log_account_system_event("新增帳號失敗（原因：username 為空）", level="WARN")
             raise ValueError("username is required")
         if not display_name:
+            self._log_account_system_event(f"新增帳號失敗（帳號 {username}，原因：display_name 為空）", level="WARN")
             raise ValueError("display_name is required")
-        self._validate_password_policy(username, password)
+        try:
+            self._validate_password_policy(username, password)
+        except Exception as e:
+            self._log_account_system_event(
+                f"新增帳號失敗（帳號 {username}，原因：密碼政策不符，{e}）",
+                level="WARN",
+            )
+            raise
         cur = self.conn.cursor()
         cur.execute("SELECT 1 FROM users WHERE username=?", (username,))
         if cur.fetchone():
+            self._log_account_system_event(f"新增帳號失敗（帳號 {username} 已存在）", level="WARN")
             raise ValueError("username already exists")
         import bcrypt
 
-        pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        now = self._now()
-        cur.execute(
-            """
-            INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at, is_active, password_changed_at, must_change_password)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 0)
-            """,
-            (self._uuid(), username, display_name, pw_hash, role, now, now, now),
+        try:
+            pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+            now = self._now()
+            cur.execute(
+                """
+                INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at, is_active, password_changed_at, must_change_password)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 0)
+                """,
+                (self._uuid(), username, display_name, pw_hash, role, now, now, now),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_account_system_event(
+                f"新增帳號失敗（帳號 {username}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_account_data_change(
+            "ACCOUNT.USER.CREATE",
+            (
+                f"新增帳號（操作者 {self._fmt_log_val(actor_username)}，帳號 {username}，姓名 {display_name}，"
+                f"角色 {self._fmt_log_val(role)}，狀態 啟用）"
+            ),
         )
-        self.conn.commit()
         self.log_security_event(actor_username, "create_user", username, f"role={role},display_name={display_name}")
 
     def reset_user_password(self, actor_username: str, target_username: str, new_password: str, mode: str = "manual"):
         target_username = (target_username or "").strip()
-        self._validate_password_policy(target_username, new_password)
+        try:
+            self._validate_password_policy(target_username, new_password)
+        except Exception as e:
+            self._log_account_system_event(
+                f"重設密碼失敗（目標帳號 {self._fmt_log_val(target_username)}，原因：密碼政策不符，{e}）",
+                level="WARN",
+            )
+            raise
         cur = self.conn.cursor()
         cur.execute("SELECT username FROM users WHERE username=?", (target_username,))
         if not cur.fetchone():
+            self._log_account_system_event(
+                f"重設密碼失敗（目標帳號 {target_username} 不存在）",
+                level="WARN",
+            )
             raise ValueError("target user not found")
         import bcrypt
 
-        pw_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        now = self._now()
-        cur.execute(
-            """
-            UPDATE users
-            SET password_hash=?, password_changed_at=?, updated_at=?
-            WHERE username=?
-            """,
-            (pw_hash, now, now, target_username),
+        try:
+            pw_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+            now = self._now()
+            cur.execute(
+                """
+                UPDATE users
+                SET password_hash=?, password_changed_at=?, updated_at=?
+                WHERE username=?
+                """,
+                (pw_hash, now, now, target_username),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_account_system_event(
+                f"重設密碼失敗（目標帳號 {target_username}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_account_data_change(
+            "ACCOUNT.USER.RESET_PASSWORD",
+            (
+                f"重設帳號密碼（操作者 {self._fmt_log_val(actor_username)}，目標帳號 {target_username}，"
+                f"模式 {self._fmt_log_val(mode)}）"
+            ),
         )
-        self.conn.commit()
         self.log_security_event(actor_username, "reset_password", target_username, f"mode={mode}")
 
     def toggle_user_active(self, actor_username: str, target_username: str, is_active: bool):
@@ -1761,39 +2446,86 @@ class AppController:
         cur.execute("SELECT role, COALESCE(is_active,1) FROM users WHERE username=?", (target_username,))
         row = cur.fetchone()
         if not row:
+            self._log_account_system_event(
+                f"帳號啟用/停用失敗（目標帳號 {self._fmt_log_val(target_username)} 不存在）",
+                level="WARN",
+            )
             raise ValueError("target user not found")
         target_role = row[0]
+        old_active = int(row[1] or 0)
         if not is_active and target_role == "管理員":
             cur.execute("SELECT COUNT(*) FROM users WHERE role='管理員' AND COALESCE(is_active,1)=1")
             active_admin_count = int(cur.fetchone()[0] or 0)
             if active_admin_count <= 1:
+                self._log_account_system_event(
+                    f"帳號停用失敗（目標帳號 {target_username}，原因：最後一位啟用中的管理員不可停用）",
+                    level="WARN",
+                )
                 raise ValueError("至少需要保留一位啟用中的管理員")
         now = self._now()
-        cur.execute(
-            "UPDATE users SET is_active=?, updated_at=? WHERE username=?",
-            (1 if is_active else 0, now, target_username),
+        try:
+            cur.execute(
+                "UPDATE users SET is_active=?, updated_at=? WHERE username=?",
+                (1 if is_active else 0, now, target_username),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_account_system_event(
+                f"帳號啟用/停用失敗（目標帳號 {target_username}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_account_data_change(
+            "ACCOUNT.USER.TOGGLE_ACTIVE",
+            (
+                f"帳號狀態變更（操作者 {self._fmt_log_val(actor_username)}，目標帳號 {target_username}，"
+                f"角色 {self._fmt_log_val(target_role)}，"
+                f"狀態：{'啟用' if old_active == 1 else '停用'} -> {'啟用' if is_active else '停用'}）"
+            ),
         )
-        self.conn.commit()
         action = "enable_user" if is_active else "disable_user"
         self.log_security_event(actor_username, action, target_username, "")
 
     def delete_user_account(self, actor_username: str, target_username: str):
         target_username = (target_username or "").strip()
         if not target_username:
+            self._log_account_system_event("刪除帳號失敗（原因：target user 為空）", level="WARN")
             raise ValueError("target user is required")
         cur = self.conn.cursor()
         cur.execute("SELECT role FROM users WHERE username=?", (target_username,))
         row = cur.fetchone()
         if not row:
+            self._log_account_system_event(
+                f"刪除帳號失敗（目標帳號 {target_username} 不存在）",
+                level="WARN",
+            )
             raise ValueError("target user not found")
         target_role = row[0]
         if target_role == "管理員":
             cur.execute("SELECT COUNT(*) FROM users WHERE role='管理員'")
             admin_count = int(cur.fetchone()[0] or 0)
             if admin_count <= 1:
+                self._log_account_system_event(
+                    f"刪除帳號失敗（目標帳號 {target_username}，原因：最後一位管理員不可刪除）",
+                    level="WARN",
+                )
                 raise ValueError("至少需要保留一位管理員，無法刪除最後一位管理員")
-        cur.execute("DELETE FROM users WHERE username=?", (target_username,))
-        self.conn.commit()
+        try:
+            cur.execute("DELETE FROM users WHERE username=?", (target_username,))
+            self.conn.commit()
+        except Exception as e:
+            self._log_account_system_event(
+                f"刪除帳號失敗（目標帳號 {target_username}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_account_data_change(
+            "ACCOUNT.USER.DELETE",
+            (
+                f"刪除帳號（操作者 {self._fmt_log_val(actor_username)}，目標帳號 {target_username}，"
+                f"角色 {self._fmt_log_val(target_role)}）"
+            ),
+        )
         self.log_security_event(actor_username, "delete_user", target_username, "")
 
     def update_last_login(self, username: str):
@@ -1897,6 +2629,10 @@ class AppController:
                 cleaned_required[field] = v
 
         if missing:
+            self._log_people_system_event(
+                f"新增戶長失敗（原因：缺少必填欄位，{'; '.join(missing)}）",
+                level="WARN",
+            )
             raise ValueError(" / ".join(missing))
 
         # 2) 檢查通過後，才開始組資料（填寫輸入）
@@ -1938,6 +2674,13 @@ class AppController:
             tuple(data[k] for k in keys),
         )
         self.conn.commit()
+        self._log_people_data_change(
+            "PEOPLE.HOUSEHOLD.CREATE",
+            (
+                f"新增戶長資料（person_id {person_id}，household_id {household_id}，"
+                f"{self._build_people_profile_detail(data)}）"
+            ),
+        )
         return person_id, household_id
 
     def create_people(self, household_id: str, person_payload: dict) -> str:
@@ -1946,8 +2689,9 @@ class AppController:
         return: person_id
         """
 
-        household_id = (household_id or "").strip()
-        if not household_id:
+        head_person_id = (household_id or "").strip()
+        if not head_person_id:
+            self._log_people_system_event("新增戶員失敗（原因：head_person_id 為空）", level="WARN")
             raise ValueError("household_id is required")
 
         cur = self.conn.cursor()
@@ -1961,10 +2705,14 @@ class AppController:
             AND role_in_household = 'HEAD'
             AND status = 'ACTIVE'
             """,
-            (household_id,),
+            (head_person_id,),
         ).fetchone()
 
         if not row:
+            self._log_people_system_event(
+                f"新增戶員失敗（head_person_id {head_person_id} 不存在或非 ACTIVE 戶長）",
+                level="WARN",
+            )
             raise ValueError("head person not found or not ACTIVE HEAD")
 
         household_id = row[0]
@@ -1994,6 +2742,10 @@ class AppController:
                 cleaned_required[field] = v
 
         if missing:
+            self._log_people_system_event(
+                f"新增戶員失敗（head_person_id {head_person_id}，原因：缺少必填欄位）",
+                level="WARN",
+            )
             raise ValueError(" / ".join(missing))
 
         # 2) 檢查通過後，才開始組資料
@@ -2042,6 +2794,13 @@ class AppController:
             tuple(data[k] for k in keys),
         )
         self.conn.commit()
+        self._log_people_data_change(
+            "PEOPLE.MEMBER.CREATE",
+            (
+                f"新增戶員資料（person_id {person_id}，household_id {household_id}，"
+                f"{self._build_people_profile_detail(data)}）"
+            ),
+        )
 
         return person_id
 
@@ -2245,20 +3004,34 @@ class AppController:
         }
         person_id = (person_id or "").strip()
         if not person_id:
+            self._log_people_system_event("修改信眾失敗（原因：person_id 為空）", level="WARN")
             raise ValueError("person_id is required")
 
         if payload is None or not isinstance(payload, dict):
+            self._log_people_system_event(
+                f"修改信眾失敗（person_id {person_id}，原因：payload 非 dict）",
+                level="WARN",
+            )
             raise ValueError("payload must be a dict")
 
         # 1) 先確認 person 存在（同時拿既有生日，供年齡校正計算）
         cur = self.conn.cursor()
         existing = cur.execute(
-            "SELECT birthday_ad, phone_home, phone_mobile FROM people WHERE id = ?",
+            """
+            SELECT
+                household_id, role_in_household,
+                name, gender, birthday_ad, birthday_lunar, lunar_is_leap,
+                birth_time, age, age_offset, zodiac, phone_home, phone_mobile,
+                address, zip_code, note
+            FROM people
+            WHERE id = ?
+            """,
             (person_id,),
         ).fetchone()
         if not existing:
+            self._log_people_system_event(f"修改信眾失敗（person_id {person_id} 不存在）", level="WARN")
             raise ValueError("person not found")
-        existing_birthday_ad = existing[0]
+        existing_birthday_ad = existing["birthday_ad"]
 
         # 2) 過濾出允許更新的欄位
         updates: Dict[str, Any] = {}
@@ -2279,16 +3052,32 @@ class AppController:
                 try:
                     v = int(v)
                 except Exception:
+                    self._log_people_system_event(
+                        f"修改信眾失敗（person_id {person_id}，欄位 農曆生日為閏月 格式錯誤）",
+                        level="WARN",
+                    )
                     raise ValueError("lunar_is_leap must be 0 or 1")
                 if v not in (0, 1):
+                    self._log_people_system_event(
+                        f"修改信眾失敗（person_id {person_id}，欄位 農曆生日為閏月 只允許 0/1）",
+                        level="WARN",
+                    )
                     raise ValueError("lunar_is_leap must be 0 or 1")
 
             if k == "age" and v not in (None, ""):
                 try:
                     v = int(v)
                 except Exception:
+                    self._log_people_system_event(
+                        f"修改信眾失敗（person_id {person_id}，欄位 年齡 非整數）",
+                        level="WARN",
+                    )
                     raise ValueError("age must be an integer")
                 if v < 0 or v > 150:
+                    self._log_people_system_event(
+                        f"修改信眾失敗（person_id {person_id}，欄位 年齡 超出範圍）",
+                        level="WARN",
+                    )
                     raise ValueError("age must be between 0 and 150")
                 birthday_for_age = payload.get("birthday_ad", existing_birthday_ad)
                 offset = self._derive_age_offset(birthday_for_age, v)
@@ -2297,6 +3086,7 @@ class AppController:
             updates[k] = v
 
         if not updates:
+            self._log_people_system_event(f"修改信眾失敗（person_id {person_id} 無可更新欄位）", level="WARN")
             raise ValueError("no updatable fields in payload")
 
         # 2.5) 電話規則：聯絡電話/手機號碼至少一個有值
@@ -2304,6 +3094,10 @@ class AppController:
             new_mobile = updates["phone_mobile"] if "phone_mobile" in updates else (existing["phone_mobile"] or "")
             new_home = updates["phone_home"] if "phone_home" in updates else (existing["phone_home"] or "")
             if not str(new_mobile).strip() and not str(new_home).strip():
+                self._log_people_system_event(
+                    f"修改信眾失敗（person_id {person_id}，原因：聯絡電話與手機號碼不可同時為空）",
+                    level="WARN",
+                )
                 raise ValueError("聯絡電話與手機號碼不可同時為空，請至少保留一個")
 
         # 3) 組 SQL
@@ -2313,6 +3107,63 @@ class AppController:
         params = list(updates.values()) + [person_id]
         cur.execute(sql, tuple(params))
         self.conn.commit()
+        if cur.rowcount > 0:
+            label_map = {
+                "name": "姓名",
+                "gender": "性別",
+                "birthday_ad": "國曆生日",
+                "birthday_lunar": "農曆生日",
+                "lunar_is_leap": "農曆生日為閏月",
+                "birth_time": "出生時辰",
+                "age": "年齡",
+                "zodiac": "生肖",
+                "phone_home": "聯絡電話",
+                "phone_mobile": "手機號碼",
+                "address": "地址",
+                "zip_code": "郵遞區號",
+                "note": "備註",
+            }
+            change_parts = []
+            for field in sorted(updates.keys()):
+                if field == "age_offset":
+                    continue
+                old_v = self._fmt_log_val(existing[field])
+                new_v = self._fmt_log_val(updates[field])
+                if old_v == new_v:
+                    continue
+                change_parts.append(
+                    f"{label_map.get(field, field)}：{old_v} -> {new_v}"
+                )
+            changes_text = "；".join(change_parts) if change_parts else "欄位值無異動"
+            before_profile = {
+                "name": existing["name"],
+                "gender": existing["gender"],
+                "birthday_ad": existing["birthday_ad"],
+                "birthday_lunar": existing["birthday_lunar"],
+                "lunar_is_leap": existing["lunar_is_leap"],
+                "birth_time": existing["birth_time"],
+                "phone_mobile": existing["phone_mobile"],
+                "phone_home": existing["phone_home"],
+                "address": existing["address"],
+                "zip_code": existing["zip_code"],
+                "age": existing["age"],
+                "zodiac": existing["zodiac"],
+                "note": existing["note"],
+            }
+            after_profile = dict(before_profile)
+            for field, value in updates.items():
+                if field == "age_offset":
+                    continue
+                after_profile[field] = value
+            self._log_people_data_change(
+                "PEOPLE.UPDATE",
+                (
+                    f"修改信眾資料（person_id {person_id}，household_id {existing['household_id']}，"
+                    f"角色 {existing['role_in_household']}，變更：{changes_text}；"
+                    f"原資料：{self._build_people_profile_detail(before_profile)}；"
+                    f"新資料：{self._build_people_profile_detail(after_profile)}）"
+                ),
+            )
 
         return cur.rowcount
 
@@ -2334,6 +3185,7 @@ class AppController:
 
         member_person_id = (member_person_id or "").strip()
         if not member_person_id:
+            self._log_people_system_event("分戶失敗（原因：member_person_id 為空）", level="WARN")
             raise ValueError("member_person_id is required")
 
         cur = self.conn.cursor()
@@ -2349,14 +3201,17 @@ class AppController:
         ).fetchone()
 
         if not row:
+            self._log_people_system_event(f"分戶失敗（person_id {member_person_id} 不存在）", level="WARN")
             raise ValueError("person not found")
 
         _id, old_household_id, role, status = row
 
         if role != "MEMBER":
+            self._log_people_system_event(f"分戶失敗（person_id {member_person_id} 不是戶員）", level="WARN")
             raise ValueError("only MEMBER can be split to a new household")
 
         if require_active and status != "ACTIVE":
+            self._log_people_system_event(f"分戶失敗（person_id {member_person_id} 非 ACTIVE）", level="WARN")
             raise ValueError("only ACTIVE person can be split")
 
         # 2) 確認原 household 的 HEAD 存在（避免資料已壞）
@@ -2372,6 +3227,10 @@ class AppController:
         ).fetchone()
 
         if not head:
+            self._log_people_system_event(
+                f"分戶失敗（person_id {member_person_id}，來源戶 {old_household_id} 無戶長）",
+                level="WARN",
+            )
             raise ValueError("source household has no HEAD (data integrity issue)")
 
         new_household_id = self._uuid()
@@ -2397,6 +3256,10 @@ class AppController:
                 raise ValueError("split failed (person role changed concurrently?)")
 
             self.conn.commit()
+            self._log_people_data_change(
+                "PEOPLE.HOUSEHOLD.SPLIT",
+                f"分戶完成（person_id {member_person_id}，原戶 {old_household_id}，新戶 {new_household_id}）",
+            )
 
         except Exception:
             self.conn.rollback()
@@ -2454,8 +3317,10 @@ class AppController:
         target_head_person_id = (target_head_person_id or "").strip()
 
         if not member_person_id:
+            self._log_people_system_event("變更戶長失敗（原因：member_person_id 為空）", level="WARN")
             raise ValueError("member_person_id is required")
         if not target_head_person_id:
+            self._log_people_system_event("變更戶長失敗（原因：target_head_person_id 為空）", level="WARN")
             raise ValueError("target_head_person_id is required")
 
         cur = self.conn.cursor()
@@ -2470,12 +3335,15 @@ class AppController:
             (member_person_id,),
         ).fetchone()
         if not m:
+            self._log_people_system_event(f"變更戶長失敗（member_person_id {member_person_id} 不存在）", level="WARN")
             raise ValueError("member not found")
 
         if m["role_in_household"] != "MEMBER":
+            self._log_people_system_event(f"變更戶長失敗（person_id {member_person_id} 不是戶員）", level="WARN")
             raise ValueError("only MEMBER can be transferred")
 
         if require_active and m["status"] != "ACTIVE":
+            self._log_people_system_event(f"變更戶長失敗（person_id {member_person_id} 非 ACTIVE）", level="WARN")
             raise ValueError("only ACTIVE member can be transferred")
 
         source_household_id = m["household_id"]
@@ -2491,14 +3359,26 @@ class AppController:
             (target_head_person_id,),
         ).fetchone()
         if not t:
+            self._log_people_system_event(
+                f"變更戶長失敗（target_head_person_id {target_head_person_id} 不存在或非戶長）",
+                level="WARN",
+            )
             raise ValueError("target head not found")
 
         if require_active and t["status"] != "ACTIVE":
+            self._log_people_system_event(
+                f"變更戶長失敗（target_head_person_id {target_head_person_id} 非 ACTIVE）",
+                level="WARN",
+            )
             raise ValueError("target head is not ACTIVE")
 
         target_household_id = t["household_id"]
 
         if target_household_id == source_household_id:
+            self._log_people_system_event(
+                f"變更戶長失敗（person_id {member_person_id} 已在目標戶 {target_household_id}）",
+                level="WARN",
+            )
             raise ValueError("member already belongs to this household")
 
         # 3) 交易更新
@@ -2516,6 +3396,10 @@ class AppController:
             if cur.rowcount != 1:
                 raise RuntimeError("transfer failed")
             self.conn.commit()
+            self._log_people_data_change(
+                "PEOPLE.HOUSEHOLD.TRANSFER",
+                f"變更戶長完成（person_id {member_person_id}，來源戶 {source_household_id}，目標戶 {target_household_id}，目標戶長 {target_head_person_id}）",
+            )
             return target_household_id
         except Exception:
             self.conn.rollback()
@@ -2530,6 +3414,7 @@ class AppController:
 
         person_id = (person_id or "").strip()
         if not person_id:
+            self._log_people_system_event("停用信眾失敗（原因：person_id 為空）", level="WARN")
             raise ValueError("person_id is required")
 
         cur = self.conn.cursor()
@@ -2545,6 +3430,7 @@ class AppController:
         ).fetchone()
 
         if not row:
+            self._log_people_system_event(f"停用信眾失敗（person_id {person_id} 不存在）", level="WARN")
             raise ValueError("person not found")
 
         role, status, household_id = row
@@ -2555,6 +3441,7 @@ class AppController:
 
         # 3) 安全：預設不允許停用戶長
         if role == "HEAD" and not allow_head:
+            self._log_people_system_event(f"停用信眾失敗（person_id {person_id} 為戶長，不允許直接停用）", level="WARN")
             raise ValueError("cannot deactivate HEAD (use change_head / dissolve household flow)")
 
         # 4) 更新狀態
@@ -2568,6 +3455,11 @@ class AppController:
             (person_id,),
         )
         self.conn.commit()
+        if cur.rowcount > 0:
+            self._log_people_data_change(
+                "PEOPLE.STATUS.DEACTIVATE",
+                f"停用信眾（person_id {person_id}，household_id {household_id}，角色 {role}）",
+            )
         return cur.rowcount
 
     def deactivate_household_head_if_no_members(
@@ -2587,8 +3479,10 @@ class AppController:
         household_id = (household_id or "").strip()
         head_person_id = (head_person_id or "").strip()
         if not household_id:
+            self._log_people_system_event("刪除戶籍失敗（原因：household_id 為空）", level="WARN")
             raise ValueError("household_id is required")
         if not head_person_id:
+            self._log_people_system_event("刪除戶籍失敗（原因：head_person_id 為空）", level="WARN")
             raise ValueError("head_person_id is required")
 
         cur = self.conn.cursor()
@@ -2606,9 +3500,17 @@ class AppController:
         ).fetchone()
 
         if not head:
+            self._log_people_system_event(
+                f"刪除戶籍失敗（head_person_id {head_person_id} 不存在於 household_id {household_id}）",
+                level="WARN",
+            )
             raise ValueError("head person not found in this household")
 
         if require_active and head["status"] != "ACTIVE":
+            self._log_people_system_event(
+                f"刪除戶籍失敗（head_person_id {head_person_id} 非 ACTIVE）",
+                level="WARN",
+            )
             raise ValueError("head person is not ACTIVE")
 
         # 1) 檢查是否有 ACTIVE MEMBER
@@ -2624,6 +3526,10 @@ class AppController:
         ).fetchone()[0]
 
         if int(cnt or 0) > 0:
+            self._log_people_system_event(
+                f"刪除戶籍失敗（household_id {household_id} 尚有 {int(cnt)} 位 ACTIVE 戶員）",
+                level="WARN",
+            )
             raise ValueError("此戶籍底下仍有會員，請先刪除/移轉/分戶所有會員後才能刪除戶長")
 
         # 2) 停用戶長
@@ -2639,6 +3545,11 @@ class AppController:
             (head_person_id, household_id),
         )
         self.conn.commit()
+        if cur.rowcount > 0:
+            self._log_people_data_change(
+                "PEOPLE.HEAD.DEACTIVATE",
+                f"刪除戶籍（停用戶長）（head_person_id {head_person_id}，household_id {household_id}）",
+            )
         return cur.rowcount
 
     def reactivate_person(self, person_id: str) -> int:
@@ -2650,6 +3561,7 @@ class AppController:
         """
         person_id = (person_id or "").strip()
         if not person_id:
+            self._log_people_system_event("恢復信眾失敗（原因：person_id 為空）", level="WARN")
             raise ValueError("person_id is required")
 
         cur = self.conn.cursor()
@@ -2662,6 +3574,7 @@ class AppController:
             (person_id,),
         ).fetchone()
         if not row:
+            self._log_people_system_event(f"恢復信眾失敗（person_id {person_id} 不存在）", level="WARN")
             raise ValueError("person not found")
 
         household_id, role, status = row
@@ -2680,6 +3593,10 @@ class AppController:
                 (household_id,),
             ).fetchone()[0]
             if int(active_head_cnt or 0) > 0:
+                self._log_people_system_event(
+                    f"恢復信眾失敗（person_id {person_id}：同戶已有啟用中的戶長）",
+                    level="WARN",
+                )
                 raise ValueError("此戶已有啟用中的戶長，無法恢復原戶長")
         else:
             active_head_cnt = cur.execute(
@@ -2693,6 +3610,10 @@ class AppController:
                 (household_id,),
             ).fetchone()[0]
             if int(active_head_cnt or 0) == 0:
+                self._log_people_system_event(
+                    f"恢復信眾失敗（person_id {person_id}：同戶無啟用中的戶長）",
+                    level="WARN",
+                )
                 raise ValueError("此戶無啟用中的戶長，請先恢復戶長")
 
         cur.execute(
@@ -2705,6 +3626,11 @@ class AppController:
             (person_id,),
         )
         self.conn.commit()
+        if cur.rowcount > 0:
+            self._log_people_data_change(
+                "PEOPLE.STATUS.REACTIVATE",
+                f"恢復信眾（person_id {person_id}，household_id {household_id}，角色 {role}）",
+            )
         return cur.rowcount
 
     # -------------------------
@@ -2795,6 +3721,19 @@ class AppController:
             ),
         )
         self.conn.commit()
+        if cursor.rowcount > 0:
+            self._log_activity_data_change(
+                "ACTIVITY.UPDATE",
+                (
+                    f"更新活動（activity_id {activity_id}，名稱 {data.get('name') or '-'}，"
+                    f"活動日期 {data.get('activity_start_date') or '-'} ~ {data.get('activity_end_date') or '-'}）"
+                ),
+            )
+        else:
+            self._log_activity_system_event(
+                f"活動更新失敗（activity_id {activity_id} 不存在或已刪除）",
+                level="WARN",
+            )
 
     def get_activity_delete_stats(self, activity_id: str) -> dict:
         """
@@ -2827,7 +3766,18 @@ class AppController:
             AND COALESCE(status, 1) != -1
         """, (now_text, activity_id))
         self.conn.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+        if ok:
+            self._log_activity_data_change(
+                "ACTIVITY.DELETE",
+                f"刪除活動（軟刪除）（activity_id {activity_id}）",
+            )
+        else:
+            self._log_activity_system_event(
+                f"活動刪除失敗（activity_id {activity_id} 不存在或已刪除）",
+                level="WARN",
+            )
+        return ok
 
 
 
@@ -3108,6 +4058,10 @@ class AppController:
 
         if plan_id is None:
             conn.close()
+            self._log_activity_system_event(
+                f"新增活動方案失敗（activity_id {activity_id}，原因：無法產生唯一方案 ID）",
+                level="WARN",
+            )
             raise RuntimeError("無法產生唯一的方案 ID")
 
         # ---- 2. fee_type → DB schema mapping ----
@@ -3147,6 +4101,13 @@ class AppController:
 
         conn.commit()
         conn.close()
+        self._log_activity_data_change(
+            "ACTIVITY.PLAN.CREATE",
+            (
+                f"新增活動方案（plan_id {plan_id}，activity_id {activity_id}，名稱 {name or '-'}，"
+                f"計費 {price_type}，固定金額 {fixed_price if fixed_price is not None else '-'}）"
+            ),
+        )
         return plan_id
 
     def update_activity_plan(self, plan_id: str, plan: dict) -> bool:
@@ -3228,6 +4189,10 @@ class AppController:
             params.append(self._now())
 
         if not set_parts:
+            self._log_activity_system_event(
+                f"更新活動方案失敗（plan_id {plan_id}，原因：schema 無可更新欄位）",
+                level="WARN",
+            )
             raise RuntimeError("activity_plans schema has no updatable columns")
 
         sql = f"UPDATE activity_plans SET {', '.join(set_parts)} WHERE id = ?"
@@ -3236,13 +4201,35 @@ class AppController:
         cur = self.conn.cursor()
         cur.execute(sql, params)
         self.conn.commit()
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+        if ok:
+            self._log_activity_data_change(
+                "ACTIVITY.PLAN.UPDATE",
+                f"更新活動方案（plan_id {plan_id}，名稱 {payload.get('name') or '-'}）",
+            )
+        else:
+            self._log_activity_system_event(
+                f"更新活動方案失敗（plan_id {plan_id} 不存在）",
+                level="WARN",
+            )
+        return ok
 
     def delete_activity_plan(self, plan_id: str) -> bool:
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM activity_plans WHERE id = ?", (plan_id,))
         self.conn.commit()
-        return cursor.rowcount > 0
+        ok = cursor.rowcount > 0
+        if ok:
+            self._log_activity_data_change(
+                "ACTIVITY.PLAN.DELETE",
+                f"刪除活動方案（plan_id {plan_id}）",
+            )
+        else:
+            self._log_activity_system_event(
+                f"刪除活動方案失敗（plan_id {plan_id} 不存在）",
+                level="WARN",
+            )
+        return ok
 
     def _table_columns(self, table: str) -> set[str]:
         """Return a set of column names for a sqlite table."""
@@ -3381,6 +4368,8 @@ class AppController:
         resolved_group_id = str(group_id or "").strip() or signup_id
         now = self._now()
         cursor = self.conn.cursor()
+        person_name = self._resolve_person_name(person_id)
+        activity_name = self._resolve_activity_name(activity_id)
 
         try:
             cursor.execute("BEGIN;")
@@ -3394,6 +4383,7 @@ class AppController:
 
             # 2) 逐筆寫明細 + 計算總額
             total_amount = 0
+            plan_log_parts = []
 
             for row in selected_plans:
                 plan_id = row.get("plan_id")
@@ -3431,6 +4421,11 @@ class AppController:
                 else:
                     raise ValueError(f"未知 price_type: {price_type}")
 
+                part = f"plan_id {plan_id} qty {qty} line_total {int(line_total)}"
+                if amount_override_db is not None:
+                    part += f" amount_override {int(amount_override_db)}"
+                plan_log_parts.append(part)
+
                 item_id = self._uuid()
                 cursor.execute("""
                     INSERT INTO activity_signup_plans (
@@ -3452,10 +4447,24 @@ class AppController:
             """, (total_amount, now, signup_id))
 
             cursor.execute("COMMIT;")
+            self._log_activity_data_change(
+                "ACTIVITY.SIGNUP.CREATE",
+                (
+                    f"新增活動報名（signup_id {signup_id}，activity_id {activity_id}，活動 {activity_name or '-'}，"
+                    f"報名人 {person_name or '-'}（person_id {person_id}），group_id {resolved_group_id}，"
+                    f"kind {kind}，總金額 {total_amount}，方案筆數 {len(selected_plans or [])}，"
+                    f"方案明細：{'；'.join(plan_log_parts) if plan_log_parts else '-'}）"
+                ),
+            )
             return signup_id
 
         except Exception as e:
             cursor.execute("ROLLBACK;")
+            self._log_activity_system_event(
+                f"新增活動報名失敗（activity_id {activity_id}，活動 {activity_name or '-'}，"
+                f"報名人 {person_name or '-'}（person_id {person_id}），原因：{e}）",
+                level="WARN",
+            )
             raise e
 
     def create_activity_signup_append(self, activity_id: str, person_id: str, selected_plans: list, note: str = None) -> Dict[str, Any]:
@@ -3466,6 +4475,10 @@ class AppController:
         aid = str(activity_id or "").strip()
         pid = str(person_id or "").strip()
         if not aid or not pid:
+            self._log_activity_system_event(
+                "新增活動追加報名失敗（原因：activity_id / person_id 為空）",
+                level="WARN",
+            )
             raise ValueError("activity_id / person_id 為必填")
         cur = self.conn.cursor()
         rows = cur.execute(
@@ -3494,6 +4507,13 @@ class AppController:
             note=note,
             group_id=group_id,
             signup_kind=signup_kind,
+        )
+        self._log_activity_data_change(
+            "ACTIVITY.SIGNUP.APPEND",
+            (
+                f"新增活動追加報名（signup_id {signup_id}，activity_id {aid}，person_id {pid}，"
+                f"group_id {(group_id or signup_id)}，kind {signup_kind}）"
+            ),
         )
         return {"signup_id": signup_id, "group_id": (group_id or signup_id), "signup_kind": signup_kind}
 
@@ -3613,20 +4633,33 @@ class AppController:
         aid = (activity_id or "").strip()
         normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
         if not aid:
+            self._log_activity_system_event("活動報名繳費失敗（原因：activity_id 為空）", level="WARN")
             raise ValueError("activity_id is required")
         if not normalized_ids:
             return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
         handler_text = (handler or "").strip()
         if not handler_text:
+            self._log_activity_system_event(
+                f"活動報名繳費失敗（activity_id {aid}，原因：經手人為空）",
+                level="WARN",
+            )
             raise ValueError("經手人為必填")
 
         income_item = self._resolve_activity_income_item()
         if not income_item:
+            self._log_activity_system_event(
+                f"活動報名繳費失敗（activity_id {aid}，原因：找不到活動收入項目 90）",
+                level="WARN",
+            )
             raise ValueError("找不到可用的收入項目，請先到類別設定建立收入項目")
 
         category_id = str(income_item.get("id") or "").strip()
         category_name = str(income_item.get("name") or "活動收入").strip() or "活動收入"
         if not category_id:
+            self._log_activity_system_event(
+                f"活動報名繳費失敗（activity_id {aid}，原因：收入項目 category_id 缺失）",
+                level="WARN",
+            )
             raise ValueError("收入項目設定不完整，缺少 category_id")
 
         cur = self.conn.cursor()
@@ -3666,6 +4699,8 @@ class AppController:
         paid_count = 0
         skipped_count = 0
         receipt_numbers: List[str] = []
+        paid_details: List[str] = []
+        skipped_details: List[str] = []
         now = self._now()
         today = datetime.now().strftime("%Y-%m-%d")
 
@@ -3674,6 +4709,9 @@ class AppController:
             for row in rows:
                 if int(row.get("is_paid") or 0) == 1:
                     skipped_count += 1
+                    skipped_details.append(
+                        f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, signup_id {str(row.get('signup_id') or '-')})"
+                    )
                     continue
                 signup_kind = str(row.get("signup_kind") or "INITIAL").strip().upper()
                 adjustment_kind = "SUPPLEMENT" if signup_kind == "APPEND" else "PRIMARY"
@@ -3724,11 +4762,37 @@ class AppController:
                 )
                 paid_count += 1
                 receipt_numbers.append(receipt)
+                paid_details.append(
+                    f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, "
+                    f"signup_id {str(row.get('signup_id') or '-')}, kind {signup_kind}, "
+                    f"金額 {int(row.get('total_amount') or 0)}, 收據 {receipt}）"
+                )
 
             cur.execute("COMMIT;")
         except Exception:
             cur.execute("ROLLBACK;")
+            self._log_activity_system_event(
+                f"活動報名繳費失敗（activity_id {aid}，原因：交易回滾）",
+                level="WARN",
+            )
             raise
+
+        if paid_count > 0:
+            activity_name = str(rows[0].get("activity_name") or "").strip() if rows else ""
+            self._log_activity_data_change(
+                "ACTIVITY.SIGNUP.PAY",
+                (
+                    f"活動報名繳費完成（activity_id {aid}，活動 {activity_name or '-'}，經手人 {handler_text}，"
+                    f"成功 {paid_count} 筆，略過 {skipped_count} 筆，"
+                    f"繳費名單：{'；'.join(paid_details) if paid_details else '-'}，"
+                    f"已繳費略過：{'；'.join(skipped_details) if skipped_details else '-'}）"
+                ),
+            )
+        elif skipped_count > 0:
+            self._log_activity_system_event(
+                f"活動報名繳費未處理（activity_id {aid}，全部皆已繳費，略過 {skipped_count} 筆）",
+                level="WARN",
+            )
 
         return {
             "paid_count": paid_count,
@@ -3751,9 +4815,14 @@ class AppController:
         """
         sid = str(signup_id or "").strip()
         if not sid:
+            self._log_activity_system_event("活動報名差額調整失敗（原因：signup_id 為空）", level="WARN")
             raise ValueError("signup_id 為必填")
         handler_text = (handler or "").strip()
         if not handler_text:
+            self._log_activity_system_event(
+                f"活動報名差額調整失敗（signup_id {sid}，原因：經手人為空）",
+                level="WARN",
+            )
             raise ValueError("經手人為必填")
 
         cur = self.conn.cursor()
@@ -3778,6 +4847,10 @@ class AppController:
             (sid,),
         ).fetchone()
         if not existing:
+            self._log_activity_system_event(
+                f"活動報名差額調整失敗（signup_id {sid} 不存在）",
+                level="WARN",
+            )
             raise ValueError("找不到活動報名資料")
 
         old_total = int(existing["total_amount"] or 0)
@@ -3791,6 +4864,10 @@ class AppController:
 
         ok = self.update_activity_signup_items(sid, qty_by_plan_id or {}, free_amount_by_plan_id or {})
         if not ok:
+            self._log_activity_system_event(
+                f"活動報名差額調整失敗（signup_id {sid}，原因：報名資料未更新）",
+                level="WARN",
+            )
             raise ValueError("報名資料未更新")
 
         updated = cur.execute(
@@ -3806,6 +4883,13 @@ class AppController:
         delta = new_total - old_total
 
         if (not is_paid) or delta == 0:
+            self._log_activity_data_change(
+                "ACTIVITY.SIGNUP.ADJUST",
+                (
+                    f"活動報名調整（無差額交易）（signup_id {sid}，舊金額 {old_total}，新金額 {new_total}，"
+                    f"delta {delta}，is_paid {1 if is_paid else 0}）"
+                ),
+            )
             return {
                 "signup_id": sid,
                 "old_total": old_total,
@@ -3827,6 +4911,10 @@ class AppController:
             if delta > 0:
                 income_item = self._resolve_activity_income_item()
                 if not income_item:
+                    self._log_activity_system_event(
+                        f"活動報名差額調整失敗（signup_id {sid}，原因：找不到活動收入項目 90）",
+                        level="WARN",
+                    )
                     raise ValueError("找不到可用的活動收入項目（90 活動收入）")
                 receipt_number = self.generate_receipt_number(today)
                 cur.execute(
@@ -3858,6 +4946,10 @@ class AppController:
             else:
                 refund_item = self._resolve_activity_refund_expense_item()
                 if not refund_item:
+                    self._log_activity_system_event(
+                        f"活動報名差額調整失敗（signup_id {sid}，原因：找不到活動退費項目 90R）",
+                        level="WARN",
+                    )
                     raise ValueError("找不到可用的活動退費項目（90R 活動退費）")
                 cur.execute(
                     """
@@ -3890,7 +4982,20 @@ class AppController:
             cur.execute("COMMIT;")
         except Exception:
             cur.execute("ROLLBACK;")
+            self._log_activity_system_event(
+                f"活動報名差額調整失敗（signup_id {sid}，原因：交易回滾）",
+                level="WARN",
+            )
             raise
+
+        self._log_activity_data_change(
+            "ACTIVITY.SIGNUP.ADJUST",
+            (
+                f"活動報名差額調整完成（signup_id {sid}，舊金額 {old_total}，新金額 {new_total}，"
+                f"delta {delta}，調整型態 {adjustment_type or '-'}，交易ID {adjustment_txn_id or '-'}，"
+                f"收據 {receipt_number or '-'}）"
+            ),
+        )
 
         return {
             "signup_id": sid,
@@ -4272,17 +5377,35 @@ class AppController:
             (signup_id,),
         ).fetchone()
         if not row:
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {signup_id} 不存在）",
+                level="WARN",
+            )
             return False
         if int(row["is_paid"] or 0) == 1:
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {signup_id} 已繳費，不可直接刪除）",
+                level="WARN",
+            )
             raise ValueError("此筆活動報名已繳費，不可刪除")
         try:
             cur.execute("BEGIN;")
             cur.execute("DELETE FROM activity_signup_plans WHERE signup_id = ?", (signup_id,))
             cur.execute("DELETE FROM activity_signups WHERE id = ?", (signup_id,))
             self.conn.commit()
-            return cur.rowcount > 0
+            ok = cur.rowcount > 0
+            if ok:
+                self._log_activity_data_change(
+                    "ACTIVITY.SIGNUP.DELETE",
+                    f"刪除活動報名（signup_id {signup_id}，是否作廢交易 否）",
+                )
+            return ok
         except Exception:
             self.conn.rollback()
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {signup_id}，原因：交易回滾）",
+                level="WARN",
+            )
             raise
 
     def delete_activity_signup_with_void_transactions(self, signup_id: str) -> bool:
@@ -4293,6 +5416,7 @@ class AppController:
         """
         sid = str(signup_id or "").strip()
         if not sid:
+            self._log_activity_system_event("刪除活動報名失敗（原因：signup_id 為空）", level="WARN")
             return False
         cur = self.conn.cursor()
         row = cur.execute(
@@ -4300,9 +5424,14 @@ class AppController:
             (sid,),
         ).fetchone()
         if not row:
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {sid} 不存在）",
+                level="WARN",
+            )
             return False
         try:
             cur.execute("BEGIN;")
+            voided = False
             if int(row["is_paid"] or 0) == 1 and self._table_exists("transactions"):
                 cols = self._table_columns("transactions")
                 if "is_voided" in cols:
@@ -4316,12 +5445,23 @@ class AppController:
                         """,
                         (sid,),
                     )
+                    voided = True
             cur.execute("DELETE FROM activity_signup_plans WHERE signup_id = ?", (sid,))
             cur.execute("DELETE FROM activity_signups WHERE id = ?", (sid,))
             self.conn.commit()
-            return cur.rowcount > 0
+            ok = cur.rowcount > 0
+            if ok:
+                self._log_activity_data_change(
+                    "ACTIVITY.SIGNUP.DELETE",
+                    f"刪除活動報名（signup_id {sid}，是否作廢交易 {'是' if voided else '否'}）",
+                )
+            return ok
         except Exception:
             self.conn.rollback()
+            self._log_activity_system_event(
+                f"刪除活動報名失敗（signup_id {sid}，原因：交易回滾）",
+                level="WARN",
+            )
             raise
 
     def get_activity_signup_id_by_person(self, activity_id: str, person_id: str) -> Optional[str]:
@@ -4376,6 +5516,13 @@ class AppController:
             now_text,
         ))
         self.conn.commit()
+        self._log_activity_data_change(
+            "ACTIVITY.CREATE",
+            (
+                f"新增活動（activity_id {activity_id}，名稱 {data.get('name') or '-'}，"
+                f"活動日期 {data.get('activity_start_date') or '-'} ~ {data.get('activity_end_date') or '-'}）"
+            ),
+        )
         return activity_id
 
     def _parse_dt(self, s: Optional[str]) -> Optional[datetime]:
@@ -4604,6 +5751,10 @@ class AppController:
             prefix = f"{roc_year}"
         except ValueError:
             # Fallback
+            self._log_finance_system_event(
+                f"收據號碼產生使用 fallback 日期（輸入日期格式異常：{date_str}）",
+                level="WARN",
+            )
             dt = datetime.now()
             roc_year = dt.year - 1911
             prefix = f"{roc_year}"
@@ -4653,13 +5804,15 @@ class AppController:
         """
         # 簡易檢查
         if not data.get("category_id"):
+            tx_label = self._tx_type_label(data.get("type"))
+            self._log_finance_system_event(f"新增{tx_label}失敗（原因：category_id 缺失）", level="WARN")
             raise ValueError("category_id is required")
         if data.get("type") == "income" and not data.get("payer_person_id"):
-             # 雖然 DB 允許 NULL (為了彈性)，但業務邏輯上我們盡量要求 UI 傳入
-             pass 
+             self._log_finance_system_event("新增收入資料警示（payer_person_id 未提供）", level="WARN")
 
         cursor = self.conn.cursor()
-        cursor.execute("""
+        try:
+            cursor.execute("""
             INSERT INTO transactions (
                 date, type, category_id, category_name, amount, 
                 payer_person_id, payer_name, handler, receipt_number, note,
@@ -4682,8 +5835,16 @@ class AppController:
             data.get("adjusts_txn_id"),
             int(data.get("is_system_generated") or 0),
         ))
-        self.conn.commit()
-        return cursor.lastrowid
+            self.conn.commit()
+        except Exception as e:
+            tx_label = self._tx_type_label(data.get("type"))
+            self._log_finance_system_event(f"新增{tx_label}失敗（原因：{e}）", level="ERROR")
+            raise
+        tx_id = cursor.lastrowid
+        tx_type = str(data.get("type") or "").strip().lower()
+        action_prefix = "INCOME" if tx_type == "income" else "EXPENSE" if tx_type == "expense" else "TRANSACTION"
+        self._log_transaction_change(f"{action_prefix}.CREATE", tx_id, data=data, before=None)
+        return tx_id
     
     def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None, voided_filter="all"):
         cursor = self.conn.cursor()
@@ -4943,18 +6104,41 @@ class AppController:
     def delete_transaction(self, transaction_id):
         """軟刪除"""
         cursor = self.conn.cursor()
-        cursor.execute("UPDATE transactions SET is_deleted=1 WHERE id=?", (transaction_id,))
-        self.conn.commit()
+        before = cursor.execute(
+            "SELECT * FROM transactions WHERE id=?",
+            (transaction_id,),
+        ).fetchone()
+        if not before:
+            self._log_finance_system_event(f"刪除交易失敗（transaction_id {transaction_id} 不存在）", level="WARN")
+            return
+        try:
+            cursor.execute("UPDATE transactions SET is_deleted=1 WHERE id=?", (transaction_id,))
+            self.conn.commit()
+        except Exception as e:
+            self._log_finance_system_event(f"刪除交易失敗（transaction_id {transaction_id}，原因：{e}）", level="ERROR")
+            raise
+        tx_type = str((before["type"] if before else "") or "").strip().lower()
+        action_prefix = "INCOME" if tx_type == "income" else "EXPENSE" if tx_type == "expense" else "TRANSACTION"
+        payload = dict(before)
+        if tx_type:
+            payload["type"] = tx_type
+        self._log_transaction_change(f"{action_prefix}.DELETE", transaction_id, data=payload, before=payload)
 
     def update_transaction(self, transaction_id, data):
         """更新交易紀錄"""
         cursor = self.conn.cursor()
+        before = cursor.execute("SELECT * FROM transactions WHERE id=?", (transaction_id,)).fetchone()
+        if not before:
+            self._log_finance_system_event(f"修改交易失敗（transaction_id {transaction_id} 不存在）", level="WARN")
+            return
+        before_payload = dict(before)
         
         # 這裡只允許更新部分欄位，確保資料一致性
         # 注意：如果 user 修改了日期，receipt_number 是否要重算？
         # 目前策略：不重算單號，保留原單號，除非 user 自己想改(但 UI 不開放改單號)
         
-        cursor.execute("""
+        try:
+            cursor.execute("""
             UPDATE transactions
             SET date=?, category_id=?, category_name=?, amount=?, 
                 payer_person_id=?, payer_name=?, handler=?, note=?
@@ -4970,7 +6154,25 @@ class AppController:
             data.get("note"),
             transaction_id
         ))
-        self.conn.commit()
+            self.conn.commit()
+        except Exception as e:
+            tx_label = self._tx_type_label(data.get("type") or before_payload.get("type"))
+            self._log_finance_system_event(f"修改{tx_label}失敗（ID {transaction_id}，原因：{e}）", level="ERROR")
+            raise
+        tx_type = str(
+            data.get("type") or before_payload.get("type")
+        ).strip().lower()
+        action_prefix = "INCOME" if tx_type == "income" else "EXPENSE" if tx_type == "expense" else "TRANSACTION"
+        payload = dict(before_payload)
+        payload.update(dict(data or {}))
+        if tx_type:
+            payload["type"] = tx_type
+        self._log_transaction_change(
+            f"{action_prefix}.UPDATE",
+            transaction_id,
+            data=payload,
+            before=before_payload,
+        )
 
     # -------------------------
     # Believers (UX Improvements)

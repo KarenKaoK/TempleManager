@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QHeaderView
 )
 from app.config import DB_NAME
+from app.logging import log_data_change, log_system
 
 class ExpenseSetupDialog(QDialog):
     def __init__(self, db_path=None, user_role=None):
@@ -56,6 +57,25 @@ class ExpenseSetupDialog(QDialog):
 
     def _can_maintain_items(self):
         return self._can_toggle_active()
+
+    @staticmethod
+    def _fmt_log_val(value):
+        if value is None:
+            return "-"
+        text = str(value).strip()
+        return text if text else "-"
+
+    def _log_system(self, message, level="WARN"):
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _log_data_change(self, action, message):
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
 
     def show_warning(self, title, message):
         QMessageBox.warning(self, title, message)
@@ -117,6 +137,7 @@ class ExpenseSetupDialog(QDialog):
 
     def add_expense_item(self):
         if not self._can_maintain_items():
+            self._log_system("支出項目新增失敗（原因：權限不足）", level="WARN")
             self.show_warning("權限不足", "目前角色無權限新增支出項目。")
             return
 
@@ -181,10 +202,12 @@ class ExpenseSetupDialog(QDialog):
     def confirm_add_expense_item(self, dialog, id, name, amount):
         id = id.strip()
         if not id:
+            self._log_system("支出項目新增失敗（原因：支出項目代號為空）", level="WARN")
             self.show_warning("錯誤", "支出項目代號不可為空！")
             return
 
         if not name.strip():
+            self._log_system(f"支出項目新增失敗（支出項目代號 {id}，原因：支出項目名稱為空）", level="WARN")
             self.show_warning("錯誤", "請填寫支出項目名稱！")
             return
 
@@ -192,6 +215,7 @@ class ExpenseSetupDialog(QDialog):
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM expense_items WHERE id = ?", (id,))
         if cursor.fetchone():
+            self._log_system(f"支出項目新增失敗（支出項目代號 {id}，原因：代號重複）", level="WARN")
             self.show_warning("錯誤", f"支出項目代號 {id} 已存在，請輸入其他代號！")
             conn.close()
             return
@@ -202,9 +226,18 @@ class ExpenseSetupDialog(QDialog):
                 (id, name, int(amount))
             )
             conn.commit()
+            self._log_data_change(
+                action="EXPENSE_ITEM.CREATE",
+                message=(
+                    f"新增支出項目（支出項目代號 {self._fmt_log_val(id)}，"
+                    f"支出項目名稱 {self._fmt_log_val(name)}，"
+                    f"支出金額 {self._fmt_log_val(amount)}，狀態 啟用）"
+                ),
+            )
             self.show_info("成功", "支出項目新增成功！")
             self.load_data()
         except sqlite3.IntegrityError:
+            self._log_system(f"支出項目新增失敗（支出項目代號 {id}，原因：資料庫完整性錯誤）", level="ERROR")
             self.show_warning("錯誤", "支出項目新增失敗！")
         finally:
             conn.close()
@@ -213,11 +246,13 @@ class ExpenseSetupDialog(QDialog):
 
     def edit_expense_item(self):
         if not self._can_maintain_items():
+            self._log_system("支出項目修改失敗（原因：權限不足）", level="WARN")
             self.show_warning("權限不足", "目前角色無權限修改支出項目。")
             return
 
         selected_row = self.table.currentRow()
         if selected_row < 0:
+            self._log_system("支出項目修改失敗（原因：未選擇資料）", level="WARN")
             self.show_warning("錯誤", "請選擇要修改的支出項目！")
             return
 
@@ -256,14 +291,41 @@ class ExpenseSetupDialog(QDialog):
 
     def confirm_edit_expense_item(self, dialog, id, name, amount):
         if not name:
+            self._log_system(f"支出項目修改失敗（支出項目代號 {id}，原因：支出項目名稱為空）", level="WARN")
             self.show_warning("錯誤", "請填寫支出項目名稱！")
             return
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        before = cursor.execute(
+            "SELECT name, CAST(amount AS INTEGER), COALESCE(is_active, 1) FROM expense_items WHERE id = ?",
+            (id,),
+        ).fetchone()
+        if before is None:
+            conn.close()
+            self._log_system(f"支出項目修改失敗（支出項目代號 {id}，原因：資料不存在）", level="WARN")
+            self.show_warning("錯誤", "支出項目不存在，無法修改！")
+            return
         cursor.execute("UPDATE expense_items SET name = ?, amount = ? WHERE id = ?", (name, int(amount), id))
         conn.commit()
         conn.close()
+        old_name, old_amount, old_active = before
+        changes = []
+        if str(old_name) != str(name):
+            changes.append(f"支出項目名稱：{self._fmt_log_val(old_name)} -> {self._fmt_log_val(name)}")
+        if int(old_amount or 0) != int(amount):
+            changes.append(f"支出金額：{self._fmt_log_val(old_amount)} -> {self._fmt_log_val(amount)}")
+        change_text = "；".join(changes) if changes else "無欄位變更"
+        self._log_data_change(
+            action="EXPENSE_ITEM.UPDATE",
+            message=(
+                f"修改支出項目（支出項目代號 {self._fmt_log_val(id)}，"
+                f"支出項目名稱 {self._fmt_log_val(name)}，"
+                f"支出金額 {self._fmt_log_val(amount)}，"
+                f"狀態 {'啟用' if int(old_active or 0) == 1 else '停用'}，"
+                f"變更：{change_text}）"
+            ),
+        )
 
         self.load_data()
         self.show_info("成功", "支出項目修改成功！")
@@ -271,11 +333,13 @@ class ExpenseSetupDialog(QDialog):
         
     def delete_expense_item(self):
         if not self._can_toggle_active():
+            self._log_system("支出項目停用/啟用失敗（原因：權限不足）", level="WARN")
             self.show_warning("權限不足", "目前角色無權限停用/啟用支出項目。")
             return
 
         selected_row = self.table.currentRow()
         if selected_row < 0:
+            self._log_system("支出項目停用/啟用失敗（原因：未選擇資料）", level="WARN")
             self.show_warning("錯誤", "請選擇要停用/啟用的支出項目！")
             return
 
@@ -283,6 +347,7 @@ class ExpenseSetupDialog(QDialog):
             current_id = self.table.item(selected_row, 0).text().strip()
             current_name = self.table.item(selected_row, 1).text().strip()
         except Exception:
+            self._log_system("支出項目停用/啟用失敗（原因：無效支出項目）", level="WARN")
             self.show_warning("錯誤", "無效的支出項目！")
             return
 
@@ -292,6 +357,7 @@ class ExpenseSetupDialog(QDialog):
         row = cursor.fetchone()
         if row is None:
             conn.close()
+            self._log_system(f"支出項目停用/啟用失敗（支出項目代號 {current_id}，原因：資料不存在）", level="WARN")
             self.show_warning("錯誤", "支出項目不存在，無法停用/啟用！")
             return
 
@@ -301,10 +367,22 @@ class ExpenseSetupDialog(QDialog):
 
         if not self.ask_confirm(f"確定要{action}支出項目「{current_id}: {current_name}」嗎？"):
             conn.close()
+            self._log_system(
+                f"使用者取消支出項目停用/啟用（支出項目代號 {self._fmt_log_val(current_id)}，支出項目名稱 {self._fmt_log_val(current_name)}）",
+                level="INFO",
+            )
             return
 
         cursor.execute("UPDATE expense_items SET is_active = ? WHERE id = ?", (next_active, current_id))
         conn.commit()
+        self._log_data_change(
+            action="EXPENSE_ITEM.TOGGLE_ACTIVE",
+            message=(
+                f"{action}支出項目（支出項目代號 {self._fmt_log_val(current_id)}，"
+                f"支出項目名稱 {self._fmt_log_val(current_name)}，"
+                f"狀態：{'啟用' if current_active == 1 else '停用'} -> {'啟用' if next_active == 1 else '停用'}）"
+            ),
+        )
         self.load_data()
         self.show_info("成功", f"支出項目{action}成功！")
 

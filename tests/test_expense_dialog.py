@@ -68,9 +68,12 @@ def test_expense_dialog_load_empty_data(qtbot, empty_expense_db):
     assert dialog.table.rowCount() == 0
 
 
-def test_expense_dialog_add_item_success_auto_id(qtbot, temp_expense_db):
+def test_expense_dialog_add_item_success_auto_id(qtbot, temp_expense_db, monkeypatch):
     dialog = ExpenseSetupDialog(db_path=str(temp_expense_db))
     qtbot.addWidget(dialog)
+
+    calls = []
+    monkeypatch.setattr("app.dialogs.expense_dialog.log_data_change", lambda **kw: calls.append(kw))
 
     next_id = dialog._generate_next_item_id()
     with patch("app.dialogs.expense_dialog.QMessageBox.information"):
@@ -91,6 +94,7 @@ def test_expense_dialog_add_item_success_auto_id(qtbot, temp_expense_db):
         for i in range(dialog.table.rowCount())
     ]
     assert ("03", "水電費", "1500") in rows
+    assert any(c.get("action") == "EXPENSE_ITEM.CREATE" for c in calls), f"logs: {calls}"
 
 
 def test_expense_dialog_generate_next_id_from_empty_db(qtbot, empty_expense_db):
