@@ -13,3 +13,6 @@ secrets/
 *.service-account.json
 *gdrive*key*.json
 reports/
+
+log.log
+*.log

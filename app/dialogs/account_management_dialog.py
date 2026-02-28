@@ -133,7 +133,8 @@ class AccountManagementDialog(QDialog):
         r = self.table.currentRow()
         if r < 0:
             return None
-        item = self.table.item(r, 2)
+        # 欄位順序: 帳號(0), 姓名(1), 角色(2), 狀態(3), ...
+        item = self.table.item(r, 3)
         if not item:
             return None
         return item.text() == "啟用"
