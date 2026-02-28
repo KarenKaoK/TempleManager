@@ -187,6 +187,30 @@ class AppController:
         except Exception:
             pass
 
+    def _log_account_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_account_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
+    def _log_backup_data_change(self, action: str, message: str) -> None:
+        try:
+            log_data_change(action=action, message=message, level="INFO")
+        except Exception:
+            pass
+
+    def _log_backup_system_event(self, message: str, level: str = "WARN") -> None:
+        try:
+            log_system(message, level=level)
+        except Exception:
+            pass
+
     def _lighting_item_ids_text(
         self,
         item_ids: List[str],
@@ -1699,8 +1723,19 @@ class AppController:
             return 15
 
     def save_security_settings(self, reminder_days: int, idle_minutes: int):
-        self.set_setting("security/password_reminder_days", str(max(0, int(reminder_days))))
-        self.set_setting("security/idle_logout_minutes", str(max(0, int(idle_minutes))))
+        old_reminder_days = self.get_password_reminder_days()
+        old_idle_minutes = self.get_idle_logout_minutes()
+        new_reminder_days = max(0, int(reminder_days))
+        new_idle_minutes = max(0, int(idle_minutes))
+        self.set_setting("security/password_reminder_days", str(new_reminder_days))
+        self.set_setting("security/idle_logout_minutes", str(new_idle_minutes))
+        self._log_account_data_change(
+            "ACCOUNT.SECURITY_SETTINGS.UPDATE",
+            (
+                f"更新帳號安全設定（密碼提醒天數：{old_reminder_days} -> {new_reminder_days}；"
+                f"閒置自動登出分鐘：{old_idle_minutes} -> {new_idle_minutes}）"
+            ),
+        )
 
     def get_login_cover_settings(self) -> Dict[str, str]:
         return {
@@ -1803,7 +1838,9 @@ class AppController:
 
     def save_backup_settings(self, settings: Dict[str, Any]):
         if not isinstance(settings, dict):
+            self._log_backup_system_event("儲存備份設定失敗（原因：settings 非 dict）", level="WARN")
             raise ValueError("settings must be a dict")
+        before = self.get_backup_settings()
         self.set_setting("backup/enabled", "1" if bool(settings.get("enabled")) else "0")
         self.set_setting("backup/frequency", str(settings.get("frequency", "daily")).strip().lower())
         self.set_setting("backup/time", str(settings.get("time", "23:00")).strip())
@@ -1817,6 +1854,22 @@ class AppController:
         self.set_setting("backup/enable_local", "1" if bool(settings.get("enable_local", True)) else "0")
         self.set_setting("backup/enable_drive", "1" if bool(settings.get("enable_drive", False)) else "0")
         self.set_setting("backup/use_cli_scheduler", "1" if bool(settings.get("use_cli_scheduler")) else "0")
+        after = self.get_backup_settings()
+        self._log_backup_data_change(
+            "BACKUP.SETTINGS.UPDATE",
+            (
+                "更新備份設定（"
+                f"啟用：{int(bool(before.get('enabled')))} -> {int(bool(after.get('enabled')))}；"
+                f"頻率：{self._fmt_log_val(before.get('frequency'))} -> {self._fmt_log_val(after.get('frequency'))}；"
+                f"時間：{self._fmt_log_val(before.get('time'))} -> {self._fmt_log_val(after.get('time'))}；"
+                f"保留數：{self._fmt_log_val(before.get('keep_latest'))} -> {self._fmt_log_val(after.get('keep_latest'))}；"
+                f"本機路徑：{self._fmt_log_val(before.get('local_dir'))} -> {self._fmt_log_val(after.get('local_dir'))}；"
+                f"啟用本機：{int(bool(before.get('enable_local')))} -> {int(bool(after.get('enable_local')))}；"
+                f"啟用Drive：{int(bool(before.get('enable_drive')))} -> {int(bool(after.get('enable_drive')))}；"
+                f"CLI排程：{int(bool(before.get('use_cli_scheduler')))} -> {int(bool(after.get('use_cli_scheduler')))}"
+                "）"
+            ),
+        )
 
     def _default_backup_dir(self) -> str:
         return os.path.join(os.path.dirname(DB_NAME), "backups")
@@ -1860,6 +1913,10 @@ class AppController:
         enable_local = bool(settings.get("enable_local"))
         enable_drive = bool(settings.get("enable_drive"))
         if not enable_local and not enable_drive:
+            self._log_backup_system_event(
+                f"執行備份失敗（trigger {'MANUAL' if manual else 'SCHEDULED'}，原因：未啟用任何備份目的地）",
+                level="WARN",
+            )
             raise ValueError("請至少啟用一種備份目的地（本機或 Google Drive）")
 
         return self._create_backup_with_targets(
@@ -1943,6 +2000,14 @@ class AppController:
                 drive_file_name=os.path.basename(backup_file),
             )
             self._insert_backup_log(created_at, trigger, "SUCCESS", backup_file_display, size, "")
+            self._log_backup_data_change(
+                "BACKUP.RUN.SUCCESS",
+                (
+                    f"備份成功（trigger {trigger}，時間 {created_at}，"
+                    f"目的地 本機:{int(enable_local)} / Drive:{int(enable_drive)}，"
+                    f"檔案 {self._fmt_log_val(backup_file_display)}，大小 {size} bytes）"
+                ),
+            )
             return {
                 "created_at": created_at,
                 "status": "SUCCESS",
@@ -1961,6 +2026,14 @@ class AppController:
                 drive_file_name=os.path.basename(backup_file) if backup_file else "",
             )
             self._insert_backup_log(created_at, trigger, "FAILED", backup_file_display, 0, str(e))
+            self._log_backup_system_event(
+                (
+                    f"備份失敗（trigger {trigger}，時間 {created_at}，"
+                    f"目的地 本機:{int(enable_local)} / Drive:{int(enable_drive)}，"
+                    f"檔案 {self._fmt_log_val(backup_file_display)}，原因：{e}）"
+                ),
+                level="WARN",
+            )
             raise
 
     def _upload_backup_to_drive(
@@ -2005,13 +2078,24 @@ class AppController:
         return str(res.get("id") or ""), folder_name
 
     def authorize_google_drive_oauth(self, oauth_client_secret_path: str) -> Dict[str, str]:
-        service = self._build_drive_service_oauth(
-            oauth_client_secret_path=(oauth_client_secret_path or "").strip(),
-            interactive=True,
-        )
-        about = service.about().get(fields="user(emailAddress)").execute()
-        email = str((about.get("user") or {}).get("emailAddress") or "")
-        return {"email": email}
+        try:
+            service = self._build_drive_service_oauth(
+                oauth_client_secret_path=(oauth_client_secret_path or "").strip(),
+                interactive=True,
+            )
+            about = service.about().get(fields="user(emailAddress)").execute()
+            email = str((about.get("user") or {}).get("emailAddress") or "")
+            self._log_backup_data_change(
+                "BACKUP.OAUTH.AUTHORIZED",
+                f"Google Drive 授權成功（email {self._fmt_log_val(email)}）",
+            )
+            return {"email": email}
+        except Exception as e:
+            self._log_backup_system_event(
+                f"Google Drive 授權失敗（原因：{e}）",
+                level="WARN",
+            )
+            raise
 
     def _build_drive_service_oauth(
         self,
@@ -2168,6 +2252,10 @@ class AppController:
         - 若達條件並完成備份：回傳 True
         """
         if not self.should_run_scheduled_backup(now=now):
+            self._log_backup_system_event(
+                f"排程備份略過（時間 {self._fmt_log_val((now or datetime.now()).strftime('%Y-%m-%d %H:%M:%S'))}，原因：未達觸發條件）",
+                level="INFO",
+            )
             return False
         self.create_local_backup(manual=False, now=now)
         self.mark_backup_run(now=now, scheduled=True)
@@ -2210,48 +2298,97 @@ class AppController:
         display_name = (display_name or "").strip()
         role = (role or "").strip()
         if not username:
+            self._log_account_system_event("新增帳號失敗（原因：username 為空）", level="WARN")
             raise ValueError("username is required")
         if not display_name:
+            self._log_account_system_event(f"新增帳號失敗（帳號 {username}，原因：display_name 為空）", level="WARN")
             raise ValueError("display_name is required")
-        self._validate_password_policy(username, password)
+        try:
+            self._validate_password_policy(username, password)
+        except Exception as e:
+            self._log_account_system_event(
+                f"新增帳號失敗（帳號 {username}，原因：密碼政策不符，{e}）",
+                level="WARN",
+            )
+            raise
         cur = self.conn.cursor()
         cur.execute("SELECT 1 FROM users WHERE username=?", (username,))
         if cur.fetchone():
+            self._log_account_system_event(f"新增帳號失敗（帳號 {username} 已存在）", level="WARN")
             raise ValueError("username already exists")
         import bcrypt
 
-        pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        now = self._now()
-        cur.execute(
-            """
-            INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at, is_active, password_changed_at, must_change_password)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 0)
-            """,
-            (self._uuid(), username, display_name, pw_hash, role, now, now, now),
+        try:
+            pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+            now = self._now()
+            cur.execute(
+                """
+                INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at, is_active, password_changed_at, must_change_password)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 0)
+                """,
+                (self._uuid(), username, display_name, pw_hash, role, now, now, now),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_account_system_event(
+                f"新增帳號失敗（帳號 {username}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_account_data_change(
+            "ACCOUNT.USER.CREATE",
+            (
+                f"新增帳號（操作者 {self._fmt_log_val(actor_username)}，帳號 {username}，姓名 {display_name}，"
+                f"角色 {self._fmt_log_val(role)}，狀態 啟用）"
+            ),
         )
-        self.conn.commit()
         self.log_security_event(actor_username, "create_user", username, f"role={role},display_name={display_name}")
 
     def reset_user_password(self, actor_username: str, target_username: str, new_password: str, mode: str = "manual"):
         target_username = (target_username or "").strip()
-        self._validate_password_policy(target_username, new_password)
+        try:
+            self._validate_password_policy(target_username, new_password)
+        except Exception as e:
+            self._log_account_system_event(
+                f"重設密碼失敗（目標帳號 {self._fmt_log_val(target_username)}，原因：密碼政策不符，{e}）",
+                level="WARN",
+            )
+            raise
         cur = self.conn.cursor()
         cur.execute("SELECT username FROM users WHERE username=?", (target_username,))
         if not cur.fetchone():
+            self._log_account_system_event(
+                f"重設密碼失敗（目標帳號 {target_username} 不存在）",
+                level="WARN",
+            )
             raise ValueError("target user not found")
         import bcrypt
 
-        pw_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        now = self._now()
-        cur.execute(
-            """
-            UPDATE users
-            SET password_hash=?, password_changed_at=?, updated_at=?
-            WHERE username=?
-            """,
-            (pw_hash, now, now, target_username),
+        try:
+            pw_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+            now = self._now()
+            cur.execute(
+                """
+                UPDATE users
+                SET password_hash=?, password_changed_at=?, updated_at=?
+                WHERE username=?
+                """,
+                (pw_hash, now, now, target_username),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_account_system_event(
+                f"重設密碼失敗（目標帳號 {target_username}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_account_data_change(
+            "ACCOUNT.USER.RESET_PASSWORD",
+            (
+                f"重設帳號密碼（操作者 {self._fmt_log_val(actor_username)}，目標帳號 {target_username}，"
+                f"模式 {self._fmt_log_val(mode)}）"
+            ),
         )
-        self.conn.commit()
         self.log_security_event(actor_username, "reset_password", target_username, f"mode={mode}")
 
     def toggle_user_active(self, actor_username: str, target_username: str, is_active: bool):
@@ -2259,39 +2396,86 @@ class AppController:
         cur.execute("SELECT role, COALESCE(is_active,1) FROM users WHERE username=?", (target_username,))
         row = cur.fetchone()
         if not row:
+            self._log_account_system_event(
+                f"帳號啟用/停用失敗（目標帳號 {self._fmt_log_val(target_username)} 不存在）",
+                level="WARN",
+            )
             raise ValueError("target user not found")
         target_role = row[0]
+        old_active = int(row[1] or 0)
         if not is_active and target_role == "管理員":
             cur.execute("SELECT COUNT(*) FROM users WHERE role='管理員' AND COALESCE(is_active,1)=1")
             active_admin_count = int(cur.fetchone()[0] or 0)
             if active_admin_count <= 1:
+                self._log_account_system_event(
+                    f"帳號停用失敗（目標帳號 {target_username}，原因：最後一位啟用中的管理員不可停用）",
+                    level="WARN",
+                )
                 raise ValueError("至少需要保留一位啟用中的管理員")
         now = self._now()
-        cur.execute(
-            "UPDATE users SET is_active=?, updated_at=? WHERE username=?",
-            (1 if is_active else 0, now, target_username),
+        try:
+            cur.execute(
+                "UPDATE users SET is_active=?, updated_at=? WHERE username=?",
+                (1 if is_active else 0, now, target_username),
+            )
+            self.conn.commit()
+        except Exception as e:
+            self._log_account_system_event(
+                f"帳號啟用/停用失敗（目標帳號 {target_username}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_account_data_change(
+            "ACCOUNT.USER.TOGGLE_ACTIVE",
+            (
+                f"帳號狀態變更（操作者 {self._fmt_log_val(actor_username)}，目標帳號 {target_username}，"
+                f"角色 {self._fmt_log_val(target_role)}，"
+                f"狀態：{'啟用' if old_active == 1 else '停用'} -> {'啟用' if is_active else '停用'}）"
+            ),
         )
-        self.conn.commit()
         action = "enable_user" if is_active else "disable_user"
         self.log_security_event(actor_username, action, target_username, "")
 
     def delete_user_account(self, actor_username: str, target_username: str):
         target_username = (target_username or "").strip()
         if not target_username:
+            self._log_account_system_event("刪除帳號失敗（原因：target user 為空）", level="WARN")
             raise ValueError("target user is required")
         cur = self.conn.cursor()
         cur.execute("SELECT role FROM users WHERE username=?", (target_username,))
         row = cur.fetchone()
         if not row:
+            self._log_account_system_event(
+                f"刪除帳號失敗（目標帳號 {target_username} 不存在）",
+                level="WARN",
+            )
             raise ValueError("target user not found")
         target_role = row[0]
         if target_role == "管理員":
             cur.execute("SELECT COUNT(*) FROM users WHERE role='管理員'")
             admin_count = int(cur.fetchone()[0] or 0)
             if admin_count <= 1:
+                self._log_account_system_event(
+                    f"刪除帳號失敗（目標帳號 {target_username}，原因：最後一位管理員不可刪除）",
+                    level="WARN",
+                )
                 raise ValueError("至少需要保留一位管理員，無法刪除最後一位管理員")
-        cur.execute("DELETE FROM users WHERE username=?", (target_username,))
-        self.conn.commit()
+        try:
+            cur.execute("DELETE FROM users WHERE username=?", (target_username,))
+            self.conn.commit()
+        except Exception as e:
+            self._log_account_system_event(
+                f"刪除帳號失敗（目標帳號 {target_username}，原因：{e}）",
+                level="ERROR",
+            )
+            raise
+        self._log_account_data_change(
+            "ACCOUNT.USER.DELETE",
+            (
+                f"刪除帳號（操作者 {self._fmt_log_val(actor_username)}，目標帳號 {target_username}，"
+                f"角色 {self._fmt_log_val(target_role)}）"
+            ),
+        )
         self.log_security_event(actor_username, "delete_user", target_username, "")
 
     def update_last_login(self, username: str):
