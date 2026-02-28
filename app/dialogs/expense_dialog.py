@@ -46,8 +46,6 @@ class ExpenseSetupDialog(QDialog):
         self.btn_delete.clicked.connect(self.delete_expense_item)
         self.btn_close.clicked.connect(self.close)
         self.table.itemSelectionChanged.connect(self._sync_toggle_button_text)
-
-        self._ensure_active_column()
         self.load_data()
 
     def _can_toggle_active(self):
@@ -73,16 +71,6 @@ class ExpenseSetupDialog(QDialog):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         return reply == QMessageBox.StandardButton.Yes
-
-    def _ensure_active_column(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(expense_items)")
-        cols = [r[1] for r in cursor.fetchall()]
-        if "is_active" not in cols:
-            cursor.execute("ALTER TABLE expense_items ADD COLUMN is_active INTEGER DEFAULT 1")
-            conn.commit()
-        conn.close()
 
     def load_data(self):
         conn = sqlite3.connect(self.db_path)

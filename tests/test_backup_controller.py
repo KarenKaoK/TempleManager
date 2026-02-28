@@ -16,7 +16,7 @@ def test_backup_defaults_and_save(tmp_path):
     assert defaults["use_cli_scheduler"] is False
     assert defaults["enable_local"] is True
     assert defaults["enable_drive"] is False
-    assert defaults["oauth_token_path"] == ""
+    assert defaults["drive_credentials_path"] == ""
     assert defaults["last_scheduled_run_at"] == ""
 
     controller.save_backup_settings(
@@ -29,8 +29,7 @@ def test_backup_defaults_and_save(tmp_path):
             "keep_latest": 7,
             "local_dir": str(tmp_path / "bkp"),
             "drive_folder_id": "folder_x",
-            "oauth_client_secret_path": "/tmp/credentials.json",
-            "oauth_token_path": "/tmp/token.json",
+            "drive_credentials_path": "/tmp/credentials.json",
             "enable_local": True,
             "enable_drive": False,
             "use_cli_scheduler": True,
@@ -44,18 +43,16 @@ def test_backup_defaults_and_save(tmp_path):
     assert data["keep_latest"] == 7
     assert data["drive_folder_id"] == "folder_x"
     assert data["use_cli_scheduler"] is True
-    assert data["oauth_client_secret_path"] == "/tmp/credentials.json"
-    assert data["oauth_token_path"] == "/tmp/token.json"
+    assert data["drive_credentials_path"] == "/tmp/credentials.json"
     assert data["enable_local"] is True
     assert data["enable_drive"] is False
 
-def test_backup_settings_ignore_legacy_drive_credentials_path(tmp_path):
+def test_backup_settings_read_drive_credentials_path(tmp_path):
     db = tmp_path / "backup_legacy_path.db"
     controller = AppController(db_path=str(db))
-    controller.set_setting("backup/drive_credentials_path", "/tmp/legacy_credentials.json")
-    controller.set_setting("backup/oauth_client_secret_path", "")
+    controller.set_setting("backup/drive_credentials_path", "/tmp/credentials.json")
     data = controller.get_backup_settings()
-    assert data["oauth_client_secret_path"] == ""
+    assert data["drive_credentials_path"] == "/tmp/credentials.json"
 
 
 def test_create_local_backup_and_retention(tmp_path):
@@ -214,16 +211,13 @@ def test_authorize_google_drive_oauth_without_token_path_does_not_fallback(tmp_p
 
     def _fake_build_drive_service_oauth(
         oauth_client_secret_path: str,
-        oauth_token_path: str,
         interactive: bool,
     ):
         captured["oauth_client_secret_path"] = oauth_client_secret_path
-        captured["oauth_token_path"] = oauth_token_path
         captured["interactive"] = interactive
         return _Service()
 
     monkeypatch.setattr(controller, "_build_drive_service_oauth", _fake_build_drive_service_oauth)
-    result = controller.authorize_google_drive_oauth("/tmp/credentials.json", "")
-    assert captured["oauth_token_path"] == ""
+    result = controller.authorize_google_drive_oauth("/tmp/credentials.json")
     assert captured["interactive"] is True
-    assert result == {"email": "drive@example.com", "token_path": ""}
+    assert result == {"email": "drive@example.com"}

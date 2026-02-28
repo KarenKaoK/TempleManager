@@ -16,7 +16,8 @@ def temp_income_db(tmp_path):
         CREATE TABLE income_items (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            amount INTEGER DEFAULT 0
+            amount INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1
         )
     """)
     cursor.execute("INSERT INTO income_items (id, name, amount) VALUES ('I01', '香油錢', 1000)")
@@ -52,7 +53,8 @@ def empty_income_db(tmp_path):
         CREATE TABLE income_items (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            amount INTEGER DEFAULT 0
+            amount INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1
         )
     """)
     conn.commit()
@@ -111,7 +113,8 @@ def test_income_dialog_generate_next_id_ignores_reserved_90_91(qtbot, tmp_path):
         CREATE TABLE income_items (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            amount INTEGER DEFAULT 0
+            amount INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1
         )
         """
     )

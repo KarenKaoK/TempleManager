@@ -86,8 +86,6 @@ def create_security_tables(db_name=DB_NAME):
     seed_setting("backup/last_run_at", "")
     seed_setting("backup/drive_folder_id", "")
     seed_setting("backup/use_cli_scheduler", "0")
-    seed_setting("backup/oauth_client_secret_path", "")
-    seed_setting("backup/oauth_token_path", "")
     seed_setting("backup/enable_local", "1")
     seed_setting("backup/enable_drive", "0")
     conn.commit()
@@ -103,7 +101,8 @@ def create_income_items_table(db_name=DB_NAME):
     CREATE TABLE IF NOT EXISTS income_items (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        amount REAL DEFAULT 0
+        amount REAL DEFAULT 0,
+        is_active INTEGER DEFAULT 1
     )
     """)
     
@@ -120,7 +119,8 @@ def create_expense_items_table(db_name=DB_NAME):
     CREATE TABLE IF NOT EXISTS expense_items (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        amount INTEGER DEFAULT 0  -- ✅ 確保金額為整數
+        amount INTEGER DEFAULT 0,  -- ✅ 確保金額為整數
+        is_active INTEGER DEFAULT 1
     )
     """)
     
@@ -316,6 +316,10 @@ def create_activity_signups_table(db_name=DB_NAME):
     note TEXT,
 
     total_amount INTEGER NOT NULL DEFAULT 0,  -- 報名總金額快照
+    is_paid INTEGER DEFAULT 0,
+    paid_at TEXT,
+    payment_txn_id INTEGER,
+    payment_receipt_number TEXT,
 
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime')),

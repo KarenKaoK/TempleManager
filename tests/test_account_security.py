@@ -12,9 +12,15 @@ def _init_users_table(conn):
         CREATE TABLE users (
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
+            display_name TEXT,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            is_active INTEGER DEFAULT 1,
+            must_change_password INTEGER DEFAULT 0,
+            password_changed_at TEXT,
+            last_login_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
@@ -26,8 +32,8 @@ def _insert_user(conn, uid, username, role):
     pw = "dummy_hash"
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
-        (uid, username, pw, role),
+        "INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        (uid, username, username, pw, role),
     )
     conn.commit()
 

@@ -81,6 +81,8 @@ class IncomeExpensePage(QWidget):
         )
         self.tabs.addTab(self.income_tab, "收入資料登錄作業")
         self.tabs.addTab(self.expense_tab, "支出資料登錄作業")
+        # 切換分頁時即時刷新，避免殘留舊列表
+        self.tabs.currentChanged.connect(lambda _idx: self.refresh_current_tab())
         self.tabs.setCurrentIndex(0 if int(initial_tab or 0) == 0 else 1)
         layout.addWidget(self.tabs)
 
@@ -91,6 +93,18 @@ class IncomeExpensePage(QWidget):
         btn_close.clicked.connect(self.request_close.emit)
         foot.addWidget(btn_close)
         layout.addLayout(foot)
+
+    def refresh_current_tab(self):
+        idx = self.tabs.currentIndex() if hasattr(self, "tabs") else 0
+        tab = self.income_tab if idx == 0 else self.expense_tab
+        if hasattr(tab, "refresh_list"):
+            tab.refresh_list()
+
+    def refresh_all_tabs(self):
+        if hasattr(self, "income_tab") and hasattr(self.income_tab, "refresh_list"):
+            self.income_tab.refresh_list()
+        if hasattr(self, "expense_tab") and hasattr(self.expense_tab, "refresh_list"):
+            self.expense_tab.refresh_list()
 
 
 class IncomeExpenseDialog(QDialog):
@@ -616,6 +630,9 @@ class TransactionTab(QWidget):
         today = QDate.currentDate()
         self.year_combo.setCurrentText(f"{today.year()}年")
         self.month_combo.setCurrentIndex(today.month() - 1)
+        # 若原本就已是本月，上面兩行可能不觸發 currentIndexChanged；
+        # 仍需強制刷新，確保新交易能即時顯示
+        self.refresh_list()
 
     def on_period_changed(self):
         self.show_all_mode = False

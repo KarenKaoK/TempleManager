@@ -16,7 +16,8 @@ def temp_expense_db(tmp_path):
         CREATE TABLE expense_items (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            amount INTEGER DEFAULT 0
+            amount INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1
         )
     """)
     cursor.execute("INSERT INTO expense_items (id, name, amount) VALUES ('E01', '香油支出', 800)")
@@ -50,7 +51,8 @@ def empty_expense_db(tmp_path):
         CREATE TABLE expense_items (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            amount INTEGER DEFAULT 0
+            amount INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1
         )
     """)
     conn.commit()
