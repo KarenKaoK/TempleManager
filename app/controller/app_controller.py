@@ -349,28 +349,8 @@ class AppController:
         return data
 
     def _ensure_security_schema(self):
-        cur = self.conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS security_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                actor_username TEXT NOT NULL,
-                action TEXT NOT NULL,
-                target_username TEXT,
-                detail TEXT,
-                created_at TEXT DEFAULT (datetime('now', 'localtime'))
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS app_settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
-            )
-            """
-        )
+        if not self._table_exists("app_settings"):
+            return
         self._ensure_setting("security/password_reminder_days", "90")
         self._ensure_setting("security/idle_logout_minutes", "15")
         self._ensure_setting("ui/login_cover_title", "")
@@ -394,20 +374,8 @@ class AppController:
         return mapping.get(a, "AUTH.SECURITY.EVENT")
 
     def _ensure_backup_schema(self):
-        cur = self.conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS backup_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                trigger_mode TEXT NOT NULL,      -- MANUAL / SCHEDULED
-                status TEXT NOT NULL,            -- SUCCESS / FAILED
-                backup_file TEXT,
-                file_size_bytes INTEGER,
-                error_message TEXT
-            )
-            """
-        )
+        if not self._table_exists("app_settings"):
+            return
         self._ensure_setting("backup/enabled", "0")
         self._ensure_setting("backup/frequency", "daily")     # daily / weekly / monthly
         self._ensure_setting("backup/time", "23:00")          # HH:MM
@@ -424,22 +392,8 @@ class AppController:
         self.conn.commit()
 
     def _ensure_lighting_schema(self):
-        cur = self.conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS lighting_items (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                fee INTEGER NOT NULL DEFAULT 0,
-                kind TEXT NOT NULL DEFAULT 'JI_XIANG',
-                sort_order INTEGER DEFAULT 0,
-                is_active INTEGER DEFAULT 1,
-                created_at TEXT DEFAULT (datetime('now', 'localtime')),
-                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
-            )
-            """
-        )
-        self.conn.commit()
+        if not self._table_exists("lighting_items"):
+            return
         self._ensure_default_lighting_items()
 
     def _ensure_default_lighting_items(self):
@@ -638,40 +592,8 @@ class AppController:
         return ok
 
     def _ensure_lighting_signup_schema(self):
-        cur = self.conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS lighting_signups (
-                id TEXT PRIMARY KEY,
-                signup_year INTEGER NOT NULL,
-                person_id TEXT NOT NULL,
-                group_id TEXT NOT NULL,
-                signup_kind TEXT NOT NULL DEFAULT 'INITIAL',
-                total_amount INTEGER NOT NULL DEFAULT 0,
-                note TEXT,
-                is_paid INTEGER DEFAULT 0,
-                paid_at TEXT,
-                payment_txn_id INTEGER,
-                payment_receipt_number TEXT,
-                created_at TEXT DEFAULT (datetime('now', 'localtime')),
-                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS lighting_signup_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                signup_id TEXT NOT NULL,
-                lighting_item_id TEXT NOT NULL,
-                lighting_item_name TEXT NOT NULL,
-                fee_snapshot INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT DEFAULT (datetime('now', 'localtime')),
-                UNIQUE(signup_id, lighting_item_id)
-            )
-            """
-        )
-        self.conn.commit()
+        # Runtime 不再自動建表（開發期 schema 由 setup_db.py 一次建立）
+        return
 
     def list_lighting_signups(self, signup_year: int, keyword: str = "", unpaid_only: bool = False) -> List[Dict[str, Any]]:
         year_value = int(signup_year)
