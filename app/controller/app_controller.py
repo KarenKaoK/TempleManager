@@ -1858,6 +1858,19 @@ class AppController:
     def _default_backup_dir(self) -> str:
         return os.path.join(os.path.dirname(DB_NAME), "backups")
 
+    def _harden_backup_artifact_permissions(self, backup_dir: str, backup_file: str = "") -> None:
+        # best-effort: 在支援 chmod 的系統收斂為最小權限
+        try:
+            if backup_dir and os.path.isdir(backup_dir):
+                os.chmod(backup_dir, 0o700)
+        except Exception:
+            pass
+        try:
+            if backup_file and os.path.isfile(backup_file):
+                os.chmod(backup_file, 0o600)
+        except Exception:
+            pass
+
     @staticmethod
     def _drive_scopes() -> List[str]:
         return ["https://www.googleapis.com/auth/drive"]
@@ -1943,6 +1956,7 @@ class AppController:
         trigger = "MANUAL" if manual else "SCHEDULED"
         backup_dir = settings["local_dir"] or self._default_backup_dir()
         os.makedirs(backup_dir, exist_ok=True)
+        self._harden_backup_artifact_permissions(backup_dir=backup_dir)
 
         filename = f"temple_backup_{now.strftime('%Y%m%d_%H%M%S')}.db"
         backup_file = os.path.join(backup_dir, filename)
@@ -1953,6 +1967,7 @@ class AppController:
                 self.conn.backup(dst_conn)
             finally:
                 dst_conn.close()
+            self._harden_backup_artifact_permissions(backup_dir=backup_dir, backup_file=backup_file)
 
             size = os.path.getsize(backup_file) if os.path.exists(backup_file) else 0
 
@@ -2248,13 +2263,6 @@ class AppController:
     def log_security_event(self, actor_username: str, action: str, target_username: Optional[str], detail: str = ""):
         cur = self.conn.cursor()
         now = self._now()
-        cur.execute(
-            """
-            INSERT INTO security_logs (actor_username, action, target_username, detail, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (actor_username or "", action or "", target_username, detail or "", now),
-        )
         cur.execute(
             """
             INSERT INTO audit_events (

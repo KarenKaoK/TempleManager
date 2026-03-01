@@ -10,18 +10,6 @@ def _init_users_table(conn):
     cur = conn.cursor()
     cur.execute(
         """
-        CREATE TABLE security_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_username TEXT NOT NULL,
-            action TEXT NOT NULL,
-            target_username TEXT,
-            detail TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    cur.execute(
-        """
         CREATE TABLE audit_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             event_type TEXT NOT NULL,
@@ -122,7 +110,7 @@ def test_delete_admin_allowed_when_multiple_admins(security_db, mock_account_log
     )
 
 
-def test_create_and_reset_password_write_security_logs(security_db, mock_account_logs):
+def test_create_and_reset_password_write_audit_events(security_db, mock_account_logs):
     conn = sqlite3.connect(security_db)
     _insert_user(conn, "U1", "admin", "管理員")
     conn.close()
@@ -131,18 +119,6 @@ def test_create_and_reset_password_write_security_logs(security_db, mock_account
     controller.create_user_account("admin", "staff1", "abcd1234", "工作人員", display_name="王小明")
     controller.reset_user_password("admin", "staff1", "temp5678", mode="manual")
 
-    cur = controller.conn.cursor()
-    cur.execute(
-        "SELECT action, actor_username, target_username FROM security_logs ORDER BY id ASC"
-    )
-    logs = cur.fetchall()
-    assert len(logs) >= 2
-    assert logs[-2][0] == "create_user"
-    assert logs[-2][1] == "admin"
-    assert logs[-2][2] == "staff1"
-    assert logs[-1][0] == "reset_password"
-    assert logs[-1][1] == "admin"
-    assert logs[-1][2] == "staff1"
     assert any(
         call["kwargs"].get("action") == "ACCOUNT.USER.CREATE"
         for call in mock_account_logs["data"]
@@ -151,6 +127,7 @@ def test_create_and_reset_password_write_security_logs(security_db, mock_account
         call["kwargs"].get("action") == "ACCOUNT.USER.RESET_PASSWORD"
         for call in mock_account_logs["data"]
     )
+    cur = controller.conn.cursor()
 
     cur.execute(
         """

@@ -214,7 +214,8 @@ YYYY-MM-DD HH:MM:SS [LEVEL] [DATA|SYSTEM] 內容描述
 
 - 支援手動與排程備份。  
 - 備份流程保留執行紀錄（成功/失敗與錯誤資訊）。  
-- 備份檔採加密與可還原驗證策略，避免備份成為資料外洩來源。
+- 備份檔與備份目錄採最小權限策略（best-effort）：檔案 `0600`、目錄 `0700`。  
+- 若需備份檔案內容加密，建議由作業系統層磁碟加密或後續導入備份檔加密機制。
 
 ### 6. 輸入驗證與安全防護
 
@@ -238,6 +239,15 @@ YYYY-MM-DD HH:MM:SS [LEVEL] [DATA|SYSTEM] 內容描述
 - `log.log` 為加密內容，且可透過系統日誌介面正常解密查看  
 - 排程、備份、寄信流程可在重啟後正常運作  
 - 測試通過：`./temple_venv/bin/python -m pytest -q`
+
+### 9. 後續資安優化（Roadmap）
+
+以下為後續可逐步強化的方向（非目前版本必要上線條件）：
+- 建立稽核事件查詢/匯出介面（依時間、事件類型、操作者、結果篩選）。
+- 補齊更多關鍵事件到 `audit_events`（排程啟停、授權結果、備份操作、作廢/高風險異動）。
+- 導入業務資料版本快照（revision）以支援欄位級回溯與還原。
+- 備份檔內容加密（上雲前加密，還原時解密）與金鑰輪替流程。
+- 事件告警與異常偵測（例如連續驗證失敗、異常高頻操作）。
 
 ## 環境需求與安裝
 
@@ -304,7 +314,7 @@ python -m app.database.setup_db
 初始化過程會：
 - 建立 `temple.db` SQLite 資料庫
 - 建立所有必要的資料表（users、people、activities、transactions 等）
-- 建立安全設定與審計紀錄資料表（`app_settings`、`security_logs`）
+- 建立安全設定與審計紀錄資料表（`app_settings`、`audit_events`）
 - 不再建立預設三個帳號；首次啟動會引導建立管理員帳號
 - 初始化管理員會設定：帳號、姓名（經手人顯示名稱）、密碼（至少 8 碼且不可與帳號相同）；經手人預設顯示為「姓名(帳號)」
 
@@ -550,8 +560,8 @@ python -m app.scheduler.worker
 - **users**: 使用者帳號與權限管理
   - `id`, `username`, `password_hash`, `role`, `is_active`, `must_change_password`, `password_changed_at`, `last_login_at`, `created_at`, `updated_at`
 
-- **security_logs**: 安全/帳號操作審計紀錄
-  - `id`, `actor_username`, `action`, `target_username`, `detail`, `created_at`
+- **audit_events**: 安全/帳號操作審計紀錄
+  - `id`, `event_type`, `actor_username`, `target_type`, `target_id`, `result`, `reason`, `detail`, `created_at`
 
 - **app_settings**: 系統設定鍵值（安全設定、備份設定、封面設定等）
   - `key`, `value`, `updated_at`

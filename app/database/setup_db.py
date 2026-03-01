@@ -36,18 +36,6 @@ def create_security_tables(db_name=DB_NAME):
     now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS security_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_username TEXT NOT NULL,
-            action TEXT NOT NULL,
-            target_username TEXT,
-            detail TEXT,
-            created_at TEXT DEFAULT (datetime('now', 'localtime'))
-        )
-        """
-    )
-    cursor.execute(
-        """
         CREATE TABLE IF NOT EXISTS audit_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             event_type TEXT NOT NULL,
