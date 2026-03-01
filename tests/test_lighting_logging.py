@@ -2,6 +2,11 @@ import sqlite3
 import pytest
 
 from app.controller.app_controller import AppController
+from app.database.setup_db import (
+    create_security_tables,
+    create_lighting_items_table,
+    create_lighting_signup_tables,
+)
 
 
 @pytest.fixture
@@ -69,6 +74,9 @@ def controller_with_lighting_log_db(tmp_path):
     conn.commit()
     conn.close()
 
+    create_security_tables(str(db_path))
+    create_lighting_items_table(str(db_path))
+    create_lighting_signup_tables(str(db_path))
     c = AppController(db_path=str(db_path))
     yield c
     try:

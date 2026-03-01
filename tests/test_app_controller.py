@@ -4,6 +4,18 @@ import sqlite3
 import pytest
 
 from app.controller.app_controller import AppController
+from app.database.setup_db import (
+    create_security_tables,
+    create_lighting_items_table,
+    create_lighting_signup_tables,
+)
+
+
+def _new_lighting_controller(db_path):
+    create_security_tables(str(db_path))
+    create_lighting_items_table(str(db_path))
+    create_lighting_signup_tables(str(db_path))
+    return AppController(db_path=str(db_path))
 
 
 # -------------------------
@@ -77,6 +89,7 @@ def controller_with_db(tmp_path):
     conn.commit()
     conn.close()
 
+    create_security_tables(str(db_path))
     controller = AppController(db_path=str(db_path))
     yield controller
 
@@ -163,7 +176,7 @@ def test_login_cover_settings_roundtrip(controller_with_db):
 
 def test_lighting_defaults_seeded_on_controller_init(tmp_path):
     db_path = tmp_path / "lighting_defaults.db"
-    controller = AppController(db_path=str(db_path))
+    controller = _new_lighting_controller(db_path)
     try:
         rows = controller.list_lighting_items(include_inactive=True)
         names = [r["name"] for r in rows]
@@ -177,7 +190,7 @@ def test_lighting_defaults_seeded_on_controller_init(tmp_path):
 
 def test_create_custom_lighting_item(tmp_path):
     db_path = tmp_path / "lighting_custom.db"
-    controller = AppController(db_path=str(db_path))
+    controller = _new_lighting_controller(db_path)
     try:
         item_id = controller.create_lighting_item(name="文昌燈", fee=500, kind="JI_XIANG")
         rows = controller.list_lighting_items(include_inactive=True)
@@ -190,7 +203,7 @@ def test_create_custom_lighting_item(tmp_path):
 
 
 def test_lighting_zodiac_suggestions_contains_required_fields(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_hint.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_hint.db")
     try:
         data = controller.get_lighting_zodiac_suggestions(2026)
         assert data["year"] == 2026
@@ -218,7 +231,7 @@ def test_lighting_zodiac_suggestions_contains_required_fields(tmp_path):
 
 
 def test_lighting_hint_settings_defaults_and_save(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_hint_settings.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_hint_settings.db")
     try:
         defaults = controller.get_lighting_hint_settings()
         assert defaults["year"]
@@ -239,7 +252,7 @@ def test_lighting_hint_settings_defaults_and_save(tmp_path):
 
 
 def test_list_lighting_signups_empty_returns_list(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_signup_empty.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_signup_empty.db")
     try:
         # 建立最小 people 表，讓 lighting_signups 查詢 JOIN 可執行
         cur = controller.conn.cursor()
@@ -262,7 +275,7 @@ def test_list_lighting_signups_empty_returns_list(tmp_path):
 
 
 def test_upsert_lighting_signup_and_item_totals(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_signup_upsert.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_signup_upsert.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(
@@ -301,7 +314,7 @@ def test_upsert_lighting_signup_and_item_totals(tmp_path):
         controller.conn.close()
 
 def test_list_lighting_signup_rows_by_item_for_print(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_signup_print_rows.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_signup_print_rows.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(
@@ -340,7 +353,7 @@ def test_list_lighting_signup_rows_by_item_for_print(tmp_path):
 
 
 def test_upsert_lighting_signup_rejects_paid_record_update(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_signup_paid_guard.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_signup_paid_guard.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(
@@ -366,7 +379,7 @@ def test_upsert_lighting_signup_rejects_paid_record_update(tmp_path):
 
 
 def test_upsert_lighting_signup_allows_paid_record_update_with_flag(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_signup_paid_allow_update.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_signup_paid_allow_update.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(
@@ -402,7 +415,7 @@ def test_upsert_lighting_signup_allows_paid_record_update_with_flag(tmp_path):
 
 
 def test_mark_lighting_signups_paid_writes_transaction_source_link(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_paid_source_link.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_paid_source_link.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(
@@ -484,7 +497,7 @@ def test_mark_lighting_signups_paid_writes_transaction_source_link(tmp_path):
 
 
 def test_mark_lighting_signup_append_paid_writes_supplement_kind(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_append_paid_kind.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_append_paid_kind.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(
@@ -567,7 +580,7 @@ def test_mark_lighting_signup_append_paid_writes_supplement_kind(tmp_path):
 
 
 def test_update_paid_lighting_signup_with_adjustment_creates_supplement_and_refund(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_adjustment_phase3.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_adjustment_phase3.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(
@@ -659,7 +672,7 @@ def test_update_paid_lighting_signup_with_adjustment_creates_supplement_and_refu
 
 
 def test_delete_lighting_signup_removes_master_and_items(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_signup_delete.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_signup_delete.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(
@@ -683,7 +696,7 @@ def test_delete_lighting_signup_removes_master_and_items(tmp_path):
 
 
 def test_create_lighting_signup_append_creates_second_record_with_group_and_kind(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_append_kind.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_append_kind.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(
@@ -716,7 +729,7 @@ def test_create_lighting_signup_append_creates_second_record_with_group_and_kind
 
 
 def test_delete_lighting_signup_paid_record_voids_transactions_and_deletes_record(tmp_path):
-    controller = AppController(db_path=str(tmp_path / "lighting_signup_delete_paid.db"))
+    controller = _new_lighting_controller(tmp_path / "lighting_signup_delete_paid.db")
     try:
         cur = controller.conn.cursor()
         cur.execute(

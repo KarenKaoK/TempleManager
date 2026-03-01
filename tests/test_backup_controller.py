@@ -1,9 +1,16 @@
 import os
 import sqlite3
 from datetime import datetime
+import pytest
 import app.controller.app_controller as app_controller_module
 
 from app.controller.app_controller import AppController
+from app.database.setup_db import create_security_tables
+
+
+def _new_backup_controller(db_path):
+    create_security_tables(str(db_path))
+    return AppController(db_path=str(db_path))
 
 
 def _mock_backup_logs(monkeypatch):
@@ -23,7 +30,7 @@ def _mock_backup_logs(monkeypatch):
 def test_backup_defaults_and_save(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "backup_defaults.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
     defaults = controller.get_backup_settings()
     assert defaults["enabled"] is False
     assert defaults["frequency"] == "daily"
@@ -68,7 +75,7 @@ def test_backup_defaults_and_save(tmp_path, monkeypatch):
 
 def test_backup_settings_read_drive_credentials_path(tmp_path):
     db = tmp_path / "backup_legacy_path.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
     controller.set_setting("backup/drive_credentials_path", "/tmp/credentials.json")
     data = controller.get_backup_settings()
     assert data["drive_credentials_path"] == "/tmp/credentials.json"
@@ -77,7 +84,7 @@ def test_backup_settings_read_drive_credentials_path(tmp_path):
 def test_create_local_backup_and_retention(tmp_path, monkeypatch):
     mock_logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "backup_retention.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
     backup_dir = tmp_path / "backups"
     controller.save_backup_settings(
         {
@@ -110,7 +117,7 @@ def test_create_local_backup_and_retention(tmp_path, monkeypatch):
 def test_create_local_backup_without_target_writes_system_log(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "backup_without_target.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
     controller.save_backup_settings(
         {
             "enabled": True,
@@ -136,7 +143,7 @@ def test_create_local_backup_without_target_writes_system_log(tmp_path, monkeypa
 
 def test_should_run_scheduled_backup(tmp_path):
     db = tmp_path / "backup_schedule.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
     controller.save_backup_settings(
         {
             "enabled": True,
@@ -157,7 +164,7 @@ def test_should_run_scheduled_backup(tmp_path):
 
 def test_run_scheduled_backup_once(tmp_path):
     db = tmp_path / "backup_schedule_run_once.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
     controller.save_backup_settings(
         {
             "enabled": True,
@@ -178,7 +185,7 @@ def test_run_scheduled_backup_once(tmp_path):
 
 def test_manual_backup_mark_does_not_block_scheduled_backup(tmp_path):
     db = tmp_path / "backup_schedule_manual_not_block.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
     controller.save_backup_settings(
         {
             "enabled": True,
@@ -199,7 +206,7 @@ def test_manual_backup_mark_does_not_block_scheduled_backup(tmp_path):
 def test_scheduler_feature_settings_defaults_and_save(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_feature_settings.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
 
     defaults = controller.get_scheduler_feature_settings()
     assert defaults["mail_enabled"] is True
@@ -223,7 +230,7 @@ def test_scheduler_feature_settings_defaults_and_save(tmp_path, monkeypatch):
 def test_scheduler_config_path_defaults_and_save(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_config_path.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
     assert controller.get_scheduler_config_path() == "app/scheduler/scheduler_config.yaml"
     controller.save_scheduler_config_path("/tmp/custom_scheduler.yaml")
     assert controller.get_scheduler_config_path() == "/tmp/custom_scheduler.yaml"
@@ -236,7 +243,7 @@ def test_scheduler_config_path_defaults_and_save(tmp_path, monkeypatch):
 def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_mail_settings.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
 
     monkeypatch.setattr(app_controller_module.secret_store, "backend_label", lambda: "Windows Credential Manager")
     monkeypatch.setattr(app_controller_module.secret_store, "has_secret", lambda _k: True)
@@ -260,7 +267,7 @@ def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
 
 def test_authorize_google_drive_oauth_without_token_path_does_not_fallback(tmp_path, monkeypatch):
     db = tmp_path / "backup_oauth_no_token_path.db"
-    controller = AppController(db_path=str(db))
+    controller = _new_backup_controller(db)
     captured = {}
 
     class _AboutRequest:
@@ -287,3 +294,39 @@ def test_authorize_google_drive_oauth_without_token_path_does_not_fallback(tmp_p
     result = controller.authorize_google_drive_oauth("/tmp/credentials.json")
     assert captured["interactive"] is True
     assert result == {"email": "drive@example.com"}
+
+
+def test_create_local_backup_hardens_permissions_best_effort(tmp_path):
+    db = tmp_path / "backup_perm_hardening.db"
+    controller = _new_backup_controller(db)
+    backup_dir = tmp_path / "secure_backups"
+    controller.save_backup_settings(
+        {
+            "enabled": True,
+            "frequency": "daily",
+            "time": "00:00",
+            "weekday": 1,
+            "monthday": 1,
+            "keep_latest": 3,
+            "local_dir": str(backup_dir),
+            "enable_local": True,
+            "enable_drive": False,
+        }
+    )
+
+    chmod_calls = []
+    real_chmod = app_controller_module.os.chmod
+
+    def _spy_chmod(path, mode):
+        chmod_calls.append((str(path), int(mode)))
+        return real_chmod(path, mode)
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(app_controller_module.os, "chmod", _spy_chmod)
+    try:
+        result = controller.create_local_backup(manual=True, now=datetime(2026, 3, 1, 10, 0, 0))
+    finally:
+        mp.undo()
+
+    assert any(p == str(backup_dir) and m == 0o700 for p, m in chmod_calls)
+    assert any(p == str(result["backup_file"]) and m == 0o600 for p, m in chmod_calls)
