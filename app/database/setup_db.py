@@ -48,6 +48,27 @@ def create_security_tables(db_name=DB_NAME):
     )
     cursor.execute(
         """
+        CREATE TABLE IF NOT EXISTS audit_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            actor_username TEXT NOT NULL,
+            target_type TEXT NOT NULL DEFAULT 'USER',
+            target_id TEXT,
+            result TEXT NOT NULL DEFAULT 'SUCCESS',
+            reason TEXT,
+            detail TEXT,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_audit_events_created_at
+        ON audit_events(created_at)
+        """
+    )
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,

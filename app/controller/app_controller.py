@@ -381,6 +381,18 @@ class AppController:
         self._ensure_setting("scheduler/backup_enabled", "1")
         self.conn.commit()
 
+    @staticmethod
+    def _map_security_action_to_event_type(action: str) -> str:
+        a = str(action or "").strip().lower()
+        mapping = {
+            "create_user": "AUTH.USER.CREATE",
+            "reset_password": "AUTH.USER.RESET_PASSWORD",
+            "enable_user": "AUTH.USER.ENABLE",
+            "disable_user": "AUTH.USER.DISABLE",
+            "delete_user": "AUTH.USER.DELETE",
+        }
+        return mapping.get(a, "AUTH.SECURITY.EVENT")
+
     def _ensure_backup_schema(self):
         cur = self.conn.cursor()
         cur.execute(
@@ -2313,12 +2325,31 @@ class AppController:
 
     def log_security_event(self, actor_username: str, action: str, target_username: Optional[str], detail: str = ""):
         cur = self.conn.cursor()
+        now = self._now()
         cur.execute(
             """
             INSERT INTO security_logs (actor_username, action, target_username, detail, created_at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (actor_username or "", action or "", target_username, detail or "", self._now()),
+            (actor_username or "", action or "", target_username, detail or "", now),
+        )
+        cur.execute(
+            """
+            INSERT INTO audit_events (
+                event_type, actor_username, target_type, target_id, result, reason, detail, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                self._map_security_action_to_event_type(action),
+                actor_username or "",
+                "USER" if (target_username or "") else "SYSTEM",
+                target_username or None,
+                "SUCCESS",
+                "",
+                detail or "",
+                now,
+            ),
         )
         self.conn.commit()
 

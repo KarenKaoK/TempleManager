@@ -10,6 +10,33 @@ def _init_users_table(conn):
     cur = conn.cursor()
     cur.execute(
         """
+        CREATE TABLE security_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_username TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target_username TEXT,
+            detail TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE audit_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            actor_username TEXT NOT NULL,
+            target_type TEXT NOT NULL DEFAULT 'USER',
+            target_id TEXT,
+            result TEXT NOT NULL DEFAULT 'SUCCESS',
+            reason TEXT,
+            detail TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cur.execute(
+        """
         CREATE TABLE users (
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
@@ -124,6 +151,26 @@ def test_create_and_reset_password_write_security_logs(security_db, mock_account
         call["kwargs"].get("action") == "ACCOUNT.USER.RESET_PASSWORD"
         for call in mock_account_logs["data"]
     )
+
+    cur.execute(
+        """
+        SELECT event_type, actor_username, target_type, target_id, result
+        FROM audit_events
+        ORDER BY id ASC
+        """
+    )
+    audit_rows = cur.fetchall()
+    assert len(audit_rows) >= 2
+    assert audit_rows[-2][0] == "AUTH.USER.CREATE"
+    assert audit_rows[-2][1] == "admin"
+    assert audit_rows[-2][2] == "USER"
+    assert audit_rows[-2][3] == "staff1"
+    assert audit_rows[-2][4] == "SUCCESS"
+    assert audit_rows[-1][0] == "AUTH.USER.RESET_PASSWORD"
+    assert audit_rows[-1][1] == "admin"
+    assert audit_rows[-1][2] == "USER"
+    assert audit_rows[-1][3] == "staff1"
+    assert audit_rows[-1][4] == "SUCCESS"
 
 
 def test_create_user_stores_display_name(security_db):
