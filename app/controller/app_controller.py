@@ -7,6 +7,7 @@ import re
 import os
 from typing import Tuple, Optional,  List, Dict, Any
 import app.utils.secret_store as secret_store
+from cryptography.fernet import Fernet
 
 from datetime import datetime, date, timedelta
 
@@ -39,6 +40,9 @@ class AppController:
     )
     SCHEDULER_SMTP_PASSWORD_SECRET_KEY = "scheduler/smtp_app_password"
     BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY = "backup/google_oauth_token_json"
+    BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT = "backup/cloud_encryption_key/current"
+    BACKUP_CLOUD_ENCRYPTION_KEY_PREVIOUS = "backup/cloud_encryption_key/previous"
+    BACKUP_CLOUD_ENCRYPTION_KEY_LEGACY = "backup/cloud_encryption_key"
 
     def __init__(self, db_path=DB_NAME):
         self.db_path = db_path
@@ -1875,6 +1879,260 @@ class AppController:
     def _drive_scopes() -> List[str]:
         return ["https://www.googleapis.com/auth/drive"]
 
+    @staticmethod
+    def _read_valid_fernet_key(raw: str) -> str:
+        text = (raw or "").strip()
+        if not text:
+            return ""
+        try:
+            Fernet(text.encode("utf-8"))
+            return text
+        except Exception:
+            return ""
+
+    def _get_or_create_cloud_backup_encryption_key(self) -> bytes:
+        current = ""
+        legacy = ""
+        try:
+            current = self._read_valid_fernet_key(secret_store.get_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT))
+        except Exception:
+            current = ""
+        try:
+            legacy = self._read_valid_fernet_key(secret_store.get_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_LEGACY))
+        except Exception:
+            legacy = ""
+
+        if current:
+            return current.encode("utf-8")
+
+        if legacy:
+            try:
+                secret_store.set_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT, legacy)
+            except Exception:
+                pass
+            return legacy.encode("utf-8")
+
+        new_key = Fernet.generate_key().decode("utf-8")
+        secret_store.set_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT, new_key)
+        return new_key.encode("utf-8")
+
+    def _cloud_backup_decrypt_keys(self) -> List[bytes]:
+        keys: List[bytes] = []
+        for sk in (
+            self.BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT,
+            self.BACKUP_CLOUD_ENCRYPTION_KEY_PREVIOUS,
+            self.BACKUP_CLOUD_ENCRYPTION_KEY_LEGACY,
+        ):
+            try:
+                k = self._read_valid_fernet_key(secret_store.get_secret(sk))
+            except Exception:
+                k = ""
+            if k:
+                kb = k.encode("utf-8")
+                if kb not in keys:
+                    keys.append(kb)
+        return keys
+
+    def get_cloud_backup_encryption_status(self) -> Dict[str, Any]:
+        current_key = ""
+        previous_key = ""
+        legacy_key = ""
+        try:
+            current_key = self._read_valid_fernet_key(secret_store.get_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT))
+        except Exception:
+            current_key = ""
+        try:
+            previous_key = self._read_valid_fernet_key(secret_store.get_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_PREVIOUS))
+        except Exception:
+            previous_key = ""
+        try:
+            legacy_key = self._read_valid_fernet_key(secret_store.get_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_LEGACY))
+        except Exception:
+            legacy_key = ""
+        return {
+            "current_set": bool(current_key or legacy_key),
+            "previous_set": bool(previous_key),
+            "secret_backend": secret_store.backend_label(),
+        }
+
+    def rotate_cloud_backup_encryption_key(self) -> Dict[str, Any]:
+        old_current = ""
+        old_legacy = ""
+        try:
+            old_current = self._read_valid_fernet_key(secret_store.get_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT))
+        except Exception:
+            old_current = ""
+        try:
+            old_legacy = self._read_valid_fernet_key(secret_store.get_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_LEGACY))
+        except Exception:
+            old_legacy = ""
+        old_effective = old_current or old_legacy
+
+        new_key = Fernet.generate_key().decode("utf-8")
+        if old_effective:
+            secret_store.set_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_PREVIOUS, old_effective)
+        secret_store.set_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT, new_key)
+        try:
+            secret_store.delete_secret(self.BACKUP_CLOUD_ENCRYPTION_KEY_LEGACY)
+        except Exception:
+            pass
+        self._log_backup_data_change(
+            "BACKUP.CLOUD_KEY.ROTATE",
+            f"更新雲端備份加密金鑰（上一版存在：{int(bool(old_effective))}）",
+        )
+        return self.get_cloud_backup_encryption_status()
+
+    def _encrypt_backup_file_for_drive(self, local_file: str) -> str:
+        if not os.path.isfile(local_file):
+            raise ValueError(f"找不到本機備份檔：{local_file}")
+        key = self._get_or_create_cloud_backup_encryption_key()
+        f = Fernet(key)
+        with open(local_file, "rb") as src:
+            plain = src.read()
+        token = f.encrypt(plain)
+        enc_path = f"{local_file}.enc"
+        with open(enc_path, "wb") as dst:
+            dst.write(token)
+        self._harden_backup_artifact_permissions(backup_dir=os.path.dirname(enc_path), backup_file=enc_path)
+        return enc_path
+
+    def restore_database_from_encrypted_backup(self, encrypted_file: str):
+        enc = (encrypted_file or "").strip()
+        restore_started_at = self._now()
+        pre_restore_logs: List[Tuple[str, str, str, str, int, str]] = []
+
+        # 還原前先保留目前 backup_logs，避免整庫覆蓋後遺失 MANUAL 歷史紀錄
+        try:
+            if self._table_exists("backup_logs"):
+                cur = self.conn.cursor()
+                rows = cur.execute(
+                    """
+                    SELECT created_at, trigger_mode, status, backup_file, file_size_bytes, error_message
+                    FROM backup_logs
+                    ORDER BY id ASC
+                    """
+                ).fetchall()
+                pre_restore_logs = [
+                    (
+                        str(r[0] or ""),
+                        str(r[1] or ""),
+                        str(r[2] or ""),
+                        str(r[3] or ""),
+                        int(r[4] or 0),
+                        str(r[5] or ""),
+                    ) for r in rows
+                ]
+        except Exception:
+            pre_restore_logs = []
+
+        if not enc:
+            raise ValueError("請選擇加密備份檔（.db.enc）")
+        if not os.path.isfile(enc):
+            raise ValueError(f"加密備份檔不存在：{enc}")
+
+        keys = self._cloud_backup_decrypt_keys()
+        if not keys:
+            raise RuntimeError("找不到可用的雲端加密金鑰，請先確認金鑰設定。")
+
+        with open(enc, "rb") as f:
+            token = f.read()
+
+        plain = b""
+        last_err = None
+        for kb in keys:
+            try:
+                plain = Fernet(kb).decrypt(token)
+                break
+            except Exception as e:
+                last_err = e
+        if not plain:
+            raise RuntimeError(f"解密失敗，可能是金鑰不相符或檔案毀損：{last_err}")
+
+        temp_db = f"{self.db_path}.restore_tmp.db"
+        if os.path.exists(temp_db):
+            try:
+                os.remove(temp_db)
+            except Exception:
+                pass
+        try:
+            with open(temp_db, "wb") as out:
+                out.write(plain)
+            self._harden_backup_artifact_permissions(backup_dir=os.path.dirname(temp_db), backup_file=temp_db)
+
+            src_conn = sqlite3.connect(temp_db)
+            try:
+                self.conn.commit()
+                src_conn.backup(self.conn)
+                self.conn.commit()
+            finally:
+                src_conn.close()
+        except Exception as e:
+            try:
+                self._insert_backup_log(
+                    created_at=restore_started_at,
+                    trigger_mode="RESTORE",
+                    status="FAILED",
+                    backup_file=enc,
+                    file_size_bytes=0,
+                    error_message=str(e),
+                )
+            except Exception:
+                pass
+            self._log_backup_system_event(f"還原加密備份失敗（檔案 {self._fmt_log_val(enc)}，原因：{e}）", level="WARN")
+            raise
+        finally:
+            if os.path.exists(temp_db):
+                try:
+                    os.remove(temp_db)
+                except Exception:
+                    pass
+
+        # 還原後把「還原前」的 backup_logs 合併回來，避免 MANUAL 記錄被舊備份覆蓋掉
+        try:
+            if pre_restore_logs and self._table_exists("backup_logs"):
+                cur = self.conn.cursor()
+                existing_rows = cur.execute(
+                    """
+                    SELECT created_at, trigger_mode, status, backup_file, file_size_bytes, error_message
+                    FROM backup_logs
+                    """
+                ).fetchall()
+                existing_set = {
+                    (
+                        str(r[0] or ""),
+                        str(r[1] or ""),
+                        str(r[2] or ""),
+                        str(r[3] or ""),
+                        int(r[4] or 0),
+                        str(r[5] or ""),
+                    ) for r in existing_rows
+                }
+                to_insert = [r for r in pre_restore_logs if r not in existing_set]
+                if to_insert:
+                    cur.executemany(
+                        """
+                        INSERT INTO backup_logs (created_at, trigger_mode, status, backup_file, file_size_bytes, error_message)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        to_insert,
+                    )
+                    self.conn.commit()
+        except Exception:
+            pass
+
+        try:
+            self._insert_backup_log(
+                created_at=restore_started_at,
+                trigger_mode="RESTORE",
+                status="SUCCESS",
+                backup_file=enc,
+                file_size_bytes=os.path.getsize(enc) if os.path.isfile(enc) else 0,
+                error_message="",
+            )
+        except Exception:
+            pass
+        self._log_backup_data_change("BACKUP.RESTORE.ENCRYPTED.SUCCESS", f"還原加密備份成功（檔案 {self._fmt_log_val(enc)}）")
+
     def _parse_hhmm(self, hhmm: str) -> Tuple[int, int]:
         s = (hhmm or "").strip()
         m = re.match(r"^(\d{1,2}):(\d{2})$", s)
@@ -1960,6 +2218,8 @@ class AppController:
 
         filename = f"temple_backup_{now.strftime('%Y%m%d_%H%M%S')}.db"
         backup_file = os.path.join(backup_dir, filename)
+        drive_upload_file = ""
+        drive_display_name = os.path.basename(backup_file)
 
         try:
             dst_conn = sqlite3.connect(backup_file)
@@ -1974,8 +2234,10 @@ class AppController:
             drive_file_id = ""
             drive_folder_name = ""
             if enable_drive:
+                drive_upload_file = self._encrypt_backup_file_for_drive(backup_file)
+                drive_display_name = os.path.basename(drive_upload_file)
                 drive_file_id, drive_folder_name = self._upload_backup_to_drive(
-                    backup_file,
+                    drive_upload_file,
                     folder_id=settings.get("drive_folder_id", ""),
                     oauth_client_secret_path=settings.get("drive_credentials_path", ""),
                     keep_latest=int(settings.get("keep_latest", 20)),
@@ -1996,7 +2258,7 @@ class AppController:
                 drive_folder_id=settings.get("drive_folder_id", ""),
                 drive_folder_name=drive_folder_name,
                 drive_file_id=drive_file_id,
-                drive_file_name=os.path.basename(backup_file),
+                drive_file_name=drive_display_name,
             )
             self._insert_backup_log(created_at, trigger, "SUCCESS", backup_file_display, size, "")
             self._log_backup_data_change(
@@ -2022,7 +2284,7 @@ class AppController:
                 drive_folder_id=settings.get("drive_folder_id", ""),
                 drive_folder_name="",
                 drive_file_id="",
-                drive_file_name=os.path.basename(backup_file) if backup_file else "",
+                drive_file_name=drive_display_name if drive_display_name else (os.path.basename(backup_file) if backup_file else ""),
             )
             self._insert_backup_log(created_at, trigger, "FAILED", backup_file_display, 0, str(e))
             self._log_backup_system_event(
@@ -2034,6 +2296,12 @@ class AppController:
                 level="WARN",
             )
             raise
+        finally:
+            if drive_upload_file:
+                try:
+                    os.remove(drive_upload_file)
+                except Exception:
+                    pass
 
     def _upload_backup_to_drive(
         self,
@@ -2153,7 +2421,7 @@ class AppController:
 
     def _prune_drive_backups(self, service, folder_id: str, keep_latest: int):
         keep = max(1, int(keep_latest or 1))
-        q = "name contains 'temple_backup_' and name contains '.db' and trashed = false"
+        q = "name contains 'temple_backup_' and (name contains '.db.enc' or name contains '.db') and trashed = false"
         if folder_id:
             q += f" and '{folder_id}' in parents"
         files = []

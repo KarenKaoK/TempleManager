@@ -359,12 +359,15 @@ class BackupSettingsDialog(QDialog):
         self.lbl_google_summary = QLabel("")
         self.lbl_google_summary.setWordWrap(True)
         self.btn_google_settings = QPushButton("Google 設定")
+        self.btn_rotate_cloud_key = QPushButton("更新雲端加密金鑰")
         self.btn_google_settings.clicked.connect(self._open_google_settings_dialog)
+        self.btn_rotate_cloud_key.clicked.connect(self._rotate_cloud_backup_key)
         google_row = QHBoxLayout()
         google_row.setContentsMargins(0, 0, 0, 0)
         google_row.setSpacing(8)
         google_row.addWidget(self.lbl_google_summary, 1)
         google_row.addWidget(self.btn_google_settings)
+        google_row.addWidget(self.btn_rotate_cloud_key)
         google_wrap = QWidget()
         google_wrap.setLayout(google_row)
         form.addRow("Google", google_wrap)
@@ -389,24 +392,31 @@ class BackupSettingsDialog(QDialog):
         self.lbl_runtime_scheduler_status.setStyleSheet("QLabel { color:#6B7280; }")
         root.addWidget(self.lbl_runtime_scheduler_status)
 
-        row_btn = QHBoxLayout()
+        row_btn_primary = QHBoxLayout()
         self.btn_save = QPushButton("儲存設定")
         self.btn_backup_now = QPushButton("立即備份")
         self.btn_refresh = QPushButton("重新整理紀錄")
+        self.btn_restore_encrypted = QPushButton("從加密備份還原")
         self.btn_help_doc = QPushButton("說明文件")
         self.btn_close = QPushButton("關閉")
         self.btn_save.clicked.connect(self._save_settings)
         self.btn_backup_now.clicked.connect(self._run_manual_backup)
         self.btn_refresh.clicked.connect(lambda: self._reload_logs(auto_resize=True, limit=200))
+        self.btn_restore_encrypted.clicked.connect(self._restore_from_encrypted_backup)
         self.btn_help_doc.clicked.connect(self._open_help_document)
         self.btn_close.clicked.connect(self.accept)
-        row_btn.addWidget(self.btn_save)
-        row_btn.addWidget(self.btn_backup_now)
-        row_btn.addWidget(self.btn_refresh)
-        row_btn.addWidget(self.btn_help_doc)
-        row_btn.addStretch()
-        row_btn.addWidget(self.btn_close)
-        root.addLayout(row_btn)
+        row_btn_primary.addWidget(self.btn_save)
+        row_btn_primary.addWidget(self.btn_backup_now)
+        row_btn_primary.addWidget(self.btn_refresh)
+        row_btn_primary.addWidget(self.btn_restore_encrypted)
+        row_btn_primary.addStretch()
+        root.addLayout(row_btn_primary)
+
+        row_btn_secondary = QHBoxLayout()
+        row_btn_secondary.addWidget(self.btn_help_doc)
+        row_btn_secondary.addStretch()
+        row_btn_secondary.addWidget(self.btn_close)
+        root.addLayout(row_btn_secondary)
 
         self.lbl_backup_notice = QLabel("")
         self.lbl_backup_notice.setWordWrap(True)
@@ -463,6 +473,7 @@ class BackupSettingsDialog(QDialog):
         controls = [
             self.btn_google_settings,
             self.btn_schedule_settings,
+            self.btn_rotate_cloud_key,
             self.btn_save,
             self.btn_backup_now,
             self.btn_refresh,
@@ -511,9 +522,9 @@ class BackupSettingsDialog(QDialog):
             max_w = screen_rect.width() - 40 if screen_rect else 1400
             max_h = screen_rect.height() - 40 if screen_rect else 980
 
-            # 接近主視窗尺寸（預留少量邊距）
-            w = int(parent_w * 0.94)
-            h = int(parent_h * 0.90)
+            # 直接對齊主視窗尺寸（仍受螢幕可用範圍限制）
+            w = int(parent_w)
+            h = int(parent_h)
             w = max(920, min(max_w, w))
             h = max(680, min(max_h, h))
             self.resize(w, h)
@@ -637,10 +648,24 @@ class BackupSettingsDialog(QDialog):
         except Exception:
             token_secret_set = False
         token_text = "已設定（安全儲存）" if token_secret_set else "未設定"
+        key_text = "未設定"
+        getter = getattr(self.controller, "get_cloud_backup_encryption_status", None)
+        if callable(getter):
+            try:
+                ks = getter() or {}
+                if bool(ks.get("current_set")):
+                    key_text = "已設定"
+                    if bool(ks.get("previous_set")):
+                        key_text = "已設定（含上一版）"
+            except Exception:
+                key_text = "未設定"
         folder_text = self._google_drive_folder_id if (self._google_drive_folder_id or "").strip() else "未設定"
-        self.lbl_google_summary.setText(f"憑證：{cred_text}｜Token：{token_text}｜資料夾：{folder_text}")
+        self.lbl_google_summary.setText(
+            f"憑證：{cred_text}｜Token：{token_text}｜雲端加密金鑰：{key_text}｜資料夾：{folder_text}"
+        )
 
     def _open_google_settings_dialog(self):
+        self._update_google_summary()
         dialog = GoogleSettingsDialog(
             controller=self.controller,
             drive_folder_id=self._google_drive_folder_id,
@@ -653,6 +678,53 @@ class BackupSettingsDialog(QDialog):
         self._google_drive_folder_id = values.get("drive_folder_id", "")
         self._google_oauth_client_secret_path = values.get("drive_credentials_path", "")
         self._update_google_summary()
+
+    def _rotate_cloud_backup_key(self):
+        rotator = getattr(self.controller, "rotate_cloud_backup_encryption_key", None)
+        if not callable(rotator):
+            QMessageBox.warning(self, "功能不可用", "目前控制器不支援雲端加密金鑰更新。")
+            return
+        reply = QMessageBox.question(
+            self,
+            "確認更新",
+            "更新後新上傳的雲端備份會使用新金鑰。\n"
+            "舊備份仍需舊金鑰解密（系統會保留上一版）。\n\n"
+            "確定要更新雲端加密金鑰嗎？",
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            rotator()
+            self._update_google_summary()
+            QMessageBox.information(self, "成功", "雲端加密金鑰已更新，並保留上一版相容。")
+        except Exception as e:
+            QMessageBox.warning(self, "更新失敗", str(e))
+
+    def _restore_from_encrypted_backup(self):
+        restorer = getattr(self.controller, "restore_database_from_encrypted_backup", None)
+        if not callable(restorer):
+            QMessageBox.warning(self, "功能不可用", "目前控制器不支援加密備份還原。")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "選擇加密備份檔",
+            "",
+            "Encrypted Backup (*.db.enc);;All Files (*)",
+        )
+        if not path:
+            return
+        reply = QMessageBox.question(
+            self,
+            "確認還原",
+            "此操作會以選取備份覆蓋目前資料庫。\n建議先手動再做一次立即備份。\n\n是否繼續？",
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            restorer(path)
+            QMessageBox.information(self, "還原完成", "已完成加密備份還原。")
+        except Exception as e:
+            QMessageBox.warning(self, "還原失敗", str(e))
 
     def _build_settings_payload(self) -> dict:
         return {
@@ -785,6 +857,7 @@ class BackupSettingsDialog(QDialog):
         self.btn_backup_now.setEnabled(not running)
         self.btn_save.setEnabled(not running)
         self.btn_refresh.setEnabled(not running)
+        self.btn_restore_encrypted.setEnabled(not running)
         self.btn_backup_now.setText("備份中..." if running else "立即備份")
 
     def _reload_logs(self, auto_resize: bool = True, limit: int = 200):
@@ -845,6 +918,8 @@ class BackupSettingsDialog(QDialog):
   <li><b>啟用自動備份</b>：代表允許排程判斷生效。</li>
   <li><b>程式內建排程</b>：主程式開啟時，由系統依 UI 設定（每日/每週/每月、時間、週幾/幾號）判斷是否執行。</li>
   <li><b>立即備份</b>：按下就執行，不看排程時間，依當下勾選目的地備份（本機 / Drive / 雙寫）。</li>
+  <li><b>雲端加密</b>：若啟用 Google Drive，上傳前會先轉為 <code>.db.enc</code> 再上傳；本機仍保留 <code>.db</code>。</li>
+  <li><b>還原</b>：可從 <code>.db.enc</code> 還原到目前資料庫（會覆蓋現有資料）。</li>
   <li>Google Drive 採 OAuth 模式：首次需人工授權一次，後續由 token 自動續期。</li>
 </ol>
 
