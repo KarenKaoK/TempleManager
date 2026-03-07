@@ -2858,17 +2858,7 @@ class AppController:
         """
 
         # 1) 先做必填檢查
-        required_fields = {
-            "name": "必須填寫姓名",
-            "gender": "必須填寫性別",
-            "phone_mobile": "必須填寫手機號碼",
-            "birthday_ad": "必須填寫國曆生日",
-            "birthday_lunar": "必須填寫農曆生日",
-            "birth_time": "必須填寫出生時辰",
-            "address": "必須填寫地址",
-        }
-
-        cleaned_required = {}
+        required_fields = {"name": "姓名", "address": "地址"}
         missing = []
 
         for field, err_msg in required_fields.items():
@@ -2879,15 +2869,14 @@ class AppController:
 
             if v is None or v == "":
                 missing.append(err_msg)
-            else:
-                cleaned_required[field] = v
 
         if missing:
+            missing_text = "、".join(missing)
             self._log_people_system_event(
-                f"新增戶長失敗（原因：缺少必填欄位，{'; '.join(missing)}）",
+                f"新增戶長失敗（原因：缺少必填欄位，{missing_text}）",
                 level="WARN",
             )
-            raise ValueError(" / ".join(missing))
+            raise ValueError(f"{missing_text}為必填欄位")
 
         # 2) 檢查通過後，才開始組資料（填寫輸入）
         person_id = self._uuid()
@@ -2898,25 +2887,31 @@ class AppController:
             "household_id": household_id,
             "role_in_household": "HEAD",
             "status": "ACTIVE",
-            "name": cleaned_required["name"],
-            "gender": cleaned_required["gender"],
-            "birthday_ad": cleaned_required["birthday_ad"],
-            "birthday_lunar": cleaned_required["birthday_lunar"],
-            "birth_time": cleaned_required["birth_time"],
-            "phone_mobile": cleaned_required["phone_mobile"],
-            "address": cleaned_required["address"],
+            "name": str(person_payload.get("name", "") or "").strip(),
+            "address": str(person_payload.get("address", "") or "").strip(),
             "joined_at": self._now(),
         }
 
         # 選填欄位：payload 有帶、且不是空字串/None 才寫入
-        optional_cols = {"phone_home", "zip_code", "note", "lunar_is_leap", "zodiac"}
+        optional_cols = {
+            "gender",
+            "birthday_ad",
+            "birthday_lunar",
+            "birth_time",
+            "phone_mobile",
+            "phone_home",
+            "zip_code",
+            "note",
+            "lunar_is_leap",
+            "zodiac",
+        }
         for col in optional_cols:
             v = person_payload.get(col, None)
             if isinstance(v, str):
                 v = v.strip()
             if v not in (None, ""):
                 data[col] = v
-        age_offset = self._derive_age_offset(cleaned_required["birthday_ad"], person_payload.get("age"))
+        age_offset = self._derive_age_offset(person_payload.get("birthday_ad"), person_payload.get("age"))
         if age_offset is not None:
             data["age_offset"] = age_offset
 
@@ -2972,17 +2967,7 @@ class AppController:
         household_id = row[0]
 
         # 1) 先做必填檢查（跟 create_household 一樣的欄位）
-        required_fields = {
-            "name": "name is required",
-            "gender": "gender is required",
-            "phone_mobile": "phone_mobile is required",
-            "birthday_ad": "birthday_ad is required",
-            "birthday_lunar": "birthday_lunar is required",
-            "birth_time": "birth_time is required",
-            "address": "address is required",
-        }
-
-        cleaned_required = {}
+        required_fields = {"name": "姓名", "address": "地址"}
         missing = []
 
         for field, err_msg in required_fields.items():
@@ -2992,15 +2977,14 @@ class AppController:
 
             if v is None or v == "":
                 missing.append(err_msg)
-            else:
-                cleaned_required[field] = v
 
         if missing:
+            missing_text = "、".join(missing)
             self._log_people_system_event(
-                f"新增戶員失敗（head_person_id {head_person_id}，原因：缺少必填欄位）",
+                f"新增戶員失敗（head_person_id {head_person_id}，原因：缺少必填欄位，{missing_text}）",
                 level="WARN",
             )
-            raise ValueError(" / ".join(missing))
+            raise ValueError(f"{missing_text}為必填欄位")
 
         # 2) 檢查通過後，才開始組資料
         person_id = self._uuid()
@@ -3010,21 +2994,18 @@ class AppController:
             "household_id": household_id,
             "role_in_household": "MEMBER",
             "status": "ACTIVE",
-
-            "name": cleaned_required["name"],
-            "gender": cleaned_required["gender"],
-            "birthday_ad": cleaned_required["birthday_ad"],
-            "birthday_lunar": cleaned_required["birthday_lunar"],
-            "birth_time": cleaned_required["birth_time"],
-
-            "phone_mobile": cleaned_required["phone_mobile"],
-            "address": cleaned_required["address"],
-
+            "name": str(person_payload.get("name", "") or "").strip(),
+            "address": str(person_payload.get("address", "") or "").strip(),
             "joined_at": self._now(),
         }
 
         # 3) 選填欄位：payload 有帶、且不是空字串/None 才寫入
         optional_cols = {
+            "gender",
+            "birthday_ad",
+            "birthday_lunar",
+            "birth_time",
+            "phone_mobile",
             "phone_home",
             "zip_code",
             "note",
@@ -3037,7 +3018,7 @@ class AppController:
                 v = v.strip()
             if v not in (None, ""):
                 data[col] = v
-        age_offset = self._derive_age_offset(cleaned_required["birthday_ad"], person_payload.get("age"))
+        age_offset = self._derive_age_offset(person_payload.get("birthday_ad"), person_payload.get("age"))
         if age_offset is not None:
             data["age_offset"] = age_offset
 
