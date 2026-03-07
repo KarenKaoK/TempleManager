@@ -32,8 +32,8 @@ jobs:
       這是一封心跳信，用於確認 mailer worker 仍在運行、寄信功能正常。
       若你收到此信，代表服務正常。
     cron:
-      hour: 20
-      minute: 22
+      hour: 15
+      minute: 50
 
   - id: "daily_finance_report"
     enabled: true
@@ -45,8 +45,8 @@ jobs:
       這是一封自動寄送的通知信，附件：每日會計彙整表
 
     cron:
-      hour: 17
-      minute: 13
+      hour: 15
+      minute: 50
 
   - id: "monthly_finance_report"
     enabled: true
@@ -58,9 +58,9 @@ jobs:
       - "a88040303@gmail.com"
 
     cron:
-      day: 23
-      hour: 17
-      minute: 13
+      day: 3
+      hour: 15
+      minute: 50
 
   - id: "daily_activity_report"
     enabled: true
@@ -73,8 +73,8 @@ jobs:
       僅於活動期間內寄送，當日若無進行中活動則不寄送。
 
     cron:
-      hour: 17
-      minute: 13
+      hour: 15
+      minute: 50
 
   - id: "monthly_believer_report"
     enabled: true
@@ -86,7 +86,7 @@ jobs:
       這是一封自動寄送的通知信，附件：每月信眾資料表（含戶長與戶員）。
 
     cron:
-      day: 22
-      hour: 17
-      minute: 13
+      day: 7
+      hour: 15
+      minute: 50
 

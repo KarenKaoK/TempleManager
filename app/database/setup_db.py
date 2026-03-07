@@ -483,23 +483,24 @@ def create_activity_signup_plans_table(db_name=DB_NAME):
     conn.close()
     print("✅ `activity_signup_plans` 資料表檢查完成")
 
+def initialize_database(db_name=DB_NAME):
+    print(f"🔄 初始化資料庫... ({db_name})")
+    create_users_table(db_name)
+    create_security_tables(db_name)
+    create_income_items_table(db_name)
+    create_expense_items_table(db_name)
+    create_member_identity_table(db_name)
+    # 第二階段：不再建立預設帳號，改由首次啟動建立管理員
+    create_people_table(db_name) # 所有人的基本資料表
+    create_lighting_items_table(db_name) # 安燈設定
+    create_lighting_signup_tables(db_name) # 安燈報名
+    create_activities_table(db_name) # 活動主檔
+    create_activity_plans_table(db_name) # 活動方案
+    create_activity_signups_table(db_name) # 活動報名
+    create_activity_signup_plans_table(db_name) # 活動報名方案
+    create_transactions_table(db_name) # 收支明細表
+    print("🎉 資料庫初始化完成！")
+
 
 if __name__ == "__main__":
-    print("🔄 初始化資料庫...")
-    create_users_table()
-    create_security_tables()
-    create_income_items_table()
-    create_expense_items_table()  
-    create_member_identity_table()
-    # 第二階段：不再建立預設帳號，改由首次啟動建立管理員
-    create_people_table() # 所有人的基本資料表
-    create_lighting_items_table() # 安燈設定
-    create_lighting_signup_tables() # 安燈報名
-    create_activities_table() # 活動主檔
-    create_activity_plans_table() # 活動方案
-    create_activity_signups_table() # 活動報名
-    create_activity_signup_plans_table() # 活動報名方案
-    create_transactions_table() # 收支明細表
-
-
-    print("🎉 資料庫初始化完成！")
+    initialize_database()
