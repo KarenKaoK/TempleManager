@@ -19,3 +19,16 @@ def test_resolve_db_name_uses_data_dir(monkeypatch, tmp_path):
     result = app_config.resolve_db_name(data_dir=data_dir)
 
     assert result == str(data_dir / "temple.db")
+
+
+def test_get_data_dir_uses_single_app_segment(monkeypatch):
+    captured = {"appname": None, "appauthor": "NOT_SET"}
+
+    def fake_user_data_dir(appname, appauthor=None, **kwargs):
+        captured["appname"] = appname
+        captured["appauthor"] = appauthor
+        return "/tmp/TempleManager"
+
+    monkeypatch.setattr(app_config, "user_data_dir", fake_user_data_dir)
+    app_config.get_data_dir()
+    assert captured == {"appname": "TempleManager", "appauthor": False}

@@ -7,11 +7,11 @@ from typing import Optional
 BASE_DIR = str(Path(__file__).resolve().parent)
 
 APP_NAME = "TempleManager"
-APP_AUTHOR = "TempleManager"
 
 
-def get_data_dir(app_name: str = APP_NAME, app_author: str = APP_AUTHOR) -> Path:
-    return Path(user_data_dir(app_name, app_author))
+def get_data_dir(app_name: str = APP_NAME) -> Path:
+    # appauthor=False 可避免 Windows 產生 <AppAuthor>/<AppName> 雙層資料夾
+    return Path(user_data_dir(app_name, appauthor=False))
 
 
 def resolve_db_name(data_dir: Optional[Path] = None) -> str:
