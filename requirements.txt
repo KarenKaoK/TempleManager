@@ -32,7 +32,7 @@ ptyprocess==0.7.0
 pure_eval==0.2.3
 Pygments==2.19.1
 PyQt5==5.15.11
-PyQt5-Qt5==5.15.16
+PyQt5-Qt5==5.15.2
 PyQt5_sip==12.17.0
 pytest==8.3.5
 pytest-cov==6.1.1
