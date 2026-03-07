@@ -232,9 +232,16 @@ def test_scheduler_config_path_defaults_and_save(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_config_path.db"
     controller = _new_backup_controller(db)
-    assert controller.get_scheduler_config_path() == "app/scheduler/scheduler_config.yaml"
-    controller.save_scheduler_config_path("/tmp/custom_scheduler.yaml")
-    assert controller.get_scheduler_config_path() == "/tmp/custom_scheduler.yaml"
+
+    expected_default = str((tmp_path / "scheduler_config.yaml").resolve())
+    assert controller.get_scheduler_config_path() == expected_default
+    assert os.path.isfile(expected_default) is True
+
+    custom = tmp_path / "custom_scheduler.yaml"
+    controller.save_scheduler_config_path(str(custom))
+    assert controller.get_scheduler_config_path() == str(custom.resolve())
+    assert os.path.isfile(str(custom.resolve())) is True
+
     assert any(
         call["kwargs"].get("action") == "SCHEDULER.CONFIG_PATH.UPDATE"
         for call in logs["data"]
