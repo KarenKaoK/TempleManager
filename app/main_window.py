@@ -214,10 +214,14 @@ class MainWindow(QMainWindow):
     def open_income_setup(self):
         dlg = IncomeSetupDialog(user_role=self.role)
         dlg.exec_()
+        if self.income_expense_page is not None and hasattr(self.income_expense_page, "refresh_all_tabs"):
+            self.income_expense_page.refresh_all_tabs()
 
     def open_expense_setup(self):
         dlg = ExpenseSetupDialog(user_role=self.role)
         dlg.exec_()
+        if self.income_expense_page is not None and hasattr(self.income_expense_page, "refresh_all_tabs"):
+            self.income_expense_page.refresh_all_tabs()
 
     def open_identity_setup(self):
         dlg = MemberIdentityDialog(user_role=self.role)

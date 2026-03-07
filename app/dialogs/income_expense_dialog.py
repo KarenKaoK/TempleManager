@@ -562,18 +562,34 @@ class TransactionTab(QWidget):
             self.set_person(dialog.selected_person)
 
     def load_initial_data(self):
+        self._reload_category_items(keep_selection=False)
+        # 載入列表
+        self.refresh_list()
+
+    def _reload_category_items(self, keep_selection: bool = True):
+        selected_id = ""
+        if keep_selection:
+            current = self.category_combo.currentData()
+            if isinstance(current, dict):
+                selected_id = str(current.get("id") or "").strip()
+
         # 載入項目
         if self.t_type == "income":
             items = self.controller.get_all_income_items()
         else:
             items = self.controller.get_all_expense_items()
-            
+
+        self.category_combo.blockSignals(True)
         self.category_combo.clear()
+        target_idx = -1
         for item in items:
             self.category_combo.addItem(f"{item['id']} - {item['name']}", item) # userData 存整包
-            
-        # 載入列表
-        self.refresh_list()
+            if selected_id and str(item.get("id") or "").strip() == selected_id:
+                target_idx = self.category_combo.count() - 1
+
+        if self.category_combo.count() > 0:
+            self.category_combo.setCurrentIndex(target_idx if target_idx >= 0 else 0)
+        self.category_combo.blockSignals(False)
 
     def perform_search(self):
         # 相容舊呼叫點：改為走目前的彈窗搜尋流程（不再使用已移除的 search_result_list）
@@ -655,6 +671,7 @@ class TransactionTab(QWidget):
         self.refresh_list()
 
     def refresh_list(self):
+        self._reload_category_items(keep_selection=True)
         keyword = self.list_search_input.text().strip() if hasattr(self, "list_search_input") else None
         if self.void_only_mode:
             data = self.controller.get_transactions(
