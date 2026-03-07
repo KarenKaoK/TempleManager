@@ -437,3 +437,55 @@ def test_new_income_save_clears_form_fields(qtbot, dialog):
 
     rows = tab.controller.get_transactions("income")
     assert any(int(r.get("amount") or 0) == 1234 for r in rows)
+
+
+def test_income_category_combo_updates_after_category_deleted(qtbot, dialog):
+    tab = dialog.income_tab
+    before_ids = {
+        str((tab.category_combo.itemData(i) or {}).get("id") or "")
+        for i in range(tab.category_combo.count())
+    }
+    assert "I01" in before_ids
+
+    cur = tab.controller.conn.cursor()
+    cur.execute("DELETE FROM income_items WHERE id = 'I01'")
+    tab.controller.conn.commit()
+
+    tab.refresh_list()
+    after_ids = {
+        str((tab.category_combo.itemData(i) or {}).get("id") or "")
+        for i in range(tab.category_combo.count())
+    }
+    assert "I01" not in after_ids
+    assert len(after_ids) == len(before_ids) - 1
+
+
+def test_expense_category_combo_updates_after_category_deleted(qtbot, dialog):
+    tab = dialog.expense_tab
+    before_ids = {
+        str((tab.category_combo.itemData(i) or {}).get("id") or "")
+        for i in range(tab.category_combo.count())
+    }
+
+    cur = tab.controller.conn.cursor()
+    cur.execute("INSERT INTO expense_items (id, name, amount) VALUES ('E99', '測試支出', 100)")
+    tab.controller.conn.commit()
+
+    tab.refresh_list()
+    after_insert_ids = {
+        str((tab.category_combo.itemData(i) or {}).get("id") or "")
+        for i in range(tab.category_combo.count())
+    }
+    assert "E99" in after_insert_ids
+    assert len(after_insert_ids) == len(before_ids) + 1
+
+    cur.execute("DELETE FROM expense_items WHERE id = 'E99'")
+    tab.controller.conn.commit()
+
+    tab.refresh_list()
+    after_delete_ids = {
+        str((tab.category_combo.itemData(i) or {}).get("id") or "")
+        for i in range(tab.category_combo.count())
+    }
+    assert "E99" not in after_delete_ids
+    assert len(after_delete_ids) == len(before_ids)

@@ -48,3 +48,4 @@ wcwidth==0.2.13
 APScheduler==3.* 
 PyYAML==6.*
 pywin32==308; platform_system=="Windows"
+pyinstaller==6.16.0
