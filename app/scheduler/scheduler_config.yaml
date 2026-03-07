@@ -3,7 +3,7 @@ version: 1
 timezone: "Asia/Taipei"
 
 db:
-  path: "./app/database/temple.db"
+  path: "./app/database/temple.db" # 只在獨立跑 python -m app.scheduler.worker 時有效
 
 smtp:
   host: "smtp.gmail.com"
