@@ -88,14 +88,22 @@ class LightingSetupDialog(QDialog):
         self.tai_sui_hint_input.setFixedHeight(58)
         left_col.addWidget(self.tai_sui_hint_input)
 
-        right_col = QVBoxLayout()
-        right_col.setSpacing(4)
-        right_col.addWidget(QLabel("祭改提示"))
+        mid_col = QVBoxLayout()
+        mid_col.setSpacing(4)
+        mid_col.addWidget(QLabel("祭改提示"))
         self.ji_gai_hint_input = QTextEdit()
         self.ji_gai_hint_input.setFixedHeight(58)
-        right_col.addWidget(self.ji_gai_hint_input)
+        mid_col.addWidget(self.ji_gai_hint_input)
+
+        right_col = QVBoxLayout()
+        right_col.setSpacing(4)
+        right_col.addWidget(QLabel("平安無沖提示"))
+        self.peaceful_hint_input = QTextEdit()
+        self.peaceful_hint_input.setFixedHeight(58)
+        right_col.addWidget(self.peaceful_hint_input)
 
         hint_row_2col.addLayout(left_col, 1)
+        hint_row_2col.addLayout(mid_col, 1)
         hint_row_2col.addLayout(right_col, 1)
         hint_layout.addLayout(hint_row_2col)
         root.addWidget(hint_group)
@@ -144,10 +152,12 @@ class LightingSetupDialog(QDialog):
         self.btn_hint_save.setEnabled(editable)
         self.tai_sui_hint_input.setReadOnly(not editable)
         self.ji_gai_hint_input.setReadOnly(not editable)
+        self.peaceful_hint_input.setReadOnly(not editable)
         if not editable:
             tip = "僅管理員與會計可修改提示內容"
             self.tai_sui_hint_input.setToolTip(tip)
             self.ji_gai_hint_input.setToolTip(tip)
+            self.peaceful_hint_input.setToolTip(tip)
 
     def _load_hint_settings(self):
         data = self.controller.get_lighting_hint_settings()
@@ -159,13 +169,16 @@ class LightingSetupDialog(QDialog):
         defaults = self.controller._default_lighting_hint_texts(self.hint_year_spin.value())
         saved_tai_sui = (self.controller.get_setting("lighting/hint_tai_sui_text", "") or "").strip()
         saved_ji_gai = (self.controller.get_setting("lighting/hint_ji_gai_text", "") or "").strip()
+        saved_peaceful = (self.controller.get_setting("lighting/hint_peaceful_text", "") or "").strip()
         self.tai_sui_hint_input.setPlainText(saved_tai_sui or str(defaults.get("tai_sui_text") or ""))
         self.ji_gai_hint_input.setPlainText(saved_ji_gai or str(defaults.get("ji_gai_text") or ""))
+        self.peaceful_hint_input.setPlainText(saved_peaceful or str(defaults.get("peaceful_text") or ""))
 
     def _autofill_hints(self):
         defaults = self.controller._default_lighting_hint_texts(self.hint_year_spin.value())
         self.tai_sui_hint_input.setPlainText(defaults["tai_sui_text"])
         self.ji_gai_hint_input.setPlainText(defaults["ji_gai_text"])
+        self.peaceful_hint_input.setPlainText(defaults["peaceful_text"])
 
     def _save_hints(self):
         if not self._can_edit_hints():
@@ -175,6 +188,7 @@ class LightingSetupDialog(QDialog):
             year=int(self.hint_year_spin.value()),
             tai_sui_text=self.tai_sui_hint_input.toPlainText(),
             ji_gai_text=self.ji_gai_hint_input.toPlainText(),
+            peaceful_text=self.peaceful_hint_input.toPlainText(),
         )
         QMessageBox.information(self, "成功", "安燈提示已儲存。")
 
