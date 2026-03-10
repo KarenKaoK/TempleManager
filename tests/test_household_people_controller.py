@@ -260,3 +260,44 @@ def test_reactivate_person_empty_id_writes_system_log(controller_with_household_
         call.get("level") == "WARN" and "恢復信眾失敗（原因：person_id 為空）" in call.get("message", "")
         for call in mock_people_logs["system"]
     )
+
+
+def test_create_household_only_name_and_address_required(controller_with_household_db):
+    c = controller_with_household_db
+    person_id, household_id = c.create_household({
+        "name": "只填必填",
+        "address": "台北市中正區",
+    })
+    row = c.conn.cursor().execute(
+        "SELECT name, address, phone_mobile, birthday_ad, birthday_lunar FROM people WHERE id = ?",
+        (person_id,),
+    ).fetchone()
+    assert person_id
+    assert household_id
+    assert row["name"] == "只填必填"
+    assert row["address"] == "台北市中正區"
+    assert (row["phone_mobile"] or "") == ""
+    assert (row["birthday_ad"] or "") == ""
+    assert (row["birthday_lunar"] or "") == ""
+
+
+def test_create_people_only_name_and_address_required(controller_with_household_db):
+    c = controller_with_household_db
+    head_id, _ = c.create_household({"name": "戶長", "address": "台北市"})
+    member_id = c.create_people(head_id, {"name": "戶員", "address": "新北市"})
+    row = c.conn.cursor().execute(
+        "SELECT name, address, phone_mobile, birthday_ad, birthday_lunar FROM people WHERE id = ?",
+        (member_id,),
+    ).fetchone()
+    assert row["name"] == "戶員"
+    assert row["address"] == "新北市"
+    assert (row["phone_mobile"] or "") == ""
+    assert (row["birthday_ad"] or "") == ""
+    assert (row["birthday_lunar"] or "") == ""
+
+
+def test_create_people_missing_required_fields_returns_chinese_error(controller_with_household_db):
+    c = controller_with_household_db
+    head_id, _ = c.create_household({"name": "戶長", "address": "台北市"})
+    with pytest.raises(ValueError, match="姓名、地址為必填欄位"):
+        c.create_people(head_id, {"name": "", "address": ""})

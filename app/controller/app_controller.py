@@ -5,7 +5,10 @@ import sqlite3
 import json
 import re
 import os
+import sys
+import shutil
 from typing import Tuple, Optional,  List, Dict, Any
+from pathlib import Path
 import app.utils.secret_store as secret_store
 from cryptography.fernet import Fernet
 
@@ -65,6 +68,36 @@ class AppController:
 
     def _now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _default_scheduler_config_path(self) -> str:
+        # 與 DB 放同層，便於部署後人工維護
+        return str((Path(self.db_path).resolve().parent / "scheduler_config.yaml"))
+
+    def _scheduler_template_candidates(self) -> List[Path]:
+        candidates: List[Path] = []
+        # PyInstaller onefile / onedir 執行時的解包目錄
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass) / "app" / "scheduler" / "scheduler_config.yaml")
+        # 原始碼執行時模板位置
+        candidates.append(Path(__file__).resolve().parents[1] / "scheduler" / "scheduler_config.yaml")
+        return candidates
+
+    def _ensure_scheduler_config_file(self, target_path: str) -> str:
+        target = Path(target_path).expanduser()
+        if not target.is_absolute():
+            target = (Path.cwd() / target).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        if not target.exists():
+            for src in self._scheduler_template_candidates():
+                if src.is_file():
+                    try:
+                        shutil.copyfile(str(src), str(target))
+                        break
+                    except Exception:
+                        continue
+        return str(target)
 
     def _log_finance_data_change(self, action: str, message: str) -> None:
         try:
@@ -360,7 +393,7 @@ class AppController:
         self._ensure_setting("ui/login_cover_title", "")
         self._ensure_setting("ui/login_cover_image_path", "")
         self._ensure_setting("scheduler/smtp_username", "")
-        self._ensure_setting("scheduler/config_path", "app/scheduler/scheduler_config.yaml")
+        self._ensure_setting("scheduler/config_path", self._default_scheduler_config_path())
         self._ensure_setting("scheduler/mail_enabled", "1")
         self._ensure_setting("scheduler/backup_enabled", "1")
         self.conn.commit()
@@ -1722,13 +1755,25 @@ class AppController:
         }
 
     def get_scheduler_config_path(self) -> str:
-        return (self.get_setting("scheduler/config_path", "app/scheduler/scheduler_config.yaml") or "").strip() or "app/scheduler/scheduler_config.yaml"
+        raw = (self.get_setting("scheduler/config_path", "") or "").strip()
+        # 舊資料若是相對路徑（例如 app/scheduler/scheduler_config.yaml），遷移到 DB 同層外部檔
+        if not raw or not os.path.isabs(raw):
+            target = self._default_scheduler_config_path()
+        else:
+            target = raw
+        ensured = self._ensure_scheduler_config_file(target)
+        if raw != ensured:
+            self.set_setting("scheduler/config_path", ensured)
+        return ensured
 
     def save_scheduler_config_path(self, path: str):
         before = self.get_scheduler_config_path()
         value = (path or "").strip()
         if not value:
-            value = "app/scheduler/scheduler_config.yaml"
+            value = self._default_scheduler_config_path()
+        if not os.path.isabs(value):
+            value = str((Path.cwd() / value).resolve())
+        value = self._ensure_scheduler_config_file(value)
         self.set_setting("scheduler/config_path", value)
         self._log_scheduler_data_change(
             "SCHEDULER.CONFIG_PATH.UPDATE",
@@ -2876,17 +2921,7 @@ class AppController:
         """
 
         # 1) 先做必填檢查
-        required_fields = {
-            "name": "必須填寫姓名",
-            "gender": "必須填寫性別",
-            "phone_mobile": "必須填寫手機號碼",
-            "birthday_ad": "必須填寫國曆生日",
-            "birthday_lunar": "必須填寫農曆生日",
-            "birth_time": "必須填寫出生時辰",
-            "address": "必須填寫地址",
-        }
-
-        cleaned_required = {}
+        required_fields = {"name": "姓名", "address": "地址"}
         missing = []
 
         for field, err_msg in required_fields.items():
@@ -2897,15 +2932,14 @@ class AppController:
 
             if v is None or v == "":
                 missing.append(err_msg)
-            else:
-                cleaned_required[field] = v
 
         if missing:
+            missing_text = "、".join(missing)
             self._log_people_system_event(
-                f"新增戶長失敗（原因：缺少必填欄位，{'; '.join(missing)}）",
+                f"新增戶長失敗（原因：缺少必填欄位，{missing_text}）",
                 level="WARN",
             )
-            raise ValueError(" / ".join(missing))
+            raise ValueError(f"{missing_text}為必填欄位")
 
         # 2) 檢查通過後，才開始組資料（填寫輸入）
         person_id = self._uuid()
@@ -2916,25 +2950,31 @@ class AppController:
             "household_id": household_id,
             "role_in_household": "HEAD",
             "status": "ACTIVE",
-            "name": cleaned_required["name"],
-            "gender": cleaned_required["gender"],
-            "birthday_ad": cleaned_required["birthday_ad"],
-            "birthday_lunar": cleaned_required["birthday_lunar"],
-            "birth_time": cleaned_required["birth_time"],
-            "phone_mobile": cleaned_required["phone_mobile"],
-            "address": cleaned_required["address"],
+            "name": str(person_payload.get("name", "") or "").strip(),
+            "address": str(person_payload.get("address", "") or "").strip(),
             "joined_at": self._now(),
         }
 
         # 選填欄位：payload 有帶、且不是空字串/None 才寫入
-        optional_cols = {"phone_home", "zip_code", "note", "lunar_is_leap", "zodiac"}
+        optional_cols = {
+            "gender",
+            "birthday_ad",
+            "birthday_lunar",
+            "birth_time",
+            "phone_mobile",
+            "phone_home",
+            "zip_code",
+            "note",
+            "lunar_is_leap",
+            "zodiac",
+        }
         for col in optional_cols:
             v = person_payload.get(col, None)
             if isinstance(v, str):
                 v = v.strip()
             if v not in (None, ""):
                 data[col] = v
-        age_offset = self._derive_age_offset(cleaned_required["birthday_ad"], person_payload.get("age"))
+        age_offset = self._derive_age_offset(person_payload.get("birthday_ad"), person_payload.get("age"))
         if age_offset is not None:
             data["age_offset"] = age_offset
 
@@ -2990,17 +3030,7 @@ class AppController:
         household_id = row[0]
 
         # 1) 先做必填檢查（跟 create_household 一樣的欄位）
-        required_fields = {
-            "name": "name is required",
-            "gender": "gender is required",
-            "phone_mobile": "phone_mobile is required",
-            "birthday_ad": "birthday_ad is required",
-            "birthday_lunar": "birthday_lunar is required",
-            "birth_time": "birth_time is required",
-            "address": "address is required",
-        }
-
-        cleaned_required = {}
+        required_fields = {"name": "姓名", "address": "地址"}
         missing = []
 
         for field, err_msg in required_fields.items():
@@ -3010,15 +3040,14 @@ class AppController:
 
             if v is None or v == "":
                 missing.append(err_msg)
-            else:
-                cleaned_required[field] = v
 
         if missing:
+            missing_text = "、".join(missing)
             self._log_people_system_event(
-                f"新增戶員失敗（head_person_id {head_person_id}，原因：缺少必填欄位）",
+                f"新增戶員失敗（head_person_id {head_person_id}，原因：缺少必填欄位，{missing_text}）",
                 level="WARN",
             )
-            raise ValueError(" / ".join(missing))
+            raise ValueError(f"{missing_text}為必填欄位")
 
         # 2) 檢查通過後，才開始組資料
         person_id = self._uuid()
@@ -3028,21 +3057,18 @@ class AppController:
             "household_id": household_id,
             "role_in_household": "MEMBER",
             "status": "ACTIVE",
-
-            "name": cleaned_required["name"],
-            "gender": cleaned_required["gender"],
-            "birthday_ad": cleaned_required["birthday_ad"],
-            "birthday_lunar": cleaned_required["birthday_lunar"],
-            "birth_time": cleaned_required["birth_time"],
-
-            "phone_mobile": cleaned_required["phone_mobile"],
-            "address": cleaned_required["address"],
-
+            "name": str(person_payload.get("name", "") or "").strip(),
+            "address": str(person_payload.get("address", "") or "").strip(),
             "joined_at": self._now(),
         }
 
         # 3) 選填欄位：payload 有帶、且不是空字串/None 才寫入
         optional_cols = {
+            "gender",
+            "birthday_ad",
+            "birthday_lunar",
+            "birth_time",
+            "phone_mobile",
             "phone_home",
             "zip_code",
             "note",
@@ -3055,7 +3081,7 @@ class AppController:
                 v = v.strip()
             if v not in (None, ""):
                 data[col] = v
-        age_offset = self._derive_age_offset(cleaned_required["birthday_ad"], person_payload.get("age"))
+        age_offset = self._derive_age_offset(person_payload.get("birthday_ad"), person_payload.get("age"))
         if age_offset is not None:
             data["age_offset"] = age_offset
 
