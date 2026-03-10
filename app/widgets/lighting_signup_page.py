@@ -108,6 +108,9 @@ class LightingSignupPage(QWidget):
         self.txt_tai_sui_hint = QTextEdit()
         self.txt_tai_sui_hint.setReadOnly(True)
         self.txt_tai_sui_hint.setMaximumHeight(56)
+        self.txt_tai_sui_hint.setLineWrapMode(QTextEdit.NoWrap)
+        self.txt_tai_sui_hint.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.txt_tai_sui_hint.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         left_col.addWidget(self.txt_tai_sui_hint)
 
         mid_col = QVBoxLayout()
@@ -115,6 +118,9 @@ class LightingSignupPage(QWidget):
         self.txt_ji_gai_hint = QTextEdit()
         self.txt_ji_gai_hint.setReadOnly(True)
         self.txt_ji_gai_hint.setMaximumHeight(56)
+        self.txt_ji_gai_hint.setLineWrapMode(QTextEdit.NoWrap)
+        self.txt_ji_gai_hint.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.txt_ji_gai_hint.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         mid_col.addWidget(self.txt_ji_gai_hint)
 
         right_col = QVBoxLayout()
@@ -122,6 +128,9 @@ class LightingSignupPage(QWidget):
         self.txt_peaceful_hint = QTextEdit()
         self.txt_peaceful_hint.setReadOnly(True)
         self.txt_peaceful_hint.setMaximumHeight(56)
+        self.txt_peaceful_hint.setLineWrapMode(QTextEdit.NoWrap)
+        self.txt_peaceful_hint.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.txt_peaceful_hint.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         right_col.addWidget(self.txt_peaceful_hint)
 
         hint_row_2col.addLayout(left_col, 1)
@@ -210,12 +219,20 @@ class LightingSignupPage(QWidget):
         self.tbl_signups.setHorizontalHeaderLabels(["勾選", "類型", "收據號", "姓名", "電話", "燈別摘要", "金額", "繳費"])
         self.tbl_signups.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_signups.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeToContents)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(2, QHeaderView.Interactive)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(3, QHeaderView.Interactive)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(4, QHeaderView.Interactive)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(5, QHeaderView.Interactive)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(6, QHeaderView.Interactive)
+        self.tbl_signups.horizontalHeader().setSectionResizeMode(7, QHeaderView.Interactive)
+        self.tbl_signups.setColumnWidth(2, 120)   # 收據號
+        self.tbl_signups.setColumnWidth(3, 120)   # 姓名
+        self.tbl_signups.setColumnWidth(4, 150)   # 電話
+        self.tbl_signups.setColumnWidth(5, 520)   # 燈別摘要（較長，保留較寬）
+        self.tbl_signups.setColumnWidth(6, 90)    # 金額
+        self.tbl_signups.setColumnWidth(7, 90)    # 繳費
+        self.tbl_signups.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tbl_signups.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.tbl_signups.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl_signups.setSelectionMode(QTableWidget.SingleSelection)
         self.tbl_signups.setStyleSheet(
