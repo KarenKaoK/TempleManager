@@ -88,7 +88,7 @@ def temp_db(tmp_path):
 def dialog(qtbot, temp_db):
     controller = AppController(db_path=str(temp_db))
     # Corrected: No t_type in __init__
-    dlg = IncomeExpenseDialog(controller, parent=None)
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
     qtbot.addWidget(dlg)
     return dlg
 
@@ -209,7 +209,7 @@ def _non_today_same_month_iso() -> str:
 
 def test_staff_only_can_edit_today(qtbot, temp_db):
     controller = AppController(db_path=str(temp_db))
-    dlg = IncomeExpenseDialog(controller, parent=None, user_role="廟務人員")
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="工作人員")
     qtbot.addWidget(dlg)
     tab = dlg.income_tab
 
@@ -223,10 +223,12 @@ def test_staff_only_can_edit_today(qtbot, temp_db):
     tab._sync_row_action_buttons()
 
     assert tab.btn_edit_row.isEnabled() is False
-    with patch("app.dialogs.income_expense_dialog.QMessageBox.information") as mock_info, \
-         patch("app.dialogs.income_expense_dialog.QMessageBox.warning"):
+    assert tab.btn_del_row.isEnabled() is False
+    assert tab.btn_edit_row.toolTip() == "僅管理員與會計可修改收入資料。"
+    assert tab.btn_del_row.toolTip() == "僅管理員與會計可刪除收入資料。"
+    with patch("app.dialogs.income_expense_dialog.QMessageBox.warning") as mock_warn:
         tab._edit_selected_row()
-        mock_info.assert_called_once()
+        mock_warn.assert_called_once()
     assert tab.editing_transaction_id is None
 
 
@@ -297,7 +299,7 @@ def test_admin_update_non_today_is_allowed(qtbot, temp_db):
 
 def test_staff_update_is_blocked_when_editing_source_date_not_today(qtbot, temp_db):
     controller = AppController(db_path=str(temp_db))
-    dlg = IncomeExpenseDialog(controller, parent=None, user_role="廟務人員")
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="工作人員")
     qtbot.addWidget(dlg)
     tab = dlg.income_tab
 
@@ -369,7 +371,7 @@ def test_handler_input_prefills_operator_name_account(qtbot, temp_db):
     parent.operator_name = "王小明(admin01)"
     qtbot.addWidget(parent)
 
-    dlg = IncomeExpenseDialog(controller, parent=parent)
+    dlg = IncomeExpenseDialog(controller, parent=parent, user_role="管理員")
 
     assert dlg.income_tab.handler_input.text() == "王小明(admin01)"
     assert dlg.expense_tab.handler_input.text() == "王小明(admin01)"
@@ -384,7 +386,7 @@ def test_handler_input_is_readonly_for_non_admin(qtbot, temp_db):
     dlg = IncomeExpenseDialog(controller, parent=parent, user_role="工作人員")
 
     assert dlg.income_tab.handler_input.isReadOnly() is True
-    assert dlg.expense_tab.handler_input.isReadOnly() is True
+    assert dlg.expense_tab is None
 
 
 def test_handler_input_is_editable_for_admin(qtbot, temp_db):
@@ -396,6 +398,7 @@ def test_handler_input_is_editable_for_admin(qtbot, temp_db):
     dlg = IncomeExpenseDialog(controller, parent=parent, user_role="管理員")
 
     assert dlg.income_tab.handler_input.isReadOnly() is False
+    assert dlg.expense_tab is not None
     assert dlg.expense_tab.handler_input.isReadOnly() is False
 
 
@@ -408,7 +411,45 @@ def test_handler_input_is_editable_for_accountant(qtbot, temp_db):
     dlg = IncomeExpenseDialog(controller, parent=parent, user_role="會計")
 
     assert dlg.income_tab.handler_input.isReadOnly() is False
+    assert dlg.expense_tab is not None
     assert dlg.expense_tab.handler_input.isReadOnly() is False
+
+
+def _iso_ymd(qd: QDate) -> str:
+    return f"{qd.year()}-{qd.month():02d}-{qd.day():02d}"
+
+
+def test_staff_income_list_only_shows_current_and_previous_month_even_in_show_all(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="工作人員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    today = QDate.currentDate()
+    prev = today.addMonths(-1)
+    old = today.addMonths(-3)
+    future = today.addDays(1) if today.day() < today.daysInMonth() else None
+
+    _insert_income_tx(controller, "T-SCOPE-CUR", _iso_ymd(today))
+    _insert_income_tx(controller, "T-SCOPE-PREV", _iso_ymd(prev))
+    _insert_income_tx(controller, "T-SCOPE-OLD", _iso_ymd(old))
+    if future is not None:
+        _insert_income_tx(controller, "T-SCOPE-FUTURE", _iso_ymd(future))
+
+    tab.refresh_list()
+    ids = {str(tab.table.item(i, 0).data(Qt.UserRole).get("id")) for i in range(tab.table.rowCount())}
+    assert "T-SCOPE-CUR" in ids
+    assert "T-SCOPE-PREV" in ids
+    assert "T-SCOPE-OLD" not in ids
+    assert "T-SCOPE-FUTURE" not in ids
+
+    with patch("app.dialogs.income_expense_dialog.QMessageBox.information"):
+        tab.show_all_records()
+    ids_after_all = {str(tab.table.item(i, 0).data(Qt.UserRole).get("id")) for i in range(tab.table.rowCount())}
+    assert "T-SCOPE-CUR" in ids_after_all
+    assert "T-SCOPE-PREV" in ids_after_all
+    assert "T-SCOPE-OLD" not in ids_after_all
+    assert "T-SCOPE-FUTURE" not in ids_after_all
 
 
 def test_new_income_save_clears_form_fields(qtbot, dialog):
