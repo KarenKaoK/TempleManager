@@ -1236,6 +1236,7 @@ class AppController:
             "太歲", "太陽", "喪門", "太陰", "五鬼", "死符",
             "歲破", "龍德", "白虎", "福德", "天狗", "病符",
         ]
+        star_display_alias = {"太陰": "男制太陰女制桃花", "福德": "吉星臨照", "龍德": "紫微星拱照"}
         star_zodiac_map: Dict[str, str] = {}
         star_positions: List[Dict[str, Any]] = []
         for offset, star_name in enumerate(star_order):
@@ -1248,16 +1249,25 @@ class AppController:
             })
 
         tai_sui_stars = ["太歲", "歲破"]
+        ji_gai_star_alias = {"太陰": "男制太陰女制桃花"}
         ji_gai_stars = ["喪門", "太陰", "五鬼", "死符", "白虎", "天狗", "病符"]
         tai_sui_group = [star_zodiac_map[s] for s in tai_sui_stars]
         ji_gai_group = [star_zodiac_map[s] for s in ji_gai_stars]
+        peaceful_star_pairs = [("太陽", "太陽"), ("福德", "吉星臨照"), ("龍德", "紫微星拱照")]
+        peaceful_group = [star_zodiac_map[star] for star, _alias in peaceful_star_pairs]
 
         tai_sui_hint = "犯太歲：" + "、".join(
             [f"{star_zodiac_map[s]}（{s}）" for s in tai_sui_stars]
         )
         ji_gai_hint = "祭改：" + "、".join(
-            [f"{star_zodiac_map[s]}（{s}）" for s in ji_gai_stars]
+            [f"{star_zodiac_map[s]}（{ji_gai_star_alias.get(s, s)}）" for s in ji_gai_stars]
         )
+        peaceful_hint = "平安無沖：" + "、".join(
+            [f"{star_zodiac_map[star]}（{alias}）" for star, alias in peaceful_star_pairs]
+        )
+        zodiac_flow_labels = {
+            zodiac: star_display_alias.get(star, star) for star, zodiac in star_zodiac_map.items()
+        }
         return {
             "year": target_year,
             "year_zodiac": current_zodiac,
@@ -1265,8 +1275,11 @@ class AppController:
             "annual_star_positions": star_positions,
             "tai_sui_zodiacs": tai_sui_group,
             "ji_gai_zodiacs": ji_gai_group,
+            "peaceful_zodiacs": peaceful_group,
             "tai_sui_hint": tai_sui_hint,
             "ji_gai_hint": ji_gai_hint,
+            "peaceful_hint": peaceful_hint,
+            "zodiac_flow_labels": zodiac_flow_labels,
         }
 
     def _default_lighting_hint_texts(self, year: Optional[int] = None) -> Dict[str, str]:
@@ -1275,6 +1288,7 @@ class AppController:
             "year": str(info.get("year") or date.today().year),
             "tai_sui_text": str(info.get("tai_sui_hint") or ""),
             "ji_gai_text": str(info.get("ji_gai_hint") or ""),
+            "peaceful_text": str(info.get("peaceful_hint") or ""),
         }
 
     def get_lighting_hint_settings(self) -> Dict[str, str]:
@@ -1282,22 +1296,26 @@ class AppController:
         year_text = self.get_setting("lighting/hint_year", defaults["year"]).strip() or defaults["year"]
         tai_sui_text = self.get_setting("lighting/hint_tai_sui_text", defaults["tai_sui_text"]).strip() or defaults["tai_sui_text"]
         ji_gai_text = self.get_setting("lighting/hint_ji_gai_text", defaults["ji_gai_text"]).strip() or defaults["ji_gai_text"]
+        peaceful_text = self.get_setting("lighting/hint_peaceful_text", defaults["peaceful_text"]).strip() or defaults["peaceful_text"]
         return {
             "year": year_text,
             "tai_sui_text": tai_sui_text,
             "ji_gai_text": ji_gai_text,
+            "peaceful_text": peaceful_text,
         }
 
-    def save_lighting_hint_settings(self, year: int, tai_sui_text: str, ji_gai_text: str):
+    def save_lighting_hint_settings(self, year: int, tai_sui_text: str, ji_gai_text: str, peaceful_text: str):
         self.set_setting("lighting/hint_year", str(int(year)))
         self.set_setting("lighting/hint_tai_sui_text", (tai_sui_text or "").strip())
         self.set_setting("lighting/hint_ji_gai_text", (ji_gai_text or "").strip())
+        self.set_setting("lighting/hint_peaceful_text", (peaceful_text or "").strip())
         self._log_lighting_data_change(
             "LIGHTING.HINT.UPDATE",
             (
                 f"更新安燈提示設定（年度 {int(year)}，"
                 f"犯太歲提示 {self._fmt_log_val((tai_sui_text or '').strip())}，"
-                f"祭改提示 {self._fmt_log_val((ji_gai_text or '').strip())}）"
+                f"祭改提示 {self._fmt_log_val((ji_gai_text or '').strip())}，"
+                f"平安無沖提示 {self._fmt_log_val((peaceful_text or '').strip())}）"
             ),
         )
 
@@ -6391,6 +6409,12 @@ class AppController:
         if not before:
             self._log_finance_system_event(f"刪除交易失敗（transaction_id {transaction_id} 不存在）", level="WARN")
             return
+        if int((before["is_voided"] if "is_voided" in before.keys() else 0) or 0) == 1:
+            self._log_finance_system_event(
+                f"刪除交易失敗（transaction_id {transaction_id} 已作廢，不可刪除）",
+                level="WARN",
+            )
+            raise ValueError("作廢單據不可刪除")
         try:
             cursor.execute("UPDATE transactions SET is_deleted=1 WHERE id=?", (transaction_id,))
             self.conn.commit()
@@ -6411,6 +6435,12 @@ class AppController:
         if not before:
             self._log_finance_system_event(f"修改交易失敗（transaction_id {transaction_id} 不存在）", level="WARN")
             return
+        if int((before["is_voided"] if "is_voided" in before.keys() else 0) or 0) == 1:
+            self._log_finance_system_event(
+                f"修改交易失敗（transaction_id {transaction_id} 已作廢，不可修改）",
+                level="WARN",
+            )
+            raise ValueError("作廢單據不可修改")
         before_payload = dict(before)
         
         # 這裡只允許更新部分欄位，確保資料一致性
@@ -6453,6 +6483,42 @@ class AppController:
             data=payload,
             before=before_payload,
         )
+
+    def void_transaction(self, transaction_id):
+        if not self._table_exists("transactions"):
+            raise ValueError("交易資料表不存在")
+        cols = self._table_columns("transactions")
+        if "is_voided" not in cols:
+            raise ValueError("目前資料庫尚未支援作廢欄位（is_voided）")
+
+        cursor = self.conn.cursor()
+        row = cursor.execute(
+            "SELECT * FROM transactions WHERE id=? AND (is_deleted=0 OR is_deleted IS NULL)",
+            (transaction_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("交易不存在或已刪除")
+
+        tx = dict(row)
+        if str(tx.get("type") or "").strip().lower() != "income":
+            raise ValueError("僅收入單據可作廢")
+        if str(tx.get("category_id") or "").strip() in {"90", "91"}:
+            raise ValueError("90/91 收入請回活動或安燈頁處理作廢")
+        if int(tx.get("is_voided") or 0) == 1:
+            return False
+
+        cursor.execute(
+            "UPDATE transactions SET is_voided=1 WHERE id=? AND COALESCE(is_voided,0)=0",
+            (transaction_id,),
+        )
+        self.conn.commit()
+        if int(cursor.rowcount or 0) <= 0:
+            return False
+
+        after = dict(tx)
+        after["is_voided"] = 1
+        self._log_transaction_change("INCOME.VOID", transaction_id, data=after, before=tx)
+        return True
 
     # -------------------------
     # Believers (UX Improvements)

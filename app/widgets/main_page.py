@@ -13,6 +13,11 @@ from app.dialogs.new_member_dialog import NewMemberDialog
 from app.dialogs.edit_member_dialog import EditMemberDialog
 from app.dialogs.transfer_household_dialog import TransferHouseholdDialog
 from app.utils.date_utils import normalize_ymd_text
+from app.auth.permissions import (
+    can_delete_household_head,
+    can_edit_member,
+    is_admin,
+)
 
 
 class MainPageWidget(QWidget):
@@ -164,9 +169,17 @@ class MainPageWidget(QWidget):
 
         for label, color, handler in btns:
             btn = QPushButton(label)
-            style = "padding: 4px;"
+            style = "QPushButton { padding: 4px;"
             if color:
                 style += f" color: {color};"
+            style += " }"
+            style += (
+                " QPushButton:disabled {"
+                " color: #9E9E9E;"
+                " background: #F3EFEA;"
+                " border: 1px solid #E0D8CF;"
+                " }"
+            )
             btn.setStyleSheet(style)
 
             btn.clicked.connect(handler)  # 連接事件
@@ -317,12 +330,44 @@ class MainPageWidget(QWidget):
         self._apply_role_permissions()
 
     def _is_admin(self):
-        return (self.user_role or "").strip() == "管理員"
+        return is_admin(self.user_role)
+
+    def _can_edit_member_action(self):
+        return can_edit_member(self.user_role)
+
+    def _can_delete_household_head_action(self):
+        return can_delete_household_head(self.user_role)
 
     def _apply_role_permissions(self):
-        # 只有管理員可見「恢復停用」入口；其餘角色維持停用流程。
+        # 依角色套用按鈕可用性：無權限時顯示但禁用（灰掉）+ tooltip。
         if hasattr(self, "restore_btn"):
-            self.restore_btn.setVisible(self._is_admin())
+            restore_allowed = self._is_admin()
+            self.restore_btn.setVisible(True)
+            self.restore_btn.setEnabled(restore_allowed)
+            self.restore_btn.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+            self.restore_btn.setToolTip("" if restore_allowed else "僅管理員可恢復停用資料。")
+        if hasattr(self, "delete_btn"):
+            allowed = self._can_delete_household_head_action()
+            self.delete_btn.setEnabled(allowed)
+            self.delete_btn.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+            self.delete_btn.setToolTip("" if allowed else "目前角色無權限刪除戶長。")
+        if isinstance(getattr(self, "member_buttons", None), dict):
+            member_action_allowed = self._can_edit_member_action()
+            restricted_labels = [
+                "🖊 修改成員",
+                "❌ 刪除成員",
+                "🧾 分戶成新戶長",
+                "🔄 變更戶長",
+                "⬆ 上移",
+                "⬇ 下移",
+            ]
+            for label in restricted_labels:
+                btn = self.member_buttons.get(label)
+                if btn is None:
+                    continue
+                btn.setEnabled(member_action_allowed)
+                btn.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+                btn.setToolTip("" if member_action_allowed else "目前角色無權限執行此操作。")
 
     @staticmethod
     def _fmt_date_text(v):
@@ -440,6 +485,10 @@ class MainPageWidget(QWidget):
 
 
     def delete_selected_household(self):
+        if not self._can_delete_household_head_action():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限刪除戶長資料。")
+            return
+
         # 必須先選到一戶（_load_household 會把 selected_* 存起來）
         household_id = getattr(self, "selected_household_id", None)
         head_person_id = getattr(self, "selected_head_person_id", None)
@@ -917,6 +966,10 @@ class MainPageWidget(QWidget):
                 QMessageBox.critical(self, "❌ 錯誤", f"新增成員時發生錯誤：{e}")
 
     def on_edit_member_clicked(self):
+        if not self._can_edit_member_action():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限修改成員資料。")
+            return
+
         person_id = self._get_selected_person_id()
         if not person_id:
             QMessageBox.information(self, "提示", "請先選取成員")
@@ -937,6 +990,10 @@ class MainPageWidget(QWidget):
 
 
     def on_delete_member_clicked(self):
+        if not self._can_edit_member_action():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限刪除成員資料。")
+            return
+
         person_id = self._get_selected_person_id()
         if not person_id:
             QMessageBox.warning(self, "未選取成員", "請先選擇一位成員進行刪除")
@@ -965,6 +1022,10 @@ class MainPageWidget(QWidget):
 
 
     def on_set_head_clicked(self):
+        if not self._can_edit_member_action():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限進行分戶作業。")
+            return
+
         person_id = self._get_selected_person_id()
         if not person_id:
             QMessageBox.warning(self, "未選取成員", "請選擇一位成員")
@@ -1015,6 +1076,10 @@ class MainPageWidget(QWidget):
 
     def on_transfer_household_clicked(self):
         """戶長變更：把選取的 MEMBER 移到另一位戶長底下"""
+        if not self._can_edit_member_action():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限進行變更戶長作業。")
+            return
+
         member_person_id = self._get_selected_person_id()
         if not member_person_id:
             QMessageBox.warning(self, "未選取成員", "請先選擇一位成員進行戶長變更")
@@ -1078,6 +1143,9 @@ class MainPageWidget(QWidget):
 
     def on_move_up_clicked(self):
         """成員上移"""
+        if not self._can_edit_member_action():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限調整成員順序。")
+            return
         row = self.member_table.currentRow()
         if row <= 0:
             return
@@ -1086,6 +1154,9 @@ class MainPageWidget(QWidget):
 
     def on_move_down_clicked(self):
         """成員下移"""
+        if not self._can_edit_member_action():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限調整成員順序。")
+            return
         row = self.member_table.currentRow()
         if row < 0 or row >= self.member_table.rowCount() - 1:
             return
