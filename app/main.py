@@ -120,6 +120,11 @@ def run_app():
         QPushButton:pressed {
             background: #FDEBD0;
         }
+        QPushButton:disabled {
+            color: #9E9E9E;
+            background: #F3EFEA;
+            border: 1px solid #E0D8CF;
+        }
 
         /* === 表格 === */
         QTableWidget {

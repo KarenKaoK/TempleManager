@@ -920,11 +920,12 @@ class PrintHelper:
             date_text = date_str
 
         # --- 定義字體大小 ---
-        FONT_TITLE = 30
-        FONT_SERIAL = 12
-        FONT_BODY = 18
-        FONT_FOOTER = 12
-        FONT_DATE = 18
+        FONT_TITLE = 26
+        FONT_SERIAL = 10
+        FONT_BODY = 16
+        FONT_ADDRESS = 13
+        FONT_FOOTER = 10
+        FONT_DATE = 16
 
         # --- 佈局座標 (Y 軸) ---
         Y_TITLE = 30
@@ -980,7 +981,7 @@ class PrintHelper:
             addr_text += data.get('address', '')
             
         # 計算一欄能塞幾個字，若太長則換行
-        fm_addr = set_font(FONT_BODY)
+        fm_addr = set_font(FONT_ADDRESS)
         char_h_addr = fm_addr.height()
         # 可用高度：從 Y_BODY_START 到 底部 98%
         limit_h = content_rect.height() * (0.98 - (Y_BODY_START/100.0))
@@ -988,14 +989,14 @@ class PrintHelper:
         max_chars = int(limit_h / line_spacing_px)
         
         if len(addr_text) <= max_chars:
-            draw_v_text(addr_text, 67, Y_BODY_START, FONT_BODY, spacing=0.9)
+            draw_v_text(addr_text, 67, Y_BODY_START, FONT_ADDRESS, spacing=0.9)
         else:
              # 超過長度，分兩行 (防呆：往左移一欄)
              part1 = addr_text[:max_chars]
              part2 = addr_text[max_chars:]
-             draw_v_text(part1, 67, Y_BODY_START, FONT_BODY, spacing=0.9)
+             draw_v_text(part1, 67, Y_BODY_START, FONT_ADDRESS, spacing=0.9)
              # 第二行放在 ˙74% (67與75中間)，高度一半
-             draw_v_text(part2, 73, 50, FONT_BODY, spacing=0.9)
+             draw_v_text(part2, 73, 50, FONT_ADDRESS, spacing=0.9)
 
         # --- 落款區 (天南宮~經手人) ---
         # 9. 天南宮 (75%)

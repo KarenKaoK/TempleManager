@@ -335,6 +335,38 @@ def test_open_income_expense_dialog_passes_role(qtbot, monkeypatch):
     assert window.stack.currentWidget() is window.income_expense_page
 
 
+def test_staff_finance_menu_hides_expense_entry_action(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+
+    window = MainWindow("staff", "工作人員", mock_controller)
+    qtbot.addWidget(window)
+
+    assert window.income_entry_action is not None
+    assert window.expense_entry_action is None
+
+
+def test_staff_open_expense_page_is_blocked_and_falls_back_to_income(qtbot, monkeypatch):
+    monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
+    monkeypatch.setattr(main_window_module, "IncomeExpensePage", FakeIncomeExpensePage)
+    warn_mock = MagicMock()
+    monkeypatch.setattr(main_window_module.QMessageBox, "warning", warn_mock)
+
+    mock_controller = MagicMock()
+    mock_controller.get_all_people.return_value = []
+
+    window = MainWindow("staff", "工作人員", mock_controller)
+    qtbot.addWidget(window)
+
+    window.open_income_expense_page(initial_tab=1)
+    instance = FakeIncomeExpensePage.last_instance
+    assert instance is not None
+    assert instance.initial_tab == 0
+    warn_mock.assert_called_once()
+
+
 def test_finance_report_action_visible_for_accountant(qtbot, monkeypatch):
     monkeypatch.setattr(main_window_module, "MainPageWidget", FakeMainPageWidget)
     monkeypatch.setattr(main_window_module, "FinanceReportPage", FakeFinanceReportPage)

@@ -210,6 +210,8 @@ def test_lighting_zodiac_suggestions_contains_required_fields(tmp_path):
         assert "year_zodiac" in data
         assert "太歲" in data["tai_sui_hint"]
         assert "祭改" in data["ji_gai_hint"]
+        assert "男制太陰女制桃花" in data["ji_gai_hint"]
+        assert "平安無沖" in data["peaceful_hint"]
         # 2026（屬馬）對照檢查
         star_map = data["annual_star_zodiac_map"]
         assert star_map["太歲"] == "馬"
@@ -226,6 +228,10 @@ def test_lighting_zodiac_suggestions_contains_required_fields(tmp_path):
         assert star_map["病符"] == "羊"
         assert data["tai_sui_zodiacs"] == ["馬", "鼠"]
         assert data["ji_gai_zodiacs"] == ["龍", "兔", "虎", "牛", "狗", "猴", "羊"]
+        assert data["peaceful_zodiacs"] == ["蛇", "雞", "豬"]
+        flow = data["zodiac_flow_labels"]
+        assert flow["鼠"] == "歲破"
+        assert flow["兔"] == "男制太陰女制桃花"
     finally:
         controller.conn.close()
 
@@ -237,16 +243,19 @@ def test_lighting_hint_settings_defaults_and_save(tmp_path):
         assert defaults["year"]
         assert "犯太歲" in defaults["tai_sui_text"]
         assert "祭改" in defaults["ji_gai_text"]
+        assert "平安無沖" in defaults["peaceful_text"]
 
         controller.save_lighting_hint_settings(
             year=2026,
             tai_sui_text="犯太歲：馬、鼠、兔、牛",
             ji_gai_text="祭改：如五鬼、喪命、吊客、病符、天狗、白虎、死符",
+            peaceful_text="平安無沖：蛇（太陽）、雞（吉星臨照）、豬（紫微星拱照）",
         )
         saved = controller.get_lighting_hint_settings()
         assert saved["year"] == "2026"
         assert saved["tai_sui_text"] == "犯太歲：馬、鼠、兔、牛"
         assert saved["ji_gai_text"] == "祭改：如五鬼、喪命、吊客、病符、天狗、白虎、死符"
+        assert saved["peaceful_text"] == "平安無沖：蛇（太陽）、雞（吉星臨照）、豬（紫微星拱照）"
     finally:
         controller.conn.close()
 
