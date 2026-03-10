@@ -1,7 +1,7 @@
 import pytest
 import sqlite3
 from unittest.mock import patch, MagicMock
-from PyQt5.QtWidgets import QDialog, QMessageBox, QWidget
+from PyQt5.QtWidgets import QDialog, QMessageBox, QWidget, QPushButton
 from PyQt5.QtCore import QDate, Qt
 from datetime import date, timedelta
 from app.dialogs.income_expense_dialog import IncomeExpenseDialog
@@ -27,6 +27,7 @@ def temp_db(tmp_path):
             handler TEXT,
             note TEXT,
             receipt_number TEXT,
+            is_voided INTEGER DEFAULT 0,
             source_type TEXT,
             source_id TEXT,
             adjustment_kind TEXT,
@@ -230,6 +231,83 @@ def test_staff_only_can_edit_today(qtbot, temp_db):
         tab._edit_selected_row()
         mock_warn.assert_called_once()
     assert tab.editing_transaction_id is None
+
+
+def test_staff_can_void_general_income(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="工作人員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    _insert_income_tx(controller, "T-VOID-OK", date.today().isoformat())
+    tab.refresh_list()
+    tab.table.selectRow(0)
+    tab._sync_row_action_buttons()
+
+    assert tab.btn_void_row is not None
+    assert tab.btn_void_row.isEnabled() is True
+
+    with patch("app.dialogs.income_expense_dialog.QMessageBox.question", return_value=QMessageBox.Yes), \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.information"), \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.warning") as mock_warn:
+        tab._void_selected_row()
+        mock_warn.assert_not_called()
+
+    rows = controller.get_transactions("income")
+    row = next(r for r in rows if str(r["id"]) == "T-VOID-OK")
+    assert int(row.get("is_voided") or 0) == 1
+
+
+def test_cannot_void_category_90_91_in_income_page(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    cur = controller.conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO transactions (
+            id, date, type, category_id, category_name, amount,
+            payer_person_id, payer_name, handler, receipt_number, note, is_voided
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("T-VOID-90", date.today().isoformat(), "income", "90", "活動收入", 1000,
+         "P001", "王小明", "測試員", "R-T-VOID-90", "測試", 0),
+    )
+    controller.conn.commit()
+
+    tab.refresh_list()
+    tab.table.selectRow(0)
+    tab._sync_row_action_buttons()
+    assert tab.btn_void_row is not None
+    assert tab.btn_void_row.isEnabled() is False
+
+
+def test_voided_income_cannot_edit_or_delete(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    cur = controller.conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO transactions (
+            id, date, type, category_id, category_name, amount,
+            payer_person_id, payer_name, handler, receipt_number, note, is_voided
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("T-VOID-LOCK", date.today().isoformat(), "income", "I01", "香油錢", 100,
+         "P001", "王小明", "測試員", "R-T-VOID-LOCK", "測試", 1),
+    )
+    controller.conn.commit()
+
+    tab.refresh_list()
+    tab.table.selectRow(0)
+    tab._sync_row_action_buttons()
+    assert tab.btn_edit_row.isEnabled() is False
+    assert tab.btn_del_row.isEnabled() is False
 
 
 def test_accountant_can_edit_non_today(qtbot, temp_db):
@@ -478,3 +556,13 @@ def test_new_income_save_clears_form_fields(qtbot, dialog):
 
     rows = tab.controller.get_transactions("income")
     assert any(int(r.get("amount") or 0) == 1234 for r in rows)
+
+
+def test_income_tab_hides_plain_save_button(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
+    qtbot.addWidget(dlg)
+
+    income_btn_texts = [b.text() for b in dlg.income_tab.findChildren(QPushButton)]
+    assert "💾 僅存檔" not in income_btn_texts
+    assert "🖨️ 存檔並列印" in income_btn_texts

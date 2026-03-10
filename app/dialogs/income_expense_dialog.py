@@ -10,6 +10,12 @@ from datetime import date
 from app.utils.print_helper import PrintHelper
 from app.dialogs.new_household_dialog import NewHouseholdDialog
 from app.utils.date_utils import parse_qdate_flexible, qdate_to_db_ymd, to_ui_ymd_text
+from app.auth.permissions import (
+    can_edit_any_date,
+    can_edit_handler,
+    can_view_expense_entry,
+    can_view_income_all_dates,
+)
 
 
 class CategoryComboBox(QComboBox):
@@ -66,6 +72,7 @@ class IncomeExpensePage(QWidget):
         self.controller = controller
         self.user_role = user_role
         self.current_operator_name = (current_operator_name or "").strip()
+        self.expense_tab = None
         self._build_ui(initial_tab)
 
     def _build_ui(self, initial_tab: int):
@@ -76,14 +83,17 @@ class IncomeExpensePage(QWidget):
         self.income_tab = TransactionTab(
             self.controller, "income", self, self.user_role, self.current_operator_name
         )
-        self.expense_tab = TransactionTab(
-            self.controller, "expense", self, self.user_role, self.current_operator_name
-        )
         self.tabs.addTab(self.income_tab, "收入資料登錄作業")
-        self.tabs.addTab(self.expense_tab, "支出資料登錄作業")
+        if can_view_expense_entry(self.user_role):
+            self.expense_tab = TransactionTab(
+                self.controller, "expense", self, self.user_role, self.current_operator_name
+            )
+            self.tabs.addTab(self.expense_tab, "支出資料登錄作業")
         # 切換分頁時即時刷新，避免殘留舊列表
         self.tabs.currentChanged.connect(lambda _idx: self.refresh_current_tab())
-        self.tabs.setCurrentIndex(0 if int(initial_tab or 0) == 0 else 1)
+        can_open_expense = self.expense_tab is not None
+        target_idx = 1 if int(initial_tab or 0) == 1 and can_open_expense else 0
+        self.tabs.setCurrentIndex(target_idx)
         layout.addWidget(self.tabs)
 
         foot = QHBoxLayout()
@@ -97,13 +107,15 @@ class IncomeExpensePage(QWidget):
     def refresh_current_tab(self):
         idx = self.tabs.currentIndex() if hasattr(self, "tabs") else 0
         tab = self.income_tab if idx == 0 else self.expense_tab
+        if tab is None:
+            return
         if hasattr(tab, "refresh_list"):
             tab.refresh_list()
 
     def refresh_all_tabs(self):
         if hasattr(self, "income_tab") and hasattr(self.income_tab, "refresh_list"):
             self.income_tab.refresh_list()
-        if hasattr(self, "expense_tab") and hasattr(self.expense_tab, "refresh_list"):
+        if self.expense_tab is not None and hasattr(self.expense_tab, "refresh_list"):
             self.expense_tab.refresh_list()
 
 
@@ -128,12 +140,16 @@ class IncomeExpenseDialog(QDialog):
         # 收入頁面
         self.income_tab = TransactionTab(self.controller, "income", self, self.user_role, self.current_operator_name)
         self.tabs.addTab(self.income_tab, "收入資料登錄作業")
-        
+
         # 支出頁面
-        self.expense_tab = TransactionTab(self.controller, "expense", self, self.user_role, self.current_operator_name)
-        self.tabs.addTab(self.expense_tab, "支出資料登錄作業")
-        
-        self.tabs.setCurrentIndex(initial_tab)
+        self.expense_tab = None
+        if can_view_expense_entry(self.user_role):
+            self.expense_tab = TransactionTab(self.controller, "expense", self, self.user_role, self.current_operator_name)
+            self.tabs.addTab(self.expense_tab, "支出資料登錄作業")
+
+        can_open_expense = self.expense_tab is not None
+        target_idx = 1 if int(initial_tab or 0) == 1 and can_open_expense else 0
+        self.tabs.setCurrentIndex(target_idx)
         
         layout.addWidget(self.tabs)
         
@@ -278,15 +294,15 @@ class TransactionTab(QWidget):
         self.month_combo.currentIndexChanged.connect(self.on_period_changed)
         
         # 導航按鈕
-        btn_prev = QPushButton("◀ 上個月")
-        btn_curr = QPushButton("本月")
-        btn_next = QPushButton("下個月 ▶")
-        btn_all = QPushButton("全部")
-        
-        btn_prev.clicked.connect(lambda: self.change_month(-1))
-        btn_curr.clicked.connect(self.set_current_month)
-        btn_next.clicked.connect(lambda: self.change_month(1))
-        btn_all.clicked.connect(self.show_all_records)
+        self.btn_prev = QPushButton("◀ 上個月")
+        self.btn_curr = QPushButton("本月")
+        self.btn_next = QPushButton("下個月 ▶")
+        self.btn_all = QPushButton("全部")
+
+        self.btn_prev.clicked.connect(lambda: self.change_month(-1))
+        self.btn_curr.clicked.connect(self.set_current_month)
+        self.btn_next.clicked.connect(lambda: self.change_month(1))
+        self.btn_all.clicked.connect(self.show_all_records)
 
         # 明細搜尋 / 作廢篩選
         self.list_search_input = QLineEdit()
@@ -309,10 +325,10 @@ class TransactionTab(QWidget):
         filter_layout.addWidget(self.year_combo)
         filter_layout.addWidget(QLabel("月份:"))
         filter_layout.addWidget(self.month_combo)
-        filter_layout.addWidget(btn_prev)
-        filter_layout.addWidget(btn_curr)
-        filter_layout.addWidget(btn_next)
-        filter_layout.addWidget(btn_all)
+        filter_layout.addWidget(self.btn_prev)
+        filter_layout.addWidget(self.btn_curr)
+        filter_layout.addWidget(self.btn_next)
+        filter_layout.addWidget(self.btn_all)
         filter_layout.addStretch()
         # filter_layout.addWidget(QLabel("排序:")) # 暫時不放，預設新到舊
         # filter_layout.addWidget(self.sort_combo)
@@ -438,14 +454,15 @@ class TransactionTab(QWidget):
         
         # 按鈕區
         btn_box = QHBoxLayout()
-        save_btn = QPushButton("💾 僅存檔")
-        save_btn.clicked.connect(lambda: self.save_data(print_receipt=False))
-        
-        btn_box.addWidget(save_btn)
+        save_btn = None
         if self.t_type == "income":
-            save_print_btn = QPushButton("🖨️ 存檔並列印")
-            save_print_btn.clicked.connect(lambda: self.save_data(print_receipt=True))
-            btn_box.addWidget(save_print_btn)
+            save_btn = QPushButton("🖨️ 存檔並列印")
+            save_btn.clicked.connect(lambda: self.save_data(print_receipt=True))
+            btn_box.addWidget(save_btn)
+        else:
+            save_btn = QPushButton("💾 僅存檔")
+            save_btn.clicked.connect(lambda: self.save_data(print_receipt=False))
+            btn_box.addWidget(save_btn)
             
         left_layout.addLayout(btn_box)
         left_widget.setLayout(left_layout)
@@ -469,10 +486,21 @@ class TransactionTab(QWidget):
 
         self.btn_edit_row = QPushButton("修改資料")
         self.btn_del_row = QPushButton("刪除資料")
+        self.btn_edit_row.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        self.btn_del_row.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        self.btn_edit_row.setStyleSheet(
+            "QPushButton:disabled { color: #9E9E9E; background: #F3EFEA; border: 1px solid #E0D8CF; }"
+        )
+        self.btn_del_row.setStyleSheet(
+            "QPushButton:disabled { color: #9E9E9E; background: #F3EFEA; border: 1px solid #E0D8CF; }"
+        )
         self.btn_print_row = None
+        self.btn_void_row = None
         if self.t_type == "income":
             self.btn_print_row = QPushButton("補印收據")
             self.btn_print_row.clicked.connect(self._print_selected_row)
+            self.btn_void_row = QPushButton("作廢")
+            self.btn_void_row.clicked.connect(self._void_selected_row)
 
         self.btn_edit_row.clicked.connect(self._edit_selected_row)
         self.btn_del_row.clicked.connect(self._delete_selected_row)
@@ -517,6 +545,8 @@ class TransactionTab(QWidget):
         bottom_action_row.addStretch()
         if self.btn_print_row is not None:
             bottom_action_row.addWidget(self.btn_print_row)
+        if self.btn_void_row is not None:
+            bottom_action_row.addWidget(self.btn_void_row)
         bottom_action_row.addWidget(self.btn_edit_row)
         bottom_action_row.addWidget(self.btn_del_row)
         
@@ -543,7 +573,45 @@ class TransactionTab(QWidget):
         self.cancel_edit_btn.setVisible(False)
         self.cancel_edit_btn.clicked.connect(self.cancel_edit)
         btn_box.insertWidget(0, self.cancel_edit_btn)
+        self._apply_role_scope_permissions()
         self._sync_row_action_buttons()
+
+    def _is_income_limited_scope(self):
+        return self.t_type == "income" and (not can_view_income_all_dates(self.user_role))
+
+    def _has_income_row_write_permission(self):
+        # 收入頁：僅管理員與會計可修改/刪除資料
+        if self.t_type != "income":
+            return True
+        return can_view_income_all_dates(self.user_role)
+
+    def _apply_role_scope_permissions(self):
+        if not self._is_income_limited_scope():
+            # 收入編修權限 tooltip 仍需套用
+            if not self._has_income_row_write_permission():
+                self.btn_edit_row.setEnabled(False)
+                self.btn_del_row.setEnabled(False)
+                self.btn_edit_row.setToolTip("僅管理員與會計可修改收入資料。")
+                self.btn_del_row.setToolTip("僅管理員與會計可刪除收入資料。")
+            else:
+                self.btn_edit_row.setToolTip("")
+                self.btn_del_row.setToolTip("")
+            return
+        self.btn_all.setEnabled(False)
+        self.btn_all.setToolTip("工作人員僅可檢視上個月1日至今日收入。")
+        self.year_combo.setEnabled(False)
+        self.month_combo.setEnabled(False)
+        self.btn_prev.setEnabled(False)
+        self.btn_curr.setEnabled(False)
+        self.btn_next.setEnabled(False)
+        if not self._has_income_row_write_permission():
+            self.btn_edit_row.setEnabled(False)
+            self.btn_del_row.setEnabled(False)
+            self.btn_edit_row.setToolTip("僅管理員與會計可修改收入資料。")
+            self.btn_del_row.setToolTip("僅管理員與會計可刪除收入資料。")
+        else:
+            self.btn_edit_row.setToolTip("")
+            self.btn_del_row.setToolTip("")
     
     def open_person_search_dialog(self):
         kw = self.search_input.text().strip()
@@ -639,6 +707,11 @@ class TransactionTab(QWidget):
         self.refresh_list()
 
     def show_all_records(self):
+        if self._is_income_limited_scope():
+            QMessageBox.information(self, "限制", "工作人員僅可檢視上個月1日至今日收入。")
+            self.show_all_mode = False
+            self.refresh_list()
+            return
         self.show_all_mode = True
         self.refresh_list()
 
@@ -656,7 +729,26 @@ class TransactionTab(QWidget):
 
     def refresh_list(self):
         keyword = self.list_search_input.text().strip() if hasattr(self, "list_search_input") else None
-        if self.void_only_mode:
+        if self._is_income_limited_scope():
+            curr = QDate.currentDate()
+            prev = curr.addMonths(-1)
+            start_date = f"{prev.year()}-{prev.month():02d}-01"
+            end_date = f"{curr.year()}-{curr.month():02d}-{curr.day():02d}"
+            rows = self.controller.get_transactions(
+                self.t_type,
+                start_date=None,
+                end_date=None,
+                keyword=keyword,
+                voided_filter="only" if self.void_only_mode else "all",
+            )
+            start_dt = date(prev.year(), prev.month(), 1)
+            end_dt = date(curr.year(), curr.month(), curr.day())
+            data = []
+            for row in rows:
+                tx_date = self._to_date_obj((row or {}).get("date", ""))
+                if tx_date and start_dt <= tx_date <= end_dt:
+                    data.append(row)
+        elif self.void_only_mode:
             data = self.controller.get_transactions(
                 self.t_type,
                 start_date=None,
@@ -803,11 +895,10 @@ class TransactionTab(QWidget):
         return item.data(Qt.UserRole)
 
     def _can_edit_any_date(self):
-        # 支援新舊角色名稱：會計 / 會計人員
-        return (self.user_role or "").strip() in {"管理員", "會計", "會計人員"}
+        return can_edit_any_date(self.user_role)
 
     def _can_edit_handler(self):
-        return (self.user_role or "").strip() in {"管理員", "管理者", "會計", "會計人員"}
+        return can_edit_handler(self.user_role)
 
     def _apply_handler_editable_state(self):
         if not hasattr(self, "handler_input"):
@@ -850,6 +941,10 @@ class TransactionTab(QWidget):
     def _can_direct_edit_data(self, data):
         if not data:
             return False
+        if int((data or {}).get("is_voided") or 0) == 1:
+            return False
+        if not self._has_income_row_write_permission():
+            return False
         if self._is_system_business_income_txn(data):
             return False
         return self._is_editable_today(data)
@@ -857,9 +952,22 @@ class TransactionTab(QWidget):
     def _can_direct_delete_data(self, data):
         if not data:
             return False
+        if int((data or {}).get("is_voided") or 0) == 1:
+            return False
+        if not self._has_income_row_write_permission():
+            return False
         if self._is_system_business_income_txn(data):
             return False
         return self._can_delete_data(data)
+
+    def _can_void_data(self, data):
+        if self.t_type != "income" or not data:
+            return False
+        if self._is_system_business_income_txn(data):
+            return False
+        if int((data or {}).get("is_voided") or 0) == 1:
+            return False
+        return True
 
     def _show_system_income_lock_message(self):
         QMessageBox.information(
@@ -871,12 +979,35 @@ class TransactionTab(QWidget):
     def _sync_row_action_buttons(self):
         data = self._get_selected_row_data()
         has_row = data is not None
-        self.btn_edit_row.setEnabled(has_row and self._can_direct_edit_data(data))
-        self.btn_del_row.setEnabled(has_row and self._can_direct_delete_data(data))
+        if self.btn_void_row is not None:
+            self.btn_void_row.setEnabled(has_row and self._can_void_data(data))
+            if has_row and self._is_system_business_income_txn(data):
+                self.btn_void_row.setToolTip("90/91 收入請回活動或安燈頁處理作廢。")
+            elif has_row and int((data or {}).get("is_voided") or 0) == 1:
+                self.btn_void_row.setToolTip("此單據已作廢。")
+            else:
+                self.btn_void_row.setToolTip("")
+        if not self._has_income_row_write_permission():
+            self.btn_edit_row.setEnabled(False)
+            self.btn_del_row.setEnabled(False)
+            self.btn_edit_row.setToolTip("僅管理員與會計可修改收入資料。")
+            self.btn_del_row.setToolTip("僅管理員與會計可刪除收入資料。")
+        else:
+            self.btn_edit_row.setEnabled(has_row and self._can_direct_edit_data(data))
+            self.btn_del_row.setEnabled(has_row and self._can_direct_delete_data(data))
+            self.btn_edit_row.setToolTip("")
+            self.btn_del_row.setToolTip("")
         if self.btn_print_row is not None:
             self.btn_print_row.setEnabled(has_row)
 
     def _edit_selected_row(self):
+        data = self._get_selected_row_data()
+        if data and int((data or {}).get("is_voided") or 0) == 1:
+            QMessageBox.information(self, "限制", "作廢單據不可修改。")
+            return
+        if not self._has_income_row_write_permission():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限修改收入資料。")
+            return
         data = self._get_selected_row_data()
         if not data:
             QMessageBox.warning(self, "提示", "請先選取一筆資料")
@@ -890,6 +1021,13 @@ class TransactionTab(QWidget):
         self.load_transaction_to_form(data)
 
     def _delete_selected_row(self):
+        data = self._get_selected_row_data()
+        if data and int((data or {}).get("is_voided") or 0) == 1:
+            QMessageBox.information(self, "限制", "作廢單據不可刪除。")
+            return
+        if not self._has_income_row_write_permission():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限刪除收入資料。")
+            return
         data = self._get_selected_row_data()
         if not data:
             QMessageBox.warning(self, "提示", "請先選取一筆資料")
@@ -908,6 +1046,35 @@ class TransactionTab(QWidget):
             QMessageBox.warning(self, "提示", "請先選取一筆資料")
             return
         self.on_print_receipt(data)
+
+    def _void_selected_row(self):
+        data = self._get_selected_row_data()
+        if not data:
+            QMessageBox.warning(self, "提示", "請先選取一筆資料")
+            return
+        if self._is_system_business_income_txn(data):
+            self._show_system_income_lock_message()
+            return
+        if int((data or {}).get("is_voided") or 0) == 1:
+            QMessageBox.information(self, "提示", "此單據已作廢。")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "確認作廢",
+            f"確定要作廢這筆收入資料嗎？\n單號：{data.get('receipt_number','')}\n金額：{data.get('amount','')}",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            self.controller.void_transaction(data["id"])
+            QMessageBox.information(self, "完成", "單據已作廢。")
+            self.refresh_list()
+            if self.editing_transaction_id == data.get("id"):
+                self.cancel_edit()
+        except Exception as e:
+            QMessageBox.warning(self, "作廢失敗", str(e))
 
     def show_context_menu(self, pos):
         item = self.table.itemAt(pos)
@@ -950,6 +1117,11 @@ class TransactionTab(QWidget):
             print_action = QAction("補印收據", self)
             print_action.triggered.connect(lambda: self.on_print_receipt(data))
             menu.addAction(print_action)
+
+            void_action = QAction("作廢單據", self)
+            void_action.triggered.connect(lambda: self._void_selected_row())
+            void_action.setEnabled(self._can_void_data(data))
+            menu.addAction(void_action)
             menu.addSeparator()
 
         edit_action = QAction("修改資料", self)
@@ -969,6 +1141,12 @@ class TransactionTab(QWidget):
         PrintHelper.print_receipt(data)
 
     def delete_transaction(self, data):
+        if int((data or {}).get("is_voided") or 0) == 1:
+            QMessageBox.warning(self, "限制", "作廢單據不可刪除。")
+            return
+        if not self._has_income_row_write_permission():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限刪除收入資料。")
+            return
         if self._is_system_business_income_txn(data):
             self._show_system_income_lock_message()
             return
@@ -993,6 +1171,12 @@ class TransactionTab(QWidget):
                 QMessageBox.critical(self, "錯誤", f"刪除失敗: {str(e)}")
 
     def load_transaction_to_form(self, data):
+        if int((data or {}).get("is_voided") or 0) == 1:
+            QMessageBox.warning(self, "限制", "作廢單據不可修改。")
+            return
+        if not self._has_income_row_write_permission():
+            QMessageBox.warning(self, "權限不足", "目前角色無權限修改收入資料。")
+            return
         if self._is_system_business_income_txn(data):
             self._show_system_income_lock_message()
             return
@@ -1044,7 +1228,10 @@ class TransactionTab(QWidget):
     def cancel_edit(self):
         self.editing_transaction_id = None
         self.editing_source_date = None
-        self.save_btn.setText("💾 僅存檔")
+        if self.t_type == "income":
+            self.save_btn.setText("🖨️ 存檔並列印")
+        else:
+            self.save_btn.setText("💾 僅存檔")
         self.cancel_edit_btn.setVisible(False)
         
         # 清空
@@ -1122,6 +1309,10 @@ class TransactionTab(QWidget):
         try:
             # 判斷是新增還是更新
             if self.editing_transaction_id:
+                if not self._has_income_row_write_permission():
+                    QMessageBox.warning(self, "權限不足", "目前角色無權限修改收入資料。")
+                    self.cancel_edit()
+                    return
                 # 只允許修改原始日期為今日的交易
                 src_day = self._to_date_obj(self.editing_source_date)
                 if (not self._can_edit_any_date()) and (src_day != date.today()):
