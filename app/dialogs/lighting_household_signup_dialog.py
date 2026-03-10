@@ -17,11 +17,12 @@ class LightingHouseholdSignupDialog(QDialog):
     - 右側燈別欄位可複選
     """
 
-    def __init__(self, people, lighting_items, selected_by_person_id=None, parent=None):
+    def __init__(self, people, lighting_items, selected_by_person_id=None, zodiac_flow_labels=None, parent=None):
         super().__init__(parent)
         self.people = list(people or [])
         self.lighting_items = list(lighting_items or [])
         self.selected_by_person_id = dict(selected_by_person_id or {})
+        self.zodiac_flow_labels = dict(zodiac_flow_labels or {})
         self.setWindowTitle("整戶安燈報名")
         self.resize(920, 520)
         self._build_ui()
@@ -30,9 +31,9 @@ class LightingHouseholdSignupDialog(QDialog):
         root = QVBoxLayout(self)
         root.addWidget(QLabel("請勾選整戶各人員要報名的燈別（可複選）。"))
 
-        fixed_cols = 4
+        fixed_cols = 5
         self.tbl = QTableWidget(0, fixed_cols + len(self.lighting_items))
-        headers = ["姓名", "電話", "戶別", "生肖"]
+        headers = ["姓名", "電話", "戶別", "生肖", "流年"]
         for item in self.lighting_items:
             name = str(item.get("name") or "")
             fee = int(item.get("fee") or 0)
@@ -42,6 +43,7 @@ class LightingHouseholdSignupDialog(QDialog):
         self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         for c in range(fixed_cols, self.tbl.columnCount()):
             self.tbl.horizontalHeader().setSectionResizeMode(c, QHeaderView.ResizeToContents)
 
@@ -55,6 +57,8 @@ class LightingHouseholdSignupDialog(QDialog):
             role = str(p.get("role_in_household") or "").upper()
             self.tbl.setItem(r, 2, QTableWidgetItem("戶長" if role == "HEAD" else "戶員"))
             self.tbl.setItem(r, 3, QTableWidgetItem(str(p.get("zodiac") or "")))
+            zodiac = str(p.get("zodiac") or "").strip()
+            self.tbl.setItem(r, 4, QTableWidgetItem(str(self.zodiac_flow_labels.get(zodiac) or "")))
 
             selected = set(self.selected_by_person_id.get(person_id) or [])
             for idx, item in enumerate(self.lighting_items):
@@ -82,7 +86,7 @@ class LightingHouseholdSignupDialog(QDialog):
 
     def get_signup_requests(self):
         results = []
-        fixed_cols = 4
+        fixed_cols = 5
         for r in range(self.tbl.rowCount()):
             name_item = self.tbl.item(r, 0)
             person_id = str(name_item.data(Qt.UserRole) or "").strip() if name_item else ""

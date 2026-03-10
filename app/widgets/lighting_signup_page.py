@@ -110,14 +110,22 @@ class LightingSignupPage(QWidget):
         self.txt_tai_sui_hint.setMaximumHeight(56)
         left_col.addWidget(self.txt_tai_sui_hint)
 
-        right_col = QVBoxLayout()
-        right_col.addWidget(QLabel("祭改提示"))
+        mid_col = QVBoxLayout()
+        mid_col.addWidget(QLabel("祭改提示"))
         self.txt_ji_gai_hint = QTextEdit()
         self.txt_ji_gai_hint.setReadOnly(True)
         self.txt_ji_gai_hint.setMaximumHeight(56)
-        right_col.addWidget(self.txt_ji_gai_hint)
+        mid_col.addWidget(self.txt_ji_gai_hint)
+
+        right_col = QVBoxLayout()
+        right_col.addWidget(QLabel("平安無沖提示"))
+        self.txt_peaceful_hint = QTextEdit()
+        self.txt_peaceful_hint.setReadOnly(True)
+        self.txt_peaceful_hint.setMaximumHeight(56)
+        right_col.addWidget(self.txt_peaceful_hint)
 
         hint_row_2col.addLayout(left_col, 1)
+        hint_row_2col.addLayout(mid_col, 1)
         hint_row_2col.addLayout(right_col, 1)
         hint_layout.addLayout(hint_row_2col)
         root.addWidget(hint_frame)
@@ -285,6 +293,12 @@ class LightingSignupPage(QWidget):
         self.load_active_items()
         self._reload_signup_list()
 
+    def _get_zodiac_flow_labels(self, year: int) -> dict:
+        try:
+            return dict((self.controller.get_lighting_zodiac_suggestions(int(year)) or {}).get("zodiac_flow_labels") or {})
+        except Exception:
+            return {}
+
     def refresh_suggestions(self):
         selected_year = int(self.year_spin.value())
         data = self.controller.get_lighting_hint_settings()
@@ -299,15 +313,18 @@ class LightingSignupPage(QWidget):
         if saved_year == selected_year:
             show_tai_sui = str(data.get("tai_sui_text") or "")
             show_ji_gai = str(data.get("ji_gai_text") or "")
+            show_peaceful = str(data.get("peaceful_text") or "")
         else:
             defaults = self.controller._default_lighting_hint_texts(selected_year)
             show_tai_sui = str(defaults.get("tai_sui_text") or "")
             show_ji_gai = str(defaults.get("ji_gai_text") or "")
+            show_peaceful = str(defaults.get("peaceful_text") or "")
         self.lbl_hint_meta.setText(
             f"年度（本次報名）：{selected_year} 年"
         )
         self.txt_tai_sui_hint.setPlainText(show_tai_sui)
         self.txt_ji_gai_hint.setPlainText(show_ji_gai)
+        self.txt_peaceful_hint.setPlainText(show_peaceful)
 
     def load_active_items(self):
         self._active_lighting_items = self.controller.list_lighting_items(include_inactive=False)
@@ -374,6 +391,7 @@ class LightingSignupPage(QWidget):
             people=household_people,
             lighting_items=active_items,
             selected_by_person_id=selected_map,
+            zodiac_flow_labels=self._get_zodiac_flow_labels(self.year_spin.value()),
             parent=self,
         )
         if dlg.exec_() != QDialog.Accepted:
@@ -572,6 +590,7 @@ class LightingSignupPage(QWidget):
             people=[person],
             lighting_items=active_items,
             selected_by_person_id=selected_map,
+            zodiac_flow_labels=self._get_zodiac_flow_labels(self.year_spin.value()),
             parent=self,
         )
         if dlg.exec_() != QDialog.Accepted:
@@ -627,6 +646,7 @@ class LightingSignupPage(QWidget):
             people=[person],
             lighting_items=active_items,
             selected_by_person_id={person_id: []},
+            zodiac_flow_labels=self._get_zodiac_flow_labels(self.year_spin.value()),
             parent=self,
         )
         if dlg.exec_() != QDialog.Accepted:
