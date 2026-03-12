@@ -32,9 +32,7 @@ def _calc_age_by_birthday(birthday_text: Optional[str], today: date) -> Optional
     birthday = _parse_ymd_to_date(birthday_text)
     if not birthday:
         return None
-    age = today.year - birthday.year
-    if (today.month, today.day) < (birthday.month, birthday.day):
-        age -= 1
+    age = today.year - birthday.year + 1
     return max(0, age)
 
 
