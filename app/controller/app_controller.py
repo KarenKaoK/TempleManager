@@ -356,9 +356,7 @@ class AppController:
         if not birthday:
             return None
         today = date.today()
-        age = today.year - birthday.year
-        if (today.month, today.day) < (birthday.month, birthday.day):
-            age -= 1
+        age = today.year - birthday.year + 1
         return max(0, age)
 
     def _derive_age_offset(self, birthday_text: Optional[str], input_age: Any) -> Optional[int]:

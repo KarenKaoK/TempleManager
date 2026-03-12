@@ -64,6 +64,8 @@ def test_generate_monthly_believer_report_produces_file(mock_date, tmp_path):
     assert "李四" in content
     assert "110" in content
     assert "220" in content
+    assert "67" in content
+    assert "37" in content
 
 
 @patch("app.report_generator.believer.date")
