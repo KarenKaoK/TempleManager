@@ -1,5 +1,9 @@
 # app/main.py
 import sys
+import sqlite3
+from pathlib import Path
+from app.config import DB_NAME
+from app.database.setup_db import initialize_database
 from PyQt5.QtWidgets import QApplication, QDialog
 from PyQt5 import sip as pyqt_sip
 from app.controller.app_controller import AppController
@@ -9,7 +13,33 @@ from app.scheduler.service import SchedulerService
 from app.utils.dialog_localizer import install_dialog_localizer
 from app.utils.font_manager import GlobalFontManager
 
+def _has_required_schema(db_file: Path) -> bool:
+    conn = None
+    try:
+        conn = sqlite3.connect(str(db_file))
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_settings' LIMIT 1"
+        )
+        return cursor.fetchone() is not None
+    except sqlite3.DatabaseError:
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def ensure_database_ready(db_path=DB_NAME):
+    db_file = Path(db_path)
+    if db_file.is_file():
+        if _has_required_schema(db_file):
+            return
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+    initialize_database(str(db_file))
+
+
 def run_app():
+    ensure_database_ready()
     # 避免 PyQt5 在 Python 結束階段清理 QObject 時偶發 segfault
     # （常見於 macOS / PyQt5 / sip 組合）
     try:
@@ -89,6 +119,11 @@ def run_app():
         }
         QPushButton:pressed {
             background: #FDEBD0;
+        }
+        QPushButton:disabled {
+            color: #9E9E9E;
+            background: #F3EFEA;
+            border: 1px solid #E0D8CF;
         }
 
         /* === 表格 === */

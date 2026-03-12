@@ -8,6 +8,21 @@ from PyQt5.QtWidgets import QLineEdit
 from PyQt5.QtWidgets import QMessageBox
 from unittest.mock import ANY
 
+@pytest.fixture(autouse=True)
+def member_identity_test_db(tmp_path, monkeypatch):
+    db_path = tmp_path / "member_identity_test.db"
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS member_identity (
+            id TEXT PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr("app.dialogs.member_identity_dialog.DB_NAME", str(db_path))
+
 # 測試 1：有資料時正確載入到表格
 def test_load_data_with_records(qtbot):
     test_data = [(1, '會員'), (2, '志工')]

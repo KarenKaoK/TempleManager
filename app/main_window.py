@@ -23,6 +23,11 @@ from app.dialogs.backup_settings_dialog import BackupSettingsDialog
 from app.dialogs.report_schedule_settings_dialog import ReportScheduleSettingsDialog
 from app.dialogs.system_log_viewer_dialog import SystemLogViewerDialog
 from app.logging import log_system
+from app.auth.permissions import (
+    can_access_finance_report,
+    can_manage_accounts,
+    can_view_expense_entry,
+)
 
 
 class MainWindow(QMainWindow):
@@ -92,6 +97,8 @@ class MainWindow(QMainWindow):
         self.income_expense_page = None
         self.finance_report_page = None
         self.finance_report_action = None
+        self.income_entry_action = None
+        self.expense_entry_action = None
 
         # ✅ 空白頁
         self._blank_page = QWidget()
@@ -175,14 +182,16 @@ class MainWindow(QMainWindow):
         # 收支管理
         # -------------------------
         finance_menu = menu_bar.addMenu("收支管理")
-        income_entry_action = QAction("收入資料登錄作業", self)
-        expense_entry_action = QAction("支出資料登錄作業", self)
+        self.income_entry_action = QAction("收入資料登錄作業", self)
+        self.expense_entry_action = None
         
-        income_entry_action.triggered.connect(lambda: self.open_income_expense_page(0))
-        expense_entry_action.triggered.connect(lambda: self.open_income_expense_page(1))
-        
-        finance_menu.addAction(income_entry_action)
-        finance_menu.addAction(expense_entry_action)
+        self.income_entry_action.triggered.connect(lambda: self.open_income_expense_page(0))
+        finance_menu.addAction(self.income_entry_action)
+
+        if can_view_expense_entry(self.role):
+            self.expense_entry_action = QAction("支出資料登錄作業", self)
+            self.expense_entry_action.triggered.connect(lambda: self.open_income_expense_page(1))
+            finance_menu.addAction(self.expense_entry_action)
 
         if self._can_access_finance_report():
             finance_report_menu = menu_bar.addMenu("財務會計")
@@ -214,10 +223,14 @@ class MainWindow(QMainWindow):
     def open_income_setup(self):
         dlg = IncomeSetupDialog(user_role=self.role)
         dlg.exec_()
+        if self.income_expense_page is not None and hasattr(self.income_expense_page, "refresh_all_tabs"):
+            self.income_expense_page.refresh_all_tabs()
 
     def open_expense_setup(self):
         dlg = ExpenseSetupDialog(user_role=self.role)
         dlg.exec_()
+        if self.income_expense_page is not None and hasattr(self.income_expense_page, "refresh_all_tabs"):
+            self.income_expense_page.refresh_all_tabs()
 
     def open_identity_setup(self):
         dlg = MemberIdentityDialog(user_role=self.role)
@@ -330,6 +343,10 @@ class MainWindow(QMainWindow):
         self._show_page(self.activity_signup_page)
 
     def open_income_expense_page(self, initial_tab=0):
+        if int(initial_tab or 0) == 1 and not can_view_expense_entry(self.role):
+            QMessageBox.warning(self, "權限不足", "目前角色無權限使用支出資料登錄作業。")
+            initial_tab = 0
+
         if self.income_expense_page is None:
             self.income_expense_page = IncomeExpensePage(
                 self.controller,
@@ -384,11 +401,10 @@ class MainWindow(QMainWindow):
         self._show_page(self.lighting_signup_page)
 
     def _can_access_finance_report(self):
-        role = (self.role or "").strip()
-        return role in {"管理員", "會計", "會計人員", "管理者"}
+        return can_access_finance_report(self.role)
 
     def _can_manage_accounts(self):
-        return (self.role or "").strip() in {"管理員", "管理者"}
+        return can_manage_accounts(self.role)
 
     def _reauth_admin_for_sensitive_action(self, action_name: str) -> bool:
         verifier = getattr(self.controller, "verify_user_password", None)
