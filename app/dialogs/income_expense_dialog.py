@@ -452,15 +452,14 @@ class TransactionTab(QWidget):
         
         # 按鈕區
         btn_box = QHBoxLayout()
-        save_btn = None
+        save_btn = QPushButton("💾 僅存檔")
+        save_btn.clicked.connect(lambda: self.save_data(print_receipt=False))
+        btn_box.addWidget(save_btn)
+        save_print_btn = None
         if self.t_type == "income":
-            save_btn = QPushButton("🖨️ 存檔並列印")
-            save_btn.clicked.connect(lambda: self.save_data(print_receipt=True))
-            btn_box.addWidget(save_btn)
-        else:
-            save_btn = QPushButton("💾 僅存檔")
-            save_btn.clicked.connect(lambda: self.save_data(print_receipt=False))
-            btn_box.addWidget(save_btn)
+            save_print_btn = QPushButton("🖨️ 存檔並列印")
+            save_print_btn.clicked.connect(lambda: self.save_data(print_receipt=True))
+            btn_box.addWidget(save_print_btn)
             
         left_layout.addLayout(btn_box)
         left_widget.setLayout(left_layout)
@@ -565,6 +564,7 @@ class TransactionTab(QWidget):
         self.editing_source_date = None
         self.selected_person_data = None
         self.save_btn = save_btn # 存引用以便改文字
+        self.save_print_btn = save_print_btn
         
         # 增加取消編輯按鈕 (預設隱藏)
         self.cancel_edit_btn = QPushButton("❌ 取消編輯")
@@ -1256,10 +1256,7 @@ class TransactionTab(QWidget):
     def cancel_edit(self):
         self.editing_transaction_id = None
         self.editing_source_date = None
-        if self.t_type == "income":
-            self.save_btn.setText("🖨️ 存檔並列印")
-        else:
-            self.save_btn.setText("💾 僅存檔")
+        self.save_btn.setText("💾 僅存檔")
         self.cancel_edit_btn.setVisible(False)
         
         # 清空

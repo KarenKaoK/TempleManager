@@ -540,11 +540,11 @@ def test_new_income_save_clears_form_fields(qtbot, dialog):
     assert any(int(r.get("amount") or 0) == 1234 for r in rows)
 
 
-def test_income_tab_hides_plain_save_button(qtbot, temp_db):
+def test_income_tab_shows_plain_save_and_print_button(qtbot, temp_db):
     controller = AppController(db_path=str(temp_db))
     dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
     qtbot.addWidget(dlg)
 
     income_btn_texts = [b.text() for b in dlg.income_tab.findChildren(QPushButton)]
-    assert "💾 僅存檔" not in income_btn_texts
+    assert "💾 僅存檔" in income_btn_texts
     assert "🖨️ 存檔並列印" in income_btn_texts
