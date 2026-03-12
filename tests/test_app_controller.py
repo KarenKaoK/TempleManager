@@ -130,6 +130,20 @@ def test_list_household_by_keyword_phone(controller_with_db):
     assert rows[0]["name"] == "林小美"
 
 
+def test_calc_age_by_birthday_uses_nominal_age(controller_with_db, monkeypatch):
+    c = controller_with_db
+
+    class _FakeDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 3, 12)
+
+    monkeypatch.setattr("app.controller.app_controller.date", _FakeDate)
+
+    assert c._calc_age_by_birthday("2000/12/31") == 27
+    assert c._calc_age_by_birthday("2000/01/01") == 27
+
+
 # -------------------------
 # Tests: list_people_by_household
 # -------------------------

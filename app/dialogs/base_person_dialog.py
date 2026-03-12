@@ -136,9 +136,7 @@ class BasePersonDialog(QDialog):
 
     def _calc_age(self, birthday: date) -> int:
         today = date.today()
-        age = today.year - birthday.year
-        if (today.month, today.day) < (birthday.month, birthday.day):
-            age -= 1
+        age = today.year - birthday.year + 1
         return max(0, age)
 
     def _on_birthday_input_changed(self):

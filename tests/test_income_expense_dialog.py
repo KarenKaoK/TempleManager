@@ -1,7 +1,7 @@
 import pytest
 import sqlite3
 from unittest.mock import patch, MagicMock
-from PyQt5.QtWidgets import QDialog, QMessageBox, QWidget, QPushButton
+from PyQt5.QtWidgets import QAbstractSpinBox, QDialog, QMessageBox, QPushButton, QWidget
 from PyQt5.QtCore import QDate, Qt
 from datetime import date, timedelta
 from app.dialogs.income_expense_dialog import IncomeExpenseDialog
@@ -493,41 +493,23 @@ def test_handler_input_is_editable_for_accountant(qtbot, temp_db):
     assert dlg.expense_tab.handler_input.isReadOnly() is False
 
 
-def _iso_ymd(qd: QDate) -> str:
-    return f"{qd.year()}-{qd.month():02d}-{qd.day():02d}"
+def test_date_input_is_editable_for_admin(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
+    qtbot.addWidget(dlg)
+
+    assert dlg.income_tab.date_input.isReadOnly() is False
+    assert dlg.expense_tab.date_input.isReadOnly() is False
+    assert dlg.income_tab.date_input.buttonSymbols() == QAbstractSpinBox.NoButtons
+    assert dlg.expense_tab.date_input.buttonSymbols() == QAbstractSpinBox.NoButtons
 
 
-def test_staff_income_list_only_shows_current_and_previous_month_even_in_show_all(qtbot, temp_db):
+def test_date_input_is_readonly_for_staff(qtbot, temp_db):
     controller = AppController(db_path=str(temp_db))
     dlg = IncomeExpenseDialog(controller, parent=None, user_role="工作人員")
     qtbot.addWidget(dlg)
-    tab = dlg.income_tab
 
-    today = QDate.currentDate()
-    prev = today.addMonths(-1)
-    old = today.addMonths(-3)
-    future = today.addDays(1) if today.day() < today.daysInMonth() else None
-
-    _insert_income_tx(controller, "T-SCOPE-CUR", _iso_ymd(today))
-    _insert_income_tx(controller, "T-SCOPE-PREV", _iso_ymd(prev))
-    _insert_income_tx(controller, "T-SCOPE-OLD", _iso_ymd(old))
-    if future is not None:
-        _insert_income_tx(controller, "T-SCOPE-FUTURE", _iso_ymd(future))
-
-    tab.refresh_list()
-    ids = {str(tab.table.item(i, 0).data(Qt.UserRole).get("id")) for i in range(tab.table.rowCount())}
-    assert "T-SCOPE-CUR" in ids
-    assert "T-SCOPE-PREV" in ids
-    assert "T-SCOPE-OLD" not in ids
-    assert "T-SCOPE-FUTURE" not in ids
-
-    with patch("app.dialogs.income_expense_dialog.QMessageBox.information"):
-        tab.show_all_records()
-    ids_after_all = {str(tab.table.item(i, 0).data(Qt.UserRole).get("id")) for i in range(tab.table.rowCount())}
-    assert "T-SCOPE-CUR" in ids_after_all
-    assert "T-SCOPE-PREV" in ids_after_all
-    assert "T-SCOPE-OLD" not in ids_after_all
-    assert "T-SCOPE-FUTURE" not in ids_after_all
+    assert dlg.income_tab.date_input.isReadOnly() is True
 
 
 def test_new_income_save_clears_form_fields(qtbot, dialog):
@@ -558,11 +540,11 @@ def test_new_income_save_clears_form_fields(qtbot, dialog):
     assert any(int(r.get("amount") or 0) == 1234 for r in rows)
 
 
-def test_income_tab_hides_plain_save_button(qtbot, temp_db):
+def test_income_tab_shows_plain_save_and_print_button(qtbot, temp_db):
     controller = AppController(db_path=str(temp_db))
     dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
     qtbot.addWidget(dlg)
 
     income_btn_texts = [b.text() for b in dlg.income_tab.findChildren(QPushButton)]
-    assert "💾 僅存檔" not in income_btn_texts
+    assert "💾 僅存檔" in income_btn_texts
     assert "🖨️ 存檔並列印" in income_btn_texts

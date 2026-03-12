@@ -280,7 +280,7 @@ class TransactionTab(QWidget):
         self.year_combo = QComboBox()
         style_combo_with_dividers(self.year_combo)
         current_year = QDate.currentDate().year()
-        for y in range(current_year - 5, current_year + 6):
+        for y in range(2000, current_year + 6):
             self.year_combo.addItem(f"{y}年", y)
         self.year_combo.setCurrentText(f"{current_year}年")
         self.year_combo.currentIndexChanged.connect(self.on_period_changed)
@@ -356,10 +356,8 @@ class TransactionTab(QWidget):
         self.date_input.setDate(QDate.currentDate())
         self.date_input.setCalendarPopup(False)
         self.date_input.setDisplayFormat("yyyy/MM/dd")
-        self.date_input.setReadOnly(True)
-        self.date_input.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.date_input.lineEdit().setReadOnly(True)
-        self.date_input.setFocusPolicy(Qt.NoFocus)
+        self.date_input.setFixedWidth(140)
+        self._apply_date_editable_state()
         
         # 收據號碼 (唯讀，自動產生)
         self.receipt_input = QLineEdit()
@@ -454,15 +452,14 @@ class TransactionTab(QWidget):
         
         # 按鈕區
         btn_box = QHBoxLayout()
-        save_btn = None
+        save_btn = QPushButton("💾 僅存檔")
+        save_btn.clicked.connect(lambda: self.save_data(print_receipt=False))
+        btn_box.addWidget(save_btn)
+        save_print_btn = None
         if self.t_type == "income":
-            save_btn = QPushButton("🖨️ 存檔並列印")
-            save_btn.clicked.connect(lambda: self.save_data(print_receipt=True))
-            btn_box.addWidget(save_btn)
-        else:
-            save_btn = QPushButton("💾 僅存檔")
-            save_btn.clicked.connect(lambda: self.save_data(print_receipt=False))
-            btn_box.addWidget(save_btn)
+            save_print_btn = QPushButton("🖨️ 存檔並列印")
+            save_print_btn.clicked.connect(lambda: self.save_data(print_receipt=True))
+            btn_box.addWidget(save_print_btn)
             
         left_layout.addLayout(btn_box)
         left_widget.setLayout(left_layout)
@@ -567,6 +564,7 @@ class TransactionTab(QWidget):
         self.editing_source_date = None
         self.selected_person_data = None
         self.save_btn = save_btn # 存引用以便改文字
+        self.save_print_btn = save_print_btn
         
         # 增加取消編輯按鈕 (預設隱藏)
         self.cancel_edit_btn = QPushButton("❌ 取消編輯")
@@ -914,6 +912,19 @@ class TransactionTab(QWidget):
     def _can_edit_any_date(self):
         return can_edit_any_date(self.user_role)
 
+    def _apply_date_editable_state(self):
+        if not hasattr(self, "date_input"):
+            return
+        editable = self._can_edit_any_date()
+        self.date_input.setReadOnly(not editable)
+        self.date_input.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.date_input.lineEdit().setReadOnly(not editable)
+        self.date_input.setFocusPolicy(Qt.StrongFocus if editable else Qt.NoFocus)
+        if editable:
+            self.date_input.setToolTip("")
+        else:
+            self.date_input.setToolTip("僅管理員與會計可修改日期")
+
     def _can_edit_handler(self):
         return can_edit_handler(self.user_role)
 
@@ -1245,10 +1256,7 @@ class TransactionTab(QWidget):
     def cancel_edit(self):
         self.editing_transaction_id = None
         self.editing_source_date = None
-        if self.t_type == "income":
-            self.save_btn.setText("🖨️ 存檔並列印")
-        else:
-            self.save_btn.setText("💾 僅存檔")
+        self.save_btn.setText("💾 僅存檔")
         self.cancel_edit_btn.setVisible(False)
         
         # 清空
