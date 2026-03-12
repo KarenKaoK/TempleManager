@@ -264,7 +264,7 @@ class TransactionTab(QWidget):
         self.year_combo = QComboBox()
         style_combo_with_dividers(self.year_combo)
         current_year = QDate.currentDate().year()
-        for y in range(current_year - 5, current_year + 6):
+        for y in range(2000, current_year + 6):
             self.year_combo.addItem(f"{y}年", y)
         self.year_combo.setCurrentText(f"{current_year}年")
         self.year_combo.currentIndexChanged.connect(self.on_period_changed)
@@ -340,10 +340,8 @@ class TransactionTab(QWidget):
         self.date_input.setDate(QDate.currentDate())
         self.date_input.setCalendarPopup(False)
         self.date_input.setDisplayFormat("yyyy/MM/dd")
-        self.date_input.setReadOnly(True)
-        self.date_input.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.date_input.lineEdit().setReadOnly(True)
-        self.date_input.setFocusPolicy(Qt.NoFocus)
+        self.date_input.setFixedWidth(140)
+        self._apply_date_editable_state()
         
         # 收據號碼 (唯讀，自動產生)
         self.receipt_input = QLineEdit()
@@ -805,6 +803,19 @@ class TransactionTab(QWidget):
     def _can_edit_any_date(self):
         # 支援新舊角色名稱：會計 / 會計人員
         return (self.user_role or "").strip() in {"管理員", "會計", "會計人員"}
+
+    def _apply_date_editable_state(self):
+        if not hasattr(self, "date_input"):
+            return
+        editable = self._can_edit_any_date()
+        self.date_input.setReadOnly(not editable)
+        self.date_input.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.date_input.lineEdit().setReadOnly(not editable)
+        self.date_input.setFocusPolicy(Qt.StrongFocus if editable else Qt.NoFocus)
+        if editable:
+            self.date_input.setToolTip("")
+        else:
+            self.date_input.setToolTip("僅管理員與會計可修改日期")
 
     def _can_edit_handler(self):
         return (self.user_role or "").strip() in {"管理員", "管理者", "會計", "會計人員"}

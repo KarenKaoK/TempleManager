@@ -1,7 +1,7 @@
 import pytest
 import sqlite3
 from unittest.mock import patch, MagicMock
-from PyQt5.QtWidgets import QDialog, QMessageBox, QWidget
+from PyQt5.QtWidgets import QAbstractSpinBox, QDialog, QMessageBox, QWidget
 from PyQt5.QtCore import QDate, Qt
 from datetime import date, timedelta
 from app.dialogs.income_expense_dialog import IncomeExpenseDialog
@@ -409,6 +409,26 @@ def test_handler_input_is_editable_for_accountant(qtbot, temp_db):
 
     assert dlg.income_tab.handler_input.isReadOnly() is False
     assert dlg.expense_tab.handler_input.isReadOnly() is False
+
+
+def test_date_input_is_editable_for_admin(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
+    qtbot.addWidget(dlg)
+
+    assert dlg.income_tab.date_input.isReadOnly() is False
+    assert dlg.expense_tab.date_input.isReadOnly() is False
+    assert dlg.income_tab.date_input.buttonSymbols() == QAbstractSpinBox.NoButtons
+    assert dlg.expense_tab.date_input.buttonSymbols() == QAbstractSpinBox.NoButtons
+
+
+def test_date_input_is_readonly_for_staff(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="工作人員")
+    qtbot.addWidget(dlg)
+
+    assert dlg.income_tab.date_input.isReadOnly() is True
+    assert dlg.expense_tab.date_input.isReadOnly() is True
 
 
 def test_new_income_save_clears_form_fields(qtbot, dialog):
