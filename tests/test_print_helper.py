@@ -47,3 +47,15 @@ def test_force_a4_landscape_calls_printer_setters():
     PrintHelper._force_a4_landscape(printer)
     assert printer.setPageSize.called
     printer.setOrientation.assert_called_once()
+
+
+def test_resource_path_uses_app_root_when_not_bundled(monkeypatch):
+    monkeypatch.delattr("sys._MEIPASS", raising=False)
+    path = PrintHelper._resource_path("resources", "seal.png")
+    assert path.endswith("app/resources/seal.png")
+
+
+def test_resource_path_uses_meipass_when_bundled(monkeypatch):
+    monkeypatch.setattr("sys._MEIPASS", "/tmp/fake_bundle", raising=False)
+    path = PrintHelper._resource_path("resources", "seal.png")
+    assert path == "/tmp/fake_bundle/resources/seal.png"
