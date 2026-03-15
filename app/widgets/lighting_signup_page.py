@@ -107,30 +107,30 @@ class LightingSignupPage(QWidget):
         left_col.addWidget(QLabel("犯太歲提示"))
         self.txt_tai_sui_hint = QTextEdit()
         self.txt_tai_sui_hint.setReadOnly(True)
-        self.txt_tai_sui_hint.setMaximumHeight(56)
+        self.txt_tai_sui_hint.setFixedHeight(56)
         self.txt_tai_sui_hint.setLineWrapMode(QTextEdit.NoWrap)
         self.txt_tai_sui_hint.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.txt_tai_sui_hint.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.txt_tai_sui_hint.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         left_col.addWidget(self.txt_tai_sui_hint)
 
         mid_col = QVBoxLayout()
         mid_col.addWidget(QLabel("祭改提示"))
         self.txt_ji_gai_hint = QTextEdit()
         self.txt_ji_gai_hint.setReadOnly(True)
-        self.txt_ji_gai_hint.setMaximumHeight(56)
+        self.txt_ji_gai_hint.setFixedHeight(56)
         self.txt_ji_gai_hint.setLineWrapMode(QTextEdit.NoWrap)
         self.txt_ji_gai_hint.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.txt_ji_gai_hint.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.txt_ji_gai_hint.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         mid_col.addWidget(self.txt_ji_gai_hint)
 
         right_col = QVBoxLayout()
         right_col.addWidget(QLabel("平安無沖提示"))
         self.txt_peaceful_hint = QTextEdit()
         self.txt_peaceful_hint.setReadOnly(True)
-        self.txt_peaceful_hint.setMaximumHeight(56)
+        self.txt_peaceful_hint.setFixedHeight(56)
         self.txt_peaceful_hint.setLineWrapMode(QTextEdit.NoWrap)
         self.txt_peaceful_hint.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.txt_peaceful_hint.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.txt_peaceful_hint.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         right_col.addWidget(self.txt_peaceful_hint)
 
         hint_row_2col.addLayout(left_col, 1)
@@ -310,6 +310,11 @@ class LightingSignupPage(QWidget):
         self.load_active_items()
         self._reload_signup_list()
 
+    @staticmethod
+    def _normalize_hint_text(value: str) -> str:
+        parts = [part.strip() for part in str(value or "").splitlines() if part.strip()]
+        return " ".join(parts)
+
     def _get_zodiac_flow_labels(self, year: int) -> dict:
         try:
             return dict((self.controller.get_lighting_zodiac_suggestions(int(year)) or {}).get("zodiac_flow_labels") or {})
@@ -339,9 +344,9 @@ class LightingSignupPage(QWidget):
         self.lbl_hint_meta.setText(
             f"年度（本次報名）：{selected_year} 年"
         )
-        self.txt_tai_sui_hint.setPlainText(show_tai_sui)
-        self.txt_ji_gai_hint.setPlainText(show_ji_gai)
-        self.txt_peaceful_hint.setPlainText(show_peaceful)
+        self.txt_tai_sui_hint.setPlainText(self._normalize_hint_text(show_tai_sui))
+        self.txt_ji_gai_hint.setPlainText(self._normalize_hint_text(show_ji_gai))
+        self.txt_peaceful_hint.setPlainText(self._normalize_hint_text(show_peaceful))
 
     def load_active_items(self):
         self._active_lighting_items = self.controller.list_lighting_items(include_inactive=False)
