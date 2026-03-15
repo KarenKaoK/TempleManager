@@ -7,7 +7,9 @@ from PyQt5 import QtGui
 from app.auth.login import LoginDialog
 
 @pytest.fixture
-def login_dialog(qtbot):
+def login_dialog(qtbot, mocker):
+    mocker.patch("app.auth.login.ensure_runtime_db_ready")
+    mocker.patch("app.auth.login.finalize_runtime_db")
     dialog = LoginDialog()
     qtbot.addWidget(dialog)
     return dialog
@@ -60,6 +62,8 @@ def test_login_wrong_password(login_dialog, mocker, _mock_login_logs):
     login_dialog.ui.lineEditPassword.setText("wrongpass")
 
     mock_conn = mocker.patch("app.auth.login.sqlite3.connect")
+    mocker.patch("app.auth.login.ensure_runtime_db_ready")
+    mocker.patch("app.auth.login.finalize_runtime_db")
     mock_cursor = mock_conn.return_value.cursor.return_value
     import bcrypt
     password_hash = bcrypt.hashpw("admin123".encode(), bcrypt.gensalt())  # 正確密碼是 admin123
@@ -89,6 +93,8 @@ def test_login_wrong_username(login_dialog, mocker, _mock_login_logs):
     login_dialog.ui.lineEditPassword.setText("admin123")
 
     mock_conn = mocker.patch("app.auth.login.sqlite3.connect")
+    mocker.patch("app.auth.login.ensure_runtime_db_ready")
+    mocker.patch("app.auth.login.finalize_runtime_db")
     mock_cursor = mock_conn.return_value.cursor.return_value
     # 這次模擬找不到帳號
     mock_cursor.fetchone.return_value = None

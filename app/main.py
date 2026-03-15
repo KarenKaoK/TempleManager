@@ -2,13 +2,20 @@
 import sys
 import sqlite3
 from pathlib import Path
-from app.config import DB_NAME
+from app.config import (
+    DB_NAME,
+    DATA_DIR,
+    local_db_encryption_enabled,
+    resolve_encrypted_db_name,
+    resolve_legacy_plain_db_name,
+)
 from app.database.setup_db import initialize_database
 from PyQt5.QtWidgets import QApplication, QDialog
 from PyQt5 import sip as pyqt_sip
 from app.controller.app_controller import AppController
 from app.auth.login import LoginDialog
 from app.main_window import MainWindow
+from app.utils.local_db_store import ensure_runtime_db_ready, finalize_runtime_db
 from app.scheduler.service import SchedulerService
 from app.utils.dialog_localizer import install_dialog_localizer
 from app.utils.font_manager import GlobalFontManager
@@ -30,6 +37,22 @@ def _has_required_schema(db_file: Path) -> bool:
 
 
 def ensure_database_ready(db_path=DB_NAME):
+    runtime_db_path = str(db_path)
+    if local_db_encryption_enabled() and str(Path(runtime_db_path).resolve()) == str(Path(DB_NAME).resolve()):
+        enc_file = Path(resolve_encrypted_db_name(DATA_DIR))
+        db_file = Path(runtime_db_path)
+        if enc_file.is_file():
+            return
+        if db_file.is_file() and _has_required_schema(db_file):
+            finalize_runtime_db(
+                runtime_db_path=runtime_db_path,
+                encrypted_db_path=str(enc_file),
+            )
+            return
+        db_file.parent.mkdir(parents=True, exist_ok=True)
+        initialize_database(str(db_file))
+        finalize_runtime_db(runtime_db_path=runtime_db_path, encrypted_db_path=str(enc_file))
+        return
     db_file = Path(db_path)
     if db_file.is_file():
         if _has_required_schema(db_file):
@@ -276,28 +299,12 @@ def run_app():
     """)
     app.font_manager = GlobalFontManager(app)
     install_dialog_localizer(app)
-
-    init_controller = AppController()
-    try:
-        scheduler_feature_flags = init_controller.get_scheduler_feature_settings()
-        scheduler_db_path = getattr(init_controller, "db_path", None)
-        scheduler_config_path = init_controller.get_scheduler_config_path()
-    finally:
-        try:
-            init_controller.conn.close()
-        except Exception:
-            pass
-
-    scheduler_service = SchedulerService(
-        config_path=scheduler_config_path,
-        feature_flags=scheduler_feature_flags,
-        db_path_override=scheduler_db_path,
-    )
-    scheduler_service.start()
+    scheduler_service = None
     app.scheduler_service = scheduler_service
 
     try:
         while True:
+            controller = None
             login_dialog = LoginDialog()
             if login_dialog.exec_() != QDialog.Accepted:
                 break  # 使用者取消登入 → 結束程式
@@ -307,17 +314,46 @@ def run_app():
             display_name = (getattr(login_dialog, "display_name", None) or "").strip()
             operator_name = f"{display_name}({username})" if display_name and display_name != username else username
             controller = AppController()
+            scheduler_service = SchedulerService(
+                config_path=controller.get_scheduler_config_path(),
+                feature_flags=controller.get_scheduler_feature_settings(),
+                db_path_override=getattr(controller, "db_path", None),
+            )
+            scheduler_service.start()
+            app.scheduler_service = scheduler_service
             main_window = MainWindow(username, role, controller)
             main_window.operator_name = operator_name
             main_window._is_logout = False
             main_window.showMaximized()
+
             app.exec_()
+            try:
+                if scheduler_service is not None:
+                    scheduler_service.stop()
+            except Exception:
+                pass
+            try:
+                app.scheduler_service = None
+                controller.conn.close()
+            except Exception:
+                pass
+            if local_db_encryption_enabled():
+                finalize_runtime_db(
+                    runtime_db_path=DB_NAME,
+                    encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
+                )
 
             # 檢查是否為「登出」→ 回到登入畫面；否則直接結束
             if not getattr(main_window, '_is_logout', False):
                 break
     finally:
-        scheduler_service.stop()
+        if scheduler_service is not None:
+            scheduler_service.stop()
+        if local_db_encryption_enabled():
+            finalize_runtime_db(
+                runtime_db_path=DB_NAME,
+                encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
+            )
         app.scheduler_service = None
 
     sys.exit(0)

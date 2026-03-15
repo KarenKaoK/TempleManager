@@ -397,18 +397,21 @@ class BackupSettingsDialog(QDialog):
         self.btn_backup_now = QPushButton("立即備份")
         self.btn_refresh = QPushButton("重新整理紀錄")
         self.btn_restore_encrypted = QPushButton("從加密備份還原")
+        self.btn_decrypt_help = QPushButton("解密備份說明")
         self.btn_help_doc = QPushButton("說明文件")
         self.btn_close = QPushButton("關閉")
         self.btn_save.clicked.connect(self._save_settings)
         self.btn_backup_now.clicked.connect(self._run_manual_backup)
         self.btn_refresh.clicked.connect(lambda: self._reload_logs(auto_resize=True, limit=200))
         self.btn_restore_encrypted.clicked.connect(self._restore_from_encrypted_backup)
+        self.btn_decrypt_help.clicked.connect(self._open_decrypt_help_document)
         self.btn_help_doc.clicked.connect(self._open_help_document)
         self.btn_close.clicked.connect(self.accept)
         row_btn_primary.addWidget(self.btn_save)
         row_btn_primary.addWidget(self.btn_backup_now)
         row_btn_primary.addWidget(self.btn_refresh)
         row_btn_primary.addWidget(self.btn_restore_encrypted)
+        row_btn_primary.addWidget(self.btn_decrypt_help)
         row_btn_primary.addStretch()
         root.addLayout(row_btn_primary)
 
@@ -857,6 +860,7 @@ class BackupSettingsDialog(QDialog):
         self.btn_backup_now.setEnabled(not running)
         self.btn_save.setEnabled(not running)
         self.btn_refresh.setEnabled(not running)
+        self.btn_decrypt_help.setEnabled(not running)
         self.btn_restore_encrypted.setEnabled(not running)
         self.btn_backup_now.setText("備份中..." if running else "立即備份")
 
@@ -897,6 +901,11 @@ class BackupSettingsDialog(QDialog):
     def _open_help_document(self):
         html = self._build_help_document_html()
         dialog = BackupHelpDialog("備份說明文件", html, self)
+        dialog.exec_()
+
+    def _open_decrypt_help_document(self):
+        html = self._build_decrypt_help_html()
+        dialog = BackupHelpDialog("解密備份說明", html, self)
         dialog.exec_()
 
     def _build_help_document_html(self) -> str:
@@ -970,5 +979,63 @@ class BackupSettingsDialog(QDialog):
   <li>按「立即備份」執行一次測試備份</li>
   <li>確認備份紀錄狀態為 <code>SUCCESS</code></li>
   <li>若有啟用 Google Drive，確認「檔案」欄位顯示 <code>DRIVE:資料夾名稱/檔名</code></li>
+</ol>
+"""
+
+    def _build_decrypt_help_html(self) -> str:
+        return """
+<style>
+  body { line-height: 1.5; margin: 0; padding: 0 0 18px 0; }
+  pre { white-space: pre-wrap; word-break: break-all; background: #FAF5EF; padding: 10px; border-radius: 6px; }
+  h2, h3 { margin-top: 10px; margin-bottom: 6px; }
+  p { margin: 6px 0; }
+  ol { margin-top: 4px; margin-bottom: 10px; }
+</style>
+<h2>解密備份說明</h2>
+<p>此功能頁提供的是<strong>管理員人工維運說明</strong>。目前正式保存格式為 <code>temple.db.enc</code>，不是明文 <code>temple.db</code>。</p>
+
+<h3>1. 金鑰存放位置</h3>
+<ol>
+  <li>地端資料庫金鑰：<code>local/data_encryption_key/current</code></li>
+  <li>雲端備份金鑰：<code>backup/cloud_encryption_key/current</code></li>
+  <li>Windows 透過 <code>Credential Manager</code> 保存，macOS 透過 <code>Keychain</code> 保存。</li>
+</ol>
+
+<h3>2. 取得地端資料庫金鑰</h3>
+<pre>source temple_venv/bin/activate
+python -c "from app.utils.secret_store import get_secret; print(get_secret('local/data_encryption_key/current'))"</pre>
+
+<h3>3. 手動解開既有 temple.db.enc 供檢查</h3>
+<p>先將正式保存的 <code>temple.db.enc</code> 放在目前工作目錄，再執行：</p>
+<pre>source temple_venv/bin/activate
+python -c "from pathlib import Path; from cryptography.fernet import Fernet; from app.utils.secret_store import get_secret; key = get_secret('local/data_encryption_key/current').encode('utf-8'); plain = Fernet(key).decrypt(Path('temple.db.enc').read_bytes()); Path('temple_manual_open.db').write_bytes(plain); print(Path('temple_manual_open.db').resolve())"</pre>
+<p>完成後會得到可人工查看的明文 SQLite 檔：<code>temple_manual_open.db</code></p>
+
+<h3>4. 手動搬入新的資料庫（例如 b_DB 取代原本 a_DB）</h3>
+<p>若你已經手動準備好新的明文 SQLite 檔，例如 <code>b_DB</code>，正式流程是<strong>先加密成 .enc，再取代正式資料檔</strong>，不建議再直接以明文 DB 覆蓋。</p>
+<ol>
+  <li>先關閉 TempleManager。</li>
+  <li>將新的明文 SQLite 檔放在目前工作目錄，例如檔名為 <code>b_DB</code>。</li>
+  <li>執行下列指令，將 <code>b_DB</code> 加密成新的 <code>temple.db.enc</code>：</li>
+</ol>
+<pre>source temple_venv/bin/activate
+python -c "from pathlib import Path; from cryptography.fernet import Fernet; from app.utils.secret_store import get_secret; key = get_secret('local/data_encryption_key/current').encode('utf-8'); token = Fernet(key).encrypt(Path('b_DB').read_bytes()); Path('temple.db.enc').write_bytes(token); print(Path('temple.db.enc').resolve())"</pre>
+<ol>
+  <li>用新產生的 <code>temple.db.enc</code> 取代正式保存位置的檔案。</li>
+  <li>重新開啟程式驗證資料內容。</li>
+</ol>
+
+<h3>5. 正式維運原則</h3>
+<ol>
+  <li>正式保存格式應為 <code>temple.db.enc</code>。</li>
+  <li>若要人工搬資料，請先把新的明文 DB 加密成 <code>.enc</code> 後再替換。</li>
+  <li>不要把明文 DB 當成正式保存檔長期保留。</li>
+</ol>
+
+<h3>6. 安全提醒</h3>
+<ol>
+  <li>僅限管理員維運用途。</li>
+  <li>解出的 <code>temple_manual_open.db</code> 為明文資料庫，查看後應立即刪除。</li>
+  <li>不要將明文 DB 上傳雲端、留在共用資料夾、或直接拿來當正式保存檔。</li>
 </ol>
 """
