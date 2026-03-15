@@ -665,6 +665,87 @@ class MainPageWidget(QWidget):
         item0 = self.member_table.item(row, 0)
         return item0.data(Qt.UserRole) if item0 else None
 
+    def _find_household_row_by_person_id(self, person_id: str):
+        for row in range(self.household_table.rowCount()):
+            item = self.household_table.item(row, 1)
+            if not item:
+                continue
+            meta = item.data(Qt.UserRole) or {}
+            if meta.get("person_id") == person_id:
+                return row
+        return None
+
+    def _update_household_row(self, row: int, person: dict):
+        role = person.get("role_in_household", "")
+        role_text = "戶長" if role == "HEAD" else "戶員"
+        role_item = QTableWidgetItem(role_text)
+        if role == "HEAD":
+            role_item.setForeground(Qt.red)
+        self.household_table.setItem(row, 0, role_item)
+
+        name = person.get("name", "") or ""
+        item1 = QTableWidgetItem(name)
+        item1.setData(Qt.UserRole, {
+            "household_id": person.get("household_id"),
+            "person_id": person.get("id"),
+        })
+        self.household_table.setItem(row, 1, item1)
+
+        self.household_table.setItem(row, 2, QTableWidgetItem(person.get("gender", "") or ""))
+        self.household_table.setItem(row, 3, QTableWidgetItem(self._fmt_date_text(person.get("birthday_ad", "") or "")))
+
+        lunar = self._fmt_date_text(person.get("birthday_lunar", "") or "")
+        if str(person.get("lunar_is_leap", "0")) == "1" and lunar:
+            lunar = f"{lunar}(閏)"
+        self.household_table.setItem(row, 4, QTableWidgetItem(lunar))
+
+        self.household_table.setItem(row, 5, QTableWidgetItem(person.get("birth_time", "") or ""))
+        self.household_table.setItem(row, 6, QTableWidgetItem(str(person.get("zodiac", "") or "")))
+
+        age = person.get("age", "")
+        self.household_table.setItem(row, 7, QTableWidgetItem("" if age is None else str(age)))
+        self.household_table.setItem(row, 8, QTableWidgetItem(person.get("phone_home", "") or ""))
+        self.household_table.setItem(row, 9, QTableWidgetItem(person.get("phone_mobile", "") or ""))
+
+        addr = person.get("address", "") or ""
+        addr_item = QTableWidgetItem(addr)
+        addr_item.setToolTip(addr)
+        self.household_table.setItem(row, 10, addr_item)
+
+        note = person.get("note", "") or ""
+        note_item = QTableWidgetItem(note)
+        note_item.setToolTip(note)
+        self.household_table.setItem(row, 11, note_item)
+
+    def _refresh_visible_person_after_edit(self, person_id: str):
+        household_id = getattr(self, "selected_household_id", None)
+        if not household_id:
+            self.refresh_all_panels()
+            return
+
+        people = self.controller.list_people_by_household(household_id, status="ACTIVE")
+        self.current_people = people
+        self.update_member_table(people)
+
+        edited_person = next((p for p in people if p.get("id") == person_id), None)
+        head = next((p for p in people if p.get("role_in_household") == "HEAD"), None)
+
+        if edited_person:
+            self.fill_person_detail(edited_person)
+            member_row = self._find_member_row_by_person_id(person_id)
+            if member_row is not None:
+                self.member_table.selectRow(member_row)
+        elif head:
+            self.fill_person_detail(head)
+
+        self.stats_label.setText(f"戶長：{head.get('name','') if head else ''}　家庭人數：{len(people)}")
+
+        household_row = self._find_household_row_by_person_id(person_id)
+        if household_row is not None and edited_person:
+            self._update_household_row(household_row, edited_person)
+            if household_row < len(self.current_households):
+                self.current_households[household_row] = edited_person
+
 
     def update_household_table(self, data):
         self.household_table.setRowCount(len(data))
@@ -982,11 +1063,7 @@ class MainPageWidget(QWidget):
 
         dialog = EditMemberDialog(self.controller, person, self)
         if dialog.exec_() == QDialog.Accepted:
-            # 用新流程刷新（不要用 refresh_member_table）
-            self.refresh_all_panels(
-                select_household_id=self.selected_household_id,
-                select_head_person_id=self.selected_head_person_id
-            )
+            self._refresh_visible_person_after_edit(person_id)
 
 
     def on_delete_member_clicked(self):
