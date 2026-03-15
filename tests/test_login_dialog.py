@@ -10,6 +10,7 @@ from app.auth.login import LoginDialog
 def login_dialog(qtbot, mocker):
     mocker.patch("app.auth.login.ensure_runtime_db_ready")
     mocker.patch("app.auth.login.finalize_runtime_db")
+    mocker.patch("app.auth.login.sqlite3.connect")
     dialog = LoginDialog()
     qtbot.addWidget(dialog)
     return dialog
