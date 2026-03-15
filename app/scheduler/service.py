@@ -61,7 +61,7 @@ class SchedulerService:
             return
         try:
             if getattr(self._scheduler, "running", False):
-                self._scheduler.shutdown(wait=False)
+                self._scheduler.shutdown(wait=True)
                 try:
                     log_data_change(
                         action="SCHEDULER.SERVICE.STOP",

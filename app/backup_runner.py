@@ -2,9 +2,18 @@ import argparse
 import sys
 
 from app.controller.app_controller import AppController
+from app.config import DB_NAME, DATA_DIR, local_db_encryption_enabled, resolve_encrypted_db_name, resolve_legacy_plain_db_name
+from app.utils.local_db_store import ensure_runtime_db_ready, finalize_runtime_db
 
 
 def main():
+    if local_db_encryption_enabled():
+        ensure_runtime_db_ready(
+            runtime_db_path=DB_NAME,
+            encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
+            legacy_plain_db_path=resolve_legacy_plain_db_name(DATA_DIR),
+        )
+
     parser = argparse.ArgumentParser(description="TempleManager backup scheduler runner")
     parser.add_argument("--run-once", action="store_true", help="run schedule check once (default)")
     parser.add_argument("--force", action="store_true", help="force backup once, ignore schedule condition")
@@ -32,6 +41,10 @@ def main():
             controller.conn.close()
         except Exception:
             pass
+        if local_db_encryption_enabled():
+            finalize_runtime_db(
+                runtime_db_path=DB_NAME, encrypted_db_path=resolve_encrypted_db_name(DATA_DIR)
+            )
 
 
 if __name__ == "__main__":
