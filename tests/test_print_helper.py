@@ -59,4 +59,4 @@ def test_resource_path_uses_app_root_when_not_bundled(monkeypatch):
 def test_resource_path_uses_meipass_when_bundled(monkeypatch):
     monkeypatch.setattr("sys._MEIPASS", "/tmp/fake_bundle", raising=False)
     path = PrintHelper._resource_path("resources", "seal.png")
-    assert os.path.normpath(path) == os.path.normpath("/tmp/fake_bundle/resources/seal.png")
+    assert os.path.normpath(path) == os.path.normpath("/tmp/fake_bundle/app/resources/seal.png")
