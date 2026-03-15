@@ -4,10 +4,18 @@ import os
 from PyQt5.QtWidgets import QDialog, QMessageBox
 from PyQt5 import QtWidgets, QtCore, QtGui
 from app.dialogs.login_ui import Ui_Dialog  
-from app.config import DB_NAME
+from app.config import (
+    DB_NAME,
+    DATA_DIR,
+    local_db_encryption_enabled,
+    resolve_encrypted_db_name,
+    resolve_legacy_plain_db_name,
+)
+import app.config as app_config
 from app.logging import log_system, log_data_change
 from datetime import datetime
 from uuid import uuid4
+from app.utils.local_db_store import ensure_runtime_db_ready, finalize_runtime_db
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -23,7 +31,6 @@ class LoginDialog(QDialog):
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
         self._setup_cover_ui()
-        self._load_cover_settings()
 
         # 設定按鈕事件
         self.ui.pushButtonLogin.clicked.connect(self.check_login)
@@ -33,7 +40,18 @@ class LoginDialog(QDialog):
         self.username = None
         self.role = None
         self.display_name = None
-        self._ensure_admin_bootstrap()
+        self._cover_loaded = False
+        self._set_default_cover()
+        self._db_prepared_for_login = False
+        try:
+            self._load_cover_settings()
+        finally:
+            if local_db_encryption_enabled():
+                finalize_runtime_db(
+                    runtime_db_path=DB_NAME,
+                    encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
+                )
+                self._db_prepared_for_login = False
 
     def _setup_cover_ui(self):
         self.setWindowTitle("登入")
@@ -114,6 +132,22 @@ class LoginDialog(QDialog):
 
         self._render_cover_pixmap()
 
+    def _set_default_cover(self):
+        self.title_label.setText("TempleManager")
+        self._cover_pixmap = QtGui.QPixmap()
+        self.cover_label.setPixmap(QtGui.QPixmap())
+        self.cover_label.setText("尚未設定封面照片")
+
+    def _ensure_db_ready_for_login(self):
+        if not local_db_encryption_enabled() or self._db_prepared_for_login:
+            return
+        ensure_runtime_db_ready(
+            runtime_db_path=DB_NAME,
+            encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
+            legacy_plain_db_path=resolve_legacy_plain_db_name(DATA_DIR),
+        )
+        self._db_prepared_for_login = True
+
     def _render_cover_pixmap(self):
         if self._cover_pixmap.isNull():
             self.cover_label.setPixmap(QtGui.QPixmap())
@@ -129,9 +163,10 @@ class LoginDialog(QDialog):
         self.cover_label.setPixmap(scaled)
 
     def _load_cover_settings(self):
+        self._ensure_db_ready_for_login()
         title = ""
         image_path = ""
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect(app_config.DB_NAME)
         try:
             cur = conn.cursor()
             cur.execute(
@@ -156,10 +191,12 @@ class LoginDialog(QDialog):
                 self._cover_pixmap = pixmap
                 self._render_cover_pixmap()
                 self.cover_label.setText("")
+                self._cover_loaded = True
                 return
         self._cover_pixmap = QtGui.QPixmap()
         self.cover_label.setPixmap(QtGui.QPixmap())
         self.cover_label.setText("尚未設定封面照片")
+        self._cover_loaded = True
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -259,7 +296,8 @@ class LoginDialog(QDialog):
         conn.commit()
 
     def _ensure_admin_bootstrap(self):
-        conn = sqlite3.connect(DB_NAME)
+        self._ensure_db_ready_for_login()
+        conn = sqlite3.connect(app_config.DB_NAME)
         try:
             if self._has_admin_user(conn):
                 return
@@ -326,8 +364,15 @@ class LoginDialog(QDialog):
         """驗證帳號密碼並設定登入資訊"""
         username = self.ui.lineEditUsername.text()
         password = self.ui.lineEditPassword.text()
+        self._ensure_db_ready_for_login()
+        if not self._cover_loaded:
+            try:
+                self._load_cover_settings()
+            except Exception:
+                pass
+        self._ensure_admin_bootstrap()
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect(app_config.DB_NAME)
         cursor = conn.cursor()
         has_active = self._column_exists(conn, "users", "is_active")
         has_pwd_changed = self._column_exists(conn, "users", "password_changed_at")
@@ -394,6 +439,12 @@ class LoginDialog(QDialog):
                 return
 
         conn.close()
+        if local_db_encryption_enabled():
+            finalize_runtime_db(
+                runtime_db_path=DB_NAME,
+                encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
+            )
+            self._db_prepared_for_login = False
         try:
             log_system(f"使用者 {username} 登入失敗（原因：帳號或密碼錯誤）", level="WARN")
         except Exception:

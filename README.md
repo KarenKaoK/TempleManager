@@ -253,6 +253,18 @@ YYYY-MM-DD HH:MM:SS [LEVEL] [DATA|SYSTEM] 內容描述
 - 備份檔內容加密（上雲前加密，還原時解密）與金鑰輪替流程。
 - 事件告警與異常偵測（例如連續驗證失敗、異常高頻操作）。
 
+### 地端資料保護
+- Windows / macOS 預設啟用地端資料庫 `.enc` 保護
+- 長期保存檔案為：`temple.db.enc`
+- 顯示登入頁時，系統只會短暫讀取封面/title 設定，完成後不保留 runtime 明文 DB
+- 目前地端資料保護以「登入驗證 + 主畫面 session」為邊界：登入成功後才會保留 runtime 明文 DB，登出/關閉時會立即加密回 `.enc`
+- 程式關閉時也會將 runtime DB 再加密回 `.enc`，並刪除明文 runtime DB / `-wal` / `-shm`
+- 地端 DB 加密金鑰與雲端備份加密金鑰分離
+- Windows 使用 Windows Credential Manager 保存地端 DB 加密金鑰：`local/data_encryption_key/current`
+- macOS 使用 Keychain 保存地端 DB 加密金鑰：`local/data_encryption_key/current`
+- 雲端備份加密金鑰維持透過系統 secret backend 保存：`backup/cloud_encryption_key/current`
+- 注意：此機制保護的是磁碟靜態資料；登入驗證與主畫面 session 期間仍會存在可供 SQLite 使用的 runtime 明文 DB，登入頁待機、登出、關閉後則不保留
+
 ## 環境需求與安裝
 
 ### 系統需求
