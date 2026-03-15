@@ -1,4 +1,5 @@
 import pytest
+import os
 from unittest.mock import Mock
 from PyQt5.QtGui import QFontDatabase
 from app.utils.print_helper import PrintHelper
@@ -52,10 +53,10 @@ def test_force_a4_landscape_calls_printer_setters():
 def test_resource_path_uses_app_root_when_not_bundled(monkeypatch):
     monkeypatch.delattr("sys._MEIPASS", raising=False)
     path = PrintHelper._resource_path("resources", "seal.png")
-    assert path.endswith("app/resources/seal.png")
+    assert os.path.normpath(path).endswith(os.path.normpath("app/resources/seal.png"))
 
 
 def test_resource_path_uses_meipass_when_bundled(monkeypatch):
     monkeypatch.setattr("sys._MEIPASS", "/tmp/fake_bundle", raising=False)
     path = PrintHelper._resource_path("resources", "seal.png")
-    assert path == "/tmp/fake_bundle/resources/seal.png"
+    assert os.path.normpath(path) == os.path.normpath("/tmp/fake_bundle/resources/seal.png")
