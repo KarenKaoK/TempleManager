@@ -3,10 +3,20 @@ from PyQt5.QtGui import QPainter, QFont, QPen, QColor, QPageLayout, QPageSize, Q
 from PyQt5.QtCore import Qt, QRectF, QPointF
 from PyQt5.QtWidgets import QAction, QToolBar, QPushButton, QComboBox, QLineEdit, QLabel, QCheckBox, QApplication, QToolButton, QMenu
 from PyQt5.QtGui import QTextDocument
+import os
 import re
+import sys
 from datetime import datetime
 
 class PrintHelper:
+    @staticmethod
+    def _resource_path(*parts):
+        bundle_root = getattr(sys, "_MEIPASS", None)
+        if bundle_root:
+            return os.path.join(bundle_root, *parts)
+        app_root = os.path.dirname(os.path.dirname(__file__))
+        return os.path.join(app_root, *parts)
+
     @staticmethod
     def _apply_preview_toolbar(preview, do_print, show_address_toggle=False, toggle_address=None, extra_toolbar_builder=None):
         """套用統一列印工具列：自訂列印、縮放、關閉返回。"""
@@ -826,7 +836,7 @@ class PrintHelper:
         
         # --- 安裝印章 (浮水印 - 先畫在底層) ---
         # 位置：在天南宮(75%)與日期(95%)之間，約 85% 位置
-        seal_path = "app/resources/seal.png"
+        seal_path = PrintHelper._resource_path("resources", "seal.png")
         pixmap = QPixmap(seal_path)
         
         seal_h = 28 * unit # 高度縮小，避免超出框外
