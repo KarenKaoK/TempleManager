@@ -13,7 +13,7 @@ class PrintHelper:
     def _resource_path(*parts):
         bundle_root = getattr(sys, "_MEIPASS", None)
         if bundle_root:
-            return os.path.join(bundle_root, *parts)
+            return os.path.join(bundle_root, "app", *parts)
         app_root = os.path.dirname(os.path.dirname(__file__))
         return os.path.join(app_root, *parts)
 
