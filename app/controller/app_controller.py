@@ -57,6 +57,7 @@ class AppController:
         self._ensure_lighting_signup_schema()
         self._ensure_system_income_items()
         self._ensure_system_expense_items()
+        self._ensure_runtime_indexes()
 
     # -------------------------
     # Helpers 
@@ -68,6 +69,17 @@ class AppController:
 
     def _now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _ensure_runtime_indexes(self):
+        cur = self.conn.cursor()
+        if self._table_exists("transactions"):
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_transactions_payer_person_id
+                ON transactions(payer_person_id)
+                """
+            )
+        self.conn.commit()
 
     def _default_scheduler_config_path(self) -> str:
         # 與 DB 放同層，便於部署後人工維護

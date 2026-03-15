@@ -382,6 +382,11 @@ def create_transactions_table(db_name=DB_NAME):
     )
     """)
 
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_transactions_payer_person_id
+    ON transactions(payer_person_id)
+    """)
+
     conn.commit()
     conn.close()
     print("✅ `transactions` 資料表檢查完成")

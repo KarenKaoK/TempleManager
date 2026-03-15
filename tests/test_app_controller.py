@@ -8,6 +8,7 @@ from app.database.setup_db import (
     create_security_tables,
     create_lighting_items_table,
     create_lighting_signup_tables,
+    create_transactions_table,
 )
 
 
@@ -246,6 +247,25 @@ def test_lighting_zodiac_suggestions_contains_required_fields(tmp_path):
         flow = data["zodiac_flow_labels"]
         assert flow["鼠"] == "歲破"
         assert flow["兔"] == "男制太陰女制桃花"
+    finally:
+        controller.conn.close()
+
+
+def test_controller_init_ensures_transactions_person_index(tmp_path):
+    db_path = tmp_path / "transactions_index.db"
+    create_security_tables(str(db_path))
+    create_transactions_table(str(db_path))
+
+    controller = AppController(db_path=str(db_path))
+    try:
+        row = controller.conn.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'index' AND name = 'idx_transactions_payer_person_id'
+            """
+        ).fetchone()
+        assert row is not None
     finally:
         controller.conn.close()
 
