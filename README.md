@@ -216,7 +216,7 @@ YYYY-MM-DD HH:MM:SS [LEVEL] [DATA|SYSTEM] 內容描述
 - 支援手動與排程備份。  
 - 備份流程保留執行紀錄（成功/失敗與錯誤資訊）。  
 - 備份檔與備份目錄採最小權限策略（best-effort）：檔案 `0600`、目錄 `0700`。  
-- Google Drive 上傳前會先將備份轉為加密檔（`.db.enc`）；本機備份維持 `.db` 方便快速還原。  
+- Google Drive 上傳前會先將備份轉為加密檔（`.db.enc`）；本機備份也保存為加密檔（`.db.enc`）。  
 - 可由管理員手動更新雲端加密金鑰，系統保留上一版金鑰以維持舊備份相容解密。  
 - 可於「資料備份」頁選擇 `.db.enc` 直接解密並還原到目前資料庫（覆蓋模式）。  
 - 還原後會新增 `RESTORE` 備份紀錄，並保留既有 `MANUAL` / `SCHEDULED` 紀錄，不會因覆蓋而遺失。
@@ -259,10 +259,12 @@ YYYY-MM-DD HH:MM:SS [LEVEL] [DATA|SYSTEM] 內容描述
 - 顯示登入頁時，系統只會短暫讀取封面/title 設定，完成後不保留 runtime 明文 DB
 - 目前地端資料保護以「登入驗證 + 主畫面 session」為邊界：登入成功後才會保留 runtime 明文 DB，登出/關閉時會立即加密回 `.enc`
 - 程式關閉時也會將 runtime DB 再加密回 `.enc`，並刪除明文 runtime DB / `-wal` / `-shm`
-- 地端 DB 加密金鑰與雲端備份加密金鑰分離
+- 地端主 DB 加密金鑰與備份加密金鑰分離
 - Windows 使用 Windows Credential Manager 保存地端 DB 加密金鑰：`local/data_encryption_key/current`
 - macOS 使用 Keychain 保存地端 DB 加密金鑰：`local/data_encryption_key/current`
-- 雲端備份加密金鑰維持透過系統 secret backend 保存：`backup/cloud_encryption_key/current`
+- 本機備份與雲端備份共用同一把備份加密金鑰：`backup/cloud_encryption_key/current`
+- 備份加密金鑰維持透過系統 secret backend 保存（Windows: Credential Manager / macOS: Keychain）
+- 本機備份與雲端備份皆保存為 `.db.enc`，不再長期保留明文 `.db` 備份檔
 - 注意：此機制保護的是磁碟靜態資料；登入驗證與主畫面 session 期間仍會存在可供 SQLite 使用的 runtime 明文 DB，登入頁待機、登出、關閉後則不保留
 
 ## 環境需求與安裝
