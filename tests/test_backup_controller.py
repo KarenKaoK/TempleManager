@@ -87,6 +87,11 @@ def test_create_local_backup_and_retention(tmp_path, monkeypatch):
     db = tmp_path / "backup_retention.db"
     controller = _new_backup_controller(db)
     backup_dir = tmp_path / "backups"
+    secret_map = {}
+    monkeypatch.setattr(app_controller_module.secret_store, "get_secret", lambda k: secret_map.get(k, ""))
+    monkeypatch.setattr(app_controller_module.secret_store, "set_secret", lambda k, v: secret_map.__setitem__(k, v))
+    monkeypatch.setattr(app_controller_module.secret_store, "delete_secret", lambda k: secret_map.pop(k, None))
+    monkeypatch.setattr(app_controller_module.secret_store, "backend_label", lambda: "TestSecretStore")
     controller.save_backup_settings(
         {
             "enabled": True,
@@ -103,8 +108,9 @@ def test_create_local_backup_and_retention(tmp_path, monkeypatch):
     controller.create_local_backup(manual=True, now=datetime(2026, 2, 20, 10, 0, 2))
     controller.create_local_backup(manual=True, now=datetime(2026, 2, 20, 10, 0, 3))
 
-    files = sorted([p for p in os.listdir(backup_dir) if p.endswith(".db")])
+    files = sorted([p for p in os.listdir(backup_dir) if p.endswith(".db.enc")])
     assert len(files) == 2
+    assert files[-1].endswith(".db.enc")
 
     backup_logs = controller.list_backup_logs(limit=10)
     assert len(backup_logs) >= 3
@@ -166,6 +172,12 @@ def test_should_run_scheduled_backup(tmp_path):
 def test_run_scheduled_backup_once(tmp_path):
     db = tmp_path / "backup_schedule_run_once.db"
     controller = _new_backup_controller(db)
+    mp = pytest.MonkeyPatch()
+    secret_map = {}
+    mp.setattr(app_controller_module.secret_store, "get_secret", lambda k: secret_map.get(k, ""))
+    mp.setattr(app_controller_module.secret_store, "set_secret", lambda k, v: secret_map.__setitem__(k, v))
+    mp.setattr(app_controller_module.secret_store, "delete_secret", lambda k: secret_map.pop(k, None))
+    mp.setattr(app_controller_module.secret_store, "backend_label", lambda: "TestSecretStore")
     controller.save_backup_settings(
         {
             "enabled": True,
@@ -177,9 +189,11 @@ def test_run_scheduled_backup_once(tmp_path):
             "local_dir": str(tmp_path / "backups"),
         }
     )
-
-    assert controller.run_scheduled_backup_once(now=datetime(2026, 2, 20, 11, 0)) is False
-    assert controller.run_scheduled_backup_once(now=datetime(2026, 2, 20, 12, 1)) is True
+    try:
+        assert controller.run_scheduled_backup_once(now=datetime(2026, 2, 20, 11, 0)) is False
+        assert controller.run_scheduled_backup_once(now=datetime(2026, 2, 20, 12, 1)) is True
+    finally:
+        mp.undo()
     data = controller.get_backup_settings()
     assert data["last_scheduled_run_at"] == "2026-02-20 12:01:00"
 
@@ -308,6 +322,12 @@ def test_create_local_backup_hardens_permissions_best_effort(tmp_path):
     db = tmp_path / "backup_perm_hardening.db"
     controller = _new_backup_controller(db)
     backup_dir = tmp_path / "secure_backups"
+    secret_map = {}
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(app_controller_module.secret_store, "get_secret", lambda k: secret_map.get(k, ""))
+    monkeypatch.setattr(app_controller_module.secret_store, "set_secret", lambda k, v: secret_map.__setitem__(k, v))
+    monkeypatch.setattr(app_controller_module.secret_store, "delete_secret", lambda k: secret_map.pop(k, None))
+    monkeypatch.setattr(app_controller_module.secret_store, "backend_label", lambda: "TestSecretStore")
     controller.save_backup_settings(
         {
             "enabled": True,
@@ -338,6 +358,7 @@ def test_create_local_backup_hardens_permissions_best_effort(tmp_path):
 
     assert any(p == str(backup_dir) and m == 0o700 for p, m in chmod_calls)
     assert any(p == str(result["backup_file"]) and m == 0o600 for p, m in chmod_calls)
+    assert str(result["backup_file"]).endswith(".db.enc")
 
 
 def test_drive_backup_uploads_encrypted_file_and_cleans_temp_enc(tmp_path, monkeypatch):
@@ -382,9 +403,9 @@ def test_drive_backup_uploads_encrypted_file_and_cleans_temp_enc(tmp_path, monke
     assert str(captured.get("local_file", "")).endswith(".db.enc")
     assert captured.get("head", b"").startswith(b"SQLite format 3") is False
     assert os.path.exists(result["backup_file"]) is True
-    assert result["backup_file"].endswith(".db")
-    assert os.path.exists(captured["local_file"]) is False
-    assert not any(name.endswith(".db.enc") for name in os.listdir(backup_dir))
+    assert result["backup_file"].endswith(".db.enc")
+    assert os.path.exists(captured["local_file"]) is True
+    assert any(name.endswith(".db.enc") for name in os.listdir(backup_dir))
 
     rows = controller.list_backup_logs(limit=1)
     assert len(rows) == 1

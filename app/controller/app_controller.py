@@ -2290,16 +2290,24 @@ class AppController:
         self._harden_backup_artifact_permissions(backup_dir=backup_dir)
 
         filename = f"temple_backup_{now.strftime('%Y%m%d_%H%M%S')}.db"
-        backup_file = os.path.join(backup_dir, filename)
+        plain_backup_file = os.path.join(backup_dir, filename)
+        encrypted_backup_file = f"{plain_backup_file}.enc"
+        backup_file = encrypted_backup_file
         drive_upload_file = ""
         drive_display_name = os.path.basename(backup_file)
 
         try:
-            dst_conn = sqlite3.connect(backup_file)
+            dst_conn = sqlite3.connect(plain_backup_file)
             try:
                 self.conn.backup(dst_conn)
             finally:
                 dst_conn.close()
+            self._harden_backup_artifact_permissions(backup_dir=backup_dir, backup_file=plain_backup_file)
+            backup_file = self._encrypt_backup_file_for_drive(plain_backup_file)
+            try:
+                os.remove(plain_backup_file)
+            except Exception:
+                pass
             self._harden_backup_artifact_permissions(backup_dir=backup_dir, backup_file=backup_file)
 
             size = os.path.getsize(backup_file) if os.path.exists(backup_file) else 0
@@ -2307,7 +2315,7 @@ class AppController:
             drive_file_id = ""
             drive_folder_name = ""
             if enable_drive:
-                drive_upload_file = self._encrypt_backup_file_for_drive(backup_file)
+                drive_upload_file = backup_file
                 drive_display_name = os.path.basename(drive_upload_file)
                 drive_file_id, drive_folder_name = self._upload_backup_to_drive(
                     drive_upload_file,
@@ -2370,7 +2378,7 @@ class AppController:
             )
             raise
         finally:
-            if drive_upload_file:
+            if drive_upload_file and not enable_local:
                 try:
                     os.remove(drive_upload_file)
                 except Exception:
@@ -2521,7 +2529,7 @@ class AppController:
         keep = max(1, int(keep_latest or 1))
         files: List[str] = []
         for name in os.listdir(backup_dir):
-            if not name.startswith("temple_backup_") or not name.endswith(".db"):
+            if not name.startswith("temple_backup_") or not name.endswith(".db.enc"):
                 continue
             files.append(os.path.join(backup_dir, name))
         files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
