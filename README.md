@@ -1,3 +1,5 @@
+# English version: see [README_en.md](README_en.md)
+
 # Temple Manager 
 
 ## Introduction
