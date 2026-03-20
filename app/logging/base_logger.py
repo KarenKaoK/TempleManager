@@ -6,12 +6,12 @@ from pathlib import Path
 import re
 from threading import Lock
 from typing import Final
+from app.config import DATA_DIR
 import app.utils.secret_store as secret_store
 from cryptography.fernet import Fernet
 
 _WRITE_LOCK: Final[Lock] = Lock()
-_PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
-LOG_FILE_PATH: Final[Path] = _PROJECT_ROOT / "log.log"
+LOG_FILE_PATH: Final[Path] = Path(DATA_DIR) / "log.log"
 LOG_ENCRYPTION_SECRET_KEY: Final[str] = "logging/file_encryption_fernet_key"
 _ALLOWED_LEVELS = {"INFO", "WARN", "ERROR"}
 _ALLOWED_TAGS = {"SYSTEM", "DATA"}
@@ -87,10 +87,7 @@ def _harden_log_file_permissions(path: Path) -> None:
 
 
 def _get_or_create_log_fernet_key() -> bytes:
-    try:
-        existing = (secret_store.get_secret(LOG_ENCRYPTION_SECRET_KEY) or "").strip()
-    except Exception:
-        existing = ""
+    existing = (secret_store.get_secret(LOG_ENCRYPTION_SECRET_KEY) or "").strip()
     if existing:
         key = existing.encode("utf-8")
         Fernet(key)  # 驗證 key 格式
@@ -117,7 +114,10 @@ def _decode_log_lines(lines) -> str:
         text = (raw or "").strip()
         if not text:
             continue
-        out_lines.append(_decrypt_line(text))
+        try:
+            out_lines.append(_decrypt_line(text))
+        except Exception:
+            out_lines.append(f"[UNREADABLE LOG LINE]")
     return "\n".join(out_lines).strip()
 
 

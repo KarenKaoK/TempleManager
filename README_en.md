@@ -101,6 +101,14 @@ Set `WorkingDirectory` to the project root directory.
 ./temple_venv/bin/python -m pytest -q
 ```
 
+## Logs
+
+- The application log file is stored in the user data directory as `log.log` (next to the main app data / DB).
+- Log lines are encrypted at rest line by line.
+- The system log viewer loads the most recent 1000 lines by default for better performance.
+- Use "Load All" in the log viewer if you need the full history.
+- If a specific line cannot be decrypted, it will be shown as `[UNREADABLE LOG LINE]`.
+
 ## Notes
 
 - Do not enable both the external worker and the internal app scheduler entry at the same time.

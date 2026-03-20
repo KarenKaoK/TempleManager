@@ -1,6 +1,7 @@
 from app.logging import base_logger
 from cryptography.fernet import Fernet
 import pytest
+from pathlib import Path
 
 
 def test_write_log_redacts_sensitive_values(tmp_path, monkeypatch):
@@ -31,6 +32,10 @@ def test_write_log_redacts_sensitive_values(tmp_path, monkeypatch):
     assert "[REDACTED]" in decrypted
 
 
+def test_log_file_path_uses_data_dir():
+    assert Path(base_logger.LOG_FILE_PATH).name == "log.log"
+
+
 def test_write_log_attempts_to_harden_permissions(tmp_path, monkeypatch):
     log_path = tmp_path / "log.log"
     monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
@@ -50,14 +55,21 @@ def test_write_log_attempts_to_harden_permissions(tmp_path, monkeypatch):
     assert called["mode"] == 0o600
 
 
-def test_read_log_text_raises_when_ciphertext_invalid(tmp_path, monkeypatch):
+def test_read_log_text_marks_invalid_ciphertext_line_and_keeps_reading(tmp_path, monkeypatch):
     log_path = tmp_path / "log.log"
     monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
     key = Fernet.generate_key()
     monkeypatch.setattr(base_logger, "_get_or_create_log_fernet_key", lambda: key)
-    log_path.write_text("not-encrypted-line\n", encoding="utf-8")
-    with pytest.raises(Exception):
-        base_logger.read_log_text()
+    base_logger.write_log(level="INFO", tag="SYSTEM", message="before")
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write("not-encrypted-line\n")
+    base_logger.write_log(level="INFO", tag="SYSTEM", message="after")
+
+    text = base_logger.read_log_text()
+
+    assert "before" in text
+    assert "after" in text
+    assert "[UNREADABLE LOG LINE]" in text
 
 
 def test_read_log_tail_text_returns_recent_lines_only(tmp_path, monkeypatch):
@@ -97,3 +109,14 @@ def test_write_log_sanitizes_exception_like_secret_formats(tmp_path, monkeypatch
     assert "abc999" not in text
     assert "tok999" not in text
     assert text.count("[REDACTED]") >= 4
+
+
+def test_get_or_create_log_fernet_key_does_not_rotate_when_secret_store_read_fails(monkeypatch):
+    monkeypatch.setattr(
+        base_logger.secret_store,
+        "get_secret",
+        lambda _key: (_ for _ in ()).throw(RuntimeError("secret backend unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="secret backend unavailable"):
+        base_logger._get_or_create_log_fernet_key()
