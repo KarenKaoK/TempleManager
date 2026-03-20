@@ -3,7 +3,7 @@ import os
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
-    QApplication,
+    QDialogButtonBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -65,7 +66,7 @@ class ReportScheduleSettingsDialog(QDialog):
         form.addRow("Gmail 密碼", self.edt_smtp_password)
         form.addRow("", self.btn_save_mail_secret)
         form.addRow("設定檔路徑", path_wrap)
-        self.lbl_toggle_hint = QLabel("提示：手動修改 scheduler_config.yaml 後，請按「重新載入排程」。")
+        self.lbl_toggle_hint = QLabel("提示：手動修改 scheduler_config.yaml 後，外部排程 worker 會依最新設定執行。")
         self.lbl_toggle_hint.setWordWrap(False)
         self.lbl_toggle_hint.setStyleSheet("QLabel { color:#6B7280; }")
         hint_wrap = QWidget()
@@ -82,23 +83,19 @@ class ReportScheduleSettingsDialog(QDialog):
         self.btn_toggle_mail = QPushButton("停用 Email 排程")
         self.btn_toggle_mail.clicked.connect(self._toggle_mail_schedule)
         self.btn_open_config_dir = QPushButton("開啟設定檔位置")
-        self.btn_reload = QPushButton("重新載入排程")
+        self.btn_worker_help = QPushButton("外部常駐 worker 設定說明")
         self.btn_close = QPushButton("關閉")
         self.btn_open_config_dir.clicked.connect(self._open_config_dir)
-        self.btn_reload.clicked.connect(self._reload_scheduler)
+        self.btn_worker_help.clicked.connect(self._show_external_worker_help)
         self.btn_close.clicked.connect(self.accept)
         row_btn.addWidget(self.btn_toggle_mail)
         row_btn.addWidget(self.btn_open_config_dir)
-        row_btn.addWidget(self.btn_reload)
+        row_btn.addWidget(self.btn_worker_help)
         row_btn.addWidget(self.btn_close)
         row_btn.addStretch()
         root.addLayout(row_btn)
 
         self._refresh_status()
-
-    def _scheduler_service(self):
-        app = QApplication.instance()
-        return getattr(app, "scheduler_service", None) if app is not None else None
 
     def _config_path(self) -> str:
         getter = getattr(self.controller, "get_scheduler_config_path", None)
@@ -123,9 +120,7 @@ class ReportScheduleSettingsDialog(QDialog):
         return flags
 
     def _refresh_status(self):
-        svc = self._scheduler_service()
-        running = bool(svc is not None and getattr(svc, "is_running", False))
-        self.lbl_scheduler_status.setText("運行中" if running else "未運行")
+        self.lbl_scheduler_status.setText("由外部常駐 worker 執行")
 
         mail_enabled = bool(self._feature_flags().get("mail_enabled", True))
         getter = getattr(self.controller, "get_scheduler_mail_settings", None)
@@ -153,6 +148,83 @@ class ReportScheduleSettingsDialog(QDialog):
             QMessageBox.warning(self, "路徑不存在", f"找不到設定檔資料夾：\n{folder}")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+
+    @staticmethod
+    def _external_worker_help_html() -> str:
+        return """
+<style>
+  body { font-family: sans-serif; line-height: 1.55; }
+  h3 { margin: 10px 0 6px; }
+  p { margin: 6px 0; }
+  li { margin: 4px 0; }
+  pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: #FAF5EF;
+    padding: 10px;
+    border-radius: 6px;
+  }
+</style>
+<h3>用途</h3>
+<p>主程式目前不會自動啟動內建排程；正式寄信與報表排程請改由外部常駐 worker 執行。</p>
+
+<h3>執行指令</h3>
+<pre>python -m app.scheduler.worker</pre>
+<p>建議使用專案虛擬環境的 Python。</p>
+
+<h3>設定檔</h3>
+<p>目前畫面中的「設定檔路徑」就是 worker 會使用的 <code>scheduler_config.yaml</code>。首次使用時，系統會先將模板複製到使用者資料目錄，也可以自行改選其他外部檔案。</p>
+
+<h3>Windows</h3>
+<ol>
+  <li>開啟「工作排程器」，建立基本工作或一般工作。</li>
+  <li>觸發程序可設為「使用者登入時」或「開機時」。</li>
+  <li>動作填入虛擬環境 Python，例如：</li>
+</ol>
+<pre>temple_venv\\Scripts\\python.exe -m app.scheduler.worker</pre>
+<ol start="4">
+  <li>「起始於 (Start in)」請設為專案根目錄。</li>
+  <li>儲存後可先手動執行一次，確認 worker 能正常常駐。</li>
+</ol>
+
+<h3>macOS</h3>
+<ol>
+  <li>在 <code>~/Library/LaunchAgents/</code> 建立 plist。</li>
+  <li><code>ProgramArguments</code> 指向虛擬環境 Python，例如：</li>
+</ol>
+<pre>./temple_venv/bin/python -m app.scheduler.worker</pre>
+<ol start="3">
+  <li><code>WorkingDirectory</code> 設為專案根目錄。</li>
+  <li>使用 <code>launchctl load</code> 或 <code>launchctl bootstrap</code> 啟用。</li>
+  <li>可用 <code>launchctl list</code> 確認是否成功載入。</li>
+</ol>
+
+<h3>注意</h3>
+<ul>
+  <li>請勿同時恢復主程式內建 scheduler 啟動入口，避免重複寄送。</li>
+  <li>若變更 <code>scheduler_config.yaml</code>，外部 worker 下次讀取時就會套用最新設定。</li>
+</ul>
+"""
+
+    def _show_external_worker_help(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("外部常駐 worker 設定說明")
+        dialog.resize(720, 620)
+
+        root = QVBoxLayout(dialog)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        browser = QTextBrowser(dialog)
+        browser.setOpenExternalLinks(False)
+        browser.setHtml(self._external_worker_help_html())
+        root.addWidget(browser, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok, parent=dialog)
+        buttons.accepted.connect(dialog.accept)
+        root.addWidget(buttons)
+
+        dialog.exec_()
 
     def _select_config_file(self):
         start_path = self._config_path()
@@ -216,7 +288,6 @@ class ReportScheduleSettingsDialog(QDialog):
             except Exception as e:
                 QMessageBox.warning(self, "儲存失敗", str(e))
                 return
-        self._reload_scheduler(show_message=False)
         self._refresh_status()
         QMessageBox.information(self, "完成", "Email 排程設定已更新。")
 
@@ -249,19 +320,3 @@ class ReportScheduleSettingsDialog(QDialog):
         self.edt_smtp_password.clear()
         self._refresh_status()
         QMessageBox.information(self, "完成", "郵件帳密已儲存。")
-
-    def _reload_scheduler(self, show_message: bool = True):
-        svc = self._scheduler_service()
-        if svc is None:
-            QMessageBox.warning(self, "無法重載", "目前找不到排程服務。")
-            return
-        flags = self._feature_flags()
-        cfg_path = self._config_path()
-        try:
-            svc.reload(feature_flags=flags, config_path=cfg_path)
-        except Exception as e:
-            QMessageBox.warning(self, "重載失敗", str(e))
-            return
-        self._refresh_status()
-        if show_message:
-            QMessageBox.information(self, "完成", "已重新載入排程設定。")

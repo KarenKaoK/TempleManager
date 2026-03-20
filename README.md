@@ -356,12 +356,31 @@ rm -rf ./temple_old.db
 
 ### 2-2. 啟動自動發信排程
 
-啟動排程（若採獨立 worker）：
+正式部署請採外部常駐 worker：
 ```bash
 python -m app.scheduler.worker
 ```
 
 > 建議正式部署以「系統管理 -> 報表排程設定」完成 Gmail 帳密安全儲存，不再依賴 `export GMAIL_*`。
+> 主程式目前不會自動啟動內建排程；UI 僅負責設定排程內容與設定檔路徑。
+> 首次使用時，系統會將內建模板 `scheduler_config.yaml` 複製到使用者資料目錄（與 DB 同層），也可於 UI 改選其他外部檔案。
+> 正式寄信/報表排程請由外部 worker 常駐執行。
+
+Windows 手動設定：
+1. 開啟「工作排程器」，建立基本工作或一般工作。
+2. 觸發程序可設為「使用者登入時」或「開機時」。
+3. 動作請填專案虛擬環境 Python，例如：
+   `temple_venv\Scripts\python.exe -m app.scheduler.worker`
+4. 「起始於 (Start in)」請設為專案根目錄。
+5. 建立完成後可先手動執行一次，確認 worker 能正常常駐。
+
+macOS 手動設定：
+1. 在 `~/Library/LaunchAgents/` 建立 plist。
+2. `ProgramArguments` 指向專案虛擬環境 Python，例如：
+   `./temple_venv/bin/python -m app.scheduler.worker`
+3. `WorkingDirectory` 設為專案根目錄。
+4. 使用 `launchctl load` 或 `launchctl bootstrap` 啟用。
+5. 可用 `launchctl list` 確認是否成功載入。
 
 排程設定檔位於 `app/scheduler/scheduler_config.yaml`。以下為預設排程的報表類型與寄送時間：
 
@@ -376,6 +395,7 @@ python -m app.scheduler.worker
 **注意**：
 - 報表產生與寄信皆由排程自動執行，輸出至 `reports/` 目錄
 - `daily_activity_report` 僅於活動期間內寄送；當日若無進行中活動則不產報、不寄信
+- 若部署外部 worker，請勿同時恢復主程式內建 scheduler 啟動入口，避免重複寄送
 
 ### 3. 系統功能導覽
 
