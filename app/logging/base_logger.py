@@ -119,7 +119,10 @@ def read_log_text() -> str:
         text = (raw or "").strip()
         if not text:
             continue
-        out_lines.append(_decrypt_line(text))
+        try:
+            out_lines.append(_decrypt_line(text))
+        except Exception:
+            out_lines.append(text)
     return "\n".join(out_lines).strip()
 
 
