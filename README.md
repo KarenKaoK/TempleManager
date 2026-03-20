@@ -139,10 +139,16 @@ python -c "from pathlib import Path; from app.scheduler.worker import load_cfg; 
 
 ## 🧾 Log 設計
 
-系統 log 統一寫入專案根目錄的 `log.log`，分成兩類：
+系統 log 統一寫入使用者資料目錄中的 `log.log`（與 DB 同層），分成兩類：
 
 - `[SYSTEM]`：系統行為與錯誤（例如登入、登出、排程、備份、例外）
 - `[DATA]`：資料新增、修改、刪除等異動紀錄
+
+補充：
+- log 內容採逐行加密儲存
+- 系統日誌視窗預設只載入最近 1000 行，以改善大檔案開啟速度
+- 若需要查看完整歷史，可在系統日誌視窗按「載入全部」
+- 若單行 log 無法解密，畫面會顯示 `[UNREADABLE LOG LINE]`
 
 ### 格式
 

@@ -60,4 +60,14 @@ class SystemLogViewerDialog(QDialog):
             self.txt_log.setPlainText(text or "目前尚無 log 紀錄。")
             self.txt_log.moveCursor(self.txt_log.textCursor().End)
         except Exception as e:
-            QMessageBox.warning(self, "讀取失敗", f"無法讀取系統日誌：{e}")
+            QMessageBox.warning(
+                self,
+                "讀取失敗",
+                (
+                    "無法讀取系統日誌。\n\n"
+                    "可能原因：\n"
+                    "1. 系統安全儲存無法讀取 log 加密金鑰\n"
+                    "2. 目前 log 檔包含無法解密的內容\n\n"
+                    f"詳細錯誤：{e}"
+                ),
+            )
