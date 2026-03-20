@@ -111,16 +111,29 @@ def _decrypt_line(token: str) -> str:
     return f.decrypt((token or "").strip().encode("utf-8")).decode("utf-8")
 
 
-def read_log_text() -> str:
-    if not LOG_FILE_PATH.exists():
-        return ""
+def _decode_log_lines(lines) -> str:
     out_lines = []
-    for raw in LOG_FILE_PATH.read_text(encoding="utf-8").splitlines():
+    for raw in lines:
         text = (raw or "").strip()
         if not text:
             continue
         out_lines.append(_decrypt_line(text))
     return "\n".join(out_lines).strip()
+
+
+def read_log_text() -> str:
+    if not LOG_FILE_PATH.exists():
+        return ""
+    return _decode_log_lines(LOG_FILE_PATH.read_text(encoding="utf-8").splitlines())
+
+
+def read_log_tail_text(max_lines: int = 1000) -> str:
+    if not LOG_FILE_PATH.exists():
+        return ""
+    if max_lines <= 0:
+        return ""
+    lines = LOG_FILE_PATH.read_text(encoding="utf-8").splitlines()
+    return _decode_log_lines(lines[-max_lines:])
 
 
 def write_log(*, level: str, tag: str, message: str) -> None:
