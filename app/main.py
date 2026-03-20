@@ -16,7 +16,6 @@ from app.controller.app_controller import AppController
 from app.auth.login import LoginDialog
 from app.main_window import MainWindow
 from app.utils.local_db_store import ensure_runtime_db_ready, finalize_runtime_db
-from app.scheduler.service import SchedulerService
 from app.utils.dialog_localizer import install_dialog_localizer
 from app.utils.font_manager import GlobalFontManager
 
@@ -299,9 +298,6 @@ def run_app():
     """)
     app.font_manager = GlobalFontManager(app)
     install_dialog_localizer(app)
-    scheduler_service = None
-    app.scheduler_service = scheduler_service
-
     try:
         while True:
             controller = None
@@ -314,13 +310,6 @@ def run_app():
             display_name = (getattr(login_dialog, "display_name", None) or "").strip()
             operator_name = f"{display_name}({username})" if display_name and display_name != username else username
             controller = AppController()
-            scheduler_service = SchedulerService(
-                config_path=controller.get_scheduler_config_path(),
-                feature_flags=controller.get_scheduler_feature_settings(),
-                db_path_override=getattr(controller, "db_path", None),
-            )
-            scheduler_service.start()
-            app.scheduler_service = scheduler_service
             main_window = MainWindow(username, role, controller)
             main_window.operator_name = operator_name
             main_window._is_logout = False
@@ -328,12 +317,6 @@ def run_app():
 
             app.exec_()
             try:
-                if scheduler_service is not None:
-                    scheduler_service.stop()
-            except Exception:
-                pass
-            try:
-                app.scheduler_service = None
                 controller.conn.close()
             except Exception:
                 pass
@@ -347,14 +330,11 @@ def run_app():
             if not getattr(main_window, '_is_logout', False):
                 break
     finally:
-        if scheduler_service is not None:
-            scheduler_service.stop()
         if local_db_encryption_enabled():
             finalize_runtime_db(
                 runtime_db_path=DB_NAME,
                 encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
             )
-        app.scheduler_service = None
 
     sys.exit(0)
 

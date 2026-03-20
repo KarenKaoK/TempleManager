@@ -45,3 +45,14 @@ def test_report_schedule_settings_dialog_has_readonly_config_path(qtbot):
     assert dialog.btn_select_config.text() == "選擇檔案"
     assert dialog.edt_smtp_username.text() == "test@gmail.com"
     assert dialog.btn_save_mail_secret.text() == "儲存郵件帳密"
+    assert dialog.lbl_scheduler_status.text() == "由外部常駐 worker 執行"
+    assert hasattr(dialog, "btn_reload") is False
+    assert dialog.btn_worker_help.text() == "外部常駐 worker 設定說明"
+
+
+def test_report_schedule_settings_dialog_worker_help_mentions_windows_and_macos():
+    html = ReportScheduleSettingsDialog._external_worker_help_html()
+    assert "工作排程器" in html
+    assert "LaunchAgents" in html
+    assert "app.scheduler.worker" in html
+    assert "temple_venv" in html
