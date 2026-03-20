@@ -1,5 +1,7 @@
 # TempleManager
 
+![TempleManager Demo](assets/temple_management.gif)
+
 TempleManager is a desktop application for temple administration, including believer records, activity registration, lighting registration, finance tracking, backups, and scheduled email reports.
 
 ## Highlights

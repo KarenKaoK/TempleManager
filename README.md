@@ -2,6 +2,8 @@
 
 # Temple Manager 
 
+![TempleManager 操作示意](assets/temple_management.gif)
+
 ## Introduction
 Temple Manager 是一款專為寺廟社群設計的 **管理運營系統**，協助寺廟 **提升行政管理效率**，整合 **信眾管理、收支紀錄、活動管理** 等功能，簡化日常營運流程。
 
