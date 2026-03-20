@@ -279,6 +279,8 @@ class PlanEditDialog(QDialog):
             return None
         items = "、".join([f"{x['name']}×{x['qty']}" for x in plan_items])
         fee_type = str(self.f_fee_type.currentData())
+        if fee_type == "fixed":
+            self.f_amount.interpretText()
         amount = int(self.f_amount.value()) if fee_type == "fixed" else None
         note = self.f_note.toPlainText().strip()
 

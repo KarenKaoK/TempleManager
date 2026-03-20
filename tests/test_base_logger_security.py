@@ -60,6 +60,22 @@ def test_read_log_text_raises_when_ciphertext_invalid(tmp_path, monkeypatch):
         base_logger.read_log_text()
 
 
+def test_read_log_tail_text_returns_recent_lines_only(tmp_path, monkeypatch):
+    log_path = tmp_path / "log.log"
+    monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
+    key = Fernet.generate_key()
+    monkeypatch.setattr(base_logger, "_get_or_create_log_fernet_key", lambda: key)
+
+    for idx in range(5):
+        base_logger.write_log(level="INFO", tag="SYSTEM", message=f"line-{idx}")
+
+    text = base_logger.read_log_tail_text(2)
+
+    assert "line-4" in text
+    assert "line-3" in text
+    assert "line-0" not in text
+
+
 def test_write_log_sanitizes_exception_like_secret_formats(tmp_path, monkeypatch):
     log_path = tmp_path / "log.log"
     monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
