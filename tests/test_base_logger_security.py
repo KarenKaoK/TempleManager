@@ -50,29 +50,30 @@ def test_write_log_attempts_to_harden_permissions(tmp_path, monkeypatch):
     assert called["mode"] == 0o600
 
 
-def test_read_log_text_falls_back_to_plaintext_when_ciphertext_invalid(tmp_path, monkeypatch):
+def test_read_log_text_raises_when_ciphertext_invalid(tmp_path, monkeypatch):
     log_path = tmp_path / "log.log"
     monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
     key = Fernet.generate_key()
     monkeypatch.setattr(base_logger, "_get_or_create_log_fernet_key", lambda: key)
     log_path.write_text("not-encrypted-line\n", encoding="utf-8")
-    assert base_logger.read_log_text() == "not-encrypted-line"
+    with pytest.raises(Exception):
+        base_logger.read_log_text()
 
 
-def test_read_log_text_supports_mixed_encrypted_and_plaintext_lines(tmp_path, monkeypatch):
+def test_read_log_tail_text_returns_recent_lines_only(tmp_path, monkeypatch):
     log_path = tmp_path / "log.log"
     monkeypatch.setattr(base_logger, "LOG_FILE_PATH", log_path)
     key = Fernet.generate_key()
     monkeypatch.setattr(base_logger, "_get_or_create_log_fernet_key", lambda: key)
 
-    base_logger.write_log(level="INFO", tag="SYSTEM", message="encrypted line")
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write("legacy plaintext line\n")
+    for idx in range(5):
+        base_logger.write_log(level="INFO", tag="SYSTEM", message=f"line-{idx}")
 
-    text = base_logger.read_log_text()
+    text = base_logger.read_log_tail_text(2)
 
-    assert "encrypted line" in text
-    assert "legacy plaintext line" in text
+    assert "line-4" in text
+    assert "line-3" in text
+    assert "line-0" not in text
 
 
 def test_write_log_sanitizes_exception_like_secret_formats(tmp_path, monkeypatch):
