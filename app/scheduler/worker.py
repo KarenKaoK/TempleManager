@@ -364,24 +364,49 @@ def create_scheduler(
     return sched, runtime
 
 
-def main() -> None:
-    config_path = sys.argv[1] if len(sys.argv) > 1 else "app/scheduler/scheduler_config.yaml"
-    sched, runtime = create_scheduler(config_path=config_path)
-    sched.start()
-    print(
-        f"[START] scheduler worker running. "
-        f"config={runtime['config_file']} db={runtime['db_path']} tz={runtime['timezone']} "
-        f"mail_enabled={runtime['mail_enabled']} backup_enabled={runtime['backup_enabled']}"
-    )
+def main() -> int:
+    controller = None
+    try:
+        controller = AppController()
+        config_path = controller.get_scheduler_config_path()
+        feature_flags = controller.get_scheduler_feature_settings()
+        db_path_override = getattr(controller, "db_path", None)
+    except Exception:
+        config_path = "app/scheduler/scheduler_config.yaml"
+        feature_flags = None
+        db_path_override = None
+    finally:
+        try:
+            if controller is not None and getattr(controller, "conn", None) is not None:
+                controller.conn.close()
+        except Exception:
+            pass
 
     try:
-        while True:
-            time.sleep(5)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        sched.shutdown()
+        sched, runtime = create_scheduler(
+            config_path=config_path,
+            feature_flags=feature_flags,
+            db_path_override=db_path_override,
+        )
+        sched.start()
+        print(
+            f"[START] scheduler worker running. "
+            f"config={runtime['config_file']} db={runtime['db_path']} tz={runtime['timezone']} "
+            f"mail_enabled={runtime['mail_enabled']} backup_enabled={runtime['backup_enabled']}"
+        )
+
+        try:
+            while True:
+                time.sleep(5)
+        except KeyboardInterrupt:
+            return 0
+        finally:
+            sched.shutdown()
+    except Exception as e:
+        print(f"[ERR] scheduler worker failed to start: {e}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
