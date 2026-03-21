@@ -64,6 +64,7 @@ python -m app.scheduler.worker
 ```
 
 The scheduler config file is stored externally. On first use, the app copies the built-in template `scheduler_config.yaml` into the user data directory. Users can also choose another external config file from the report schedule settings dialog.
+For Windows, you can use [`scripts/start_worker.example.bat`](/Users/huangrensyuan/Desktop/codes/TempleManager/scripts/start_worker.example.bat) as a reference launcher. It also writes console output to `%LOCALAPPDATA%\TempleManager\worker_stdout.log`.
 
 ### Windows
 
@@ -108,6 +109,7 @@ Set `WorkingDirectory` to the project root directory.
 - The system log viewer loads the most recent 1000 lines by default for better performance.
 - Use "Load All" in the log viewer if you need the full history.
 - If a specific line cannot be decrypted, it will be shown as `[UNREADABLE LOG LINE]`.
+- If you launch the worker from a Windows `.bat` file, you may also keep `%LOCALAPPDATA%\TempleManager\worker_stdout.log` as plain-text console diagnostics; it does not replace `log.log`.
 
 ## Notes
 

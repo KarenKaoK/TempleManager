@@ -149,6 +149,7 @@ python -c "from pathlib import Path; from app.scheduler.worker import load_cfg; 
 - 系統日誌視窗預設只載入最近 1000 行，以改善大檔案開啟速度
 - 若需要查看完整歷史，可在系統日誌視窗按「載入全部」
 - 若單行 log 無法解密，畫面會顯示 `[UNREADABLE LOG LINE]`
+- 若使用 Windows `.bat` 啟動 worker，可另外保留 `%LOCALAPPDATA%\TempleManager\worker_stdout.log` 作為 console 診斷輸出；此檔不取代 `log.log`
 
 ### 格式
 
@@ -375,6 +376,7 @@ python -m app.scheduler.worker
 > 主程式目前不會自動啟動內建排程；UI 僅負責設定排程內容與設定檔路徑。
 > 首次使用時，系統會將內建模板 `scheduler_config.yaml` 複製到使用者資料目錄（與 DB 同層），也可於 UI 改選其他外部檔案。
 > 正式寄信/報表排程請由外部 worker 常駐執行。
+> 可參考 [`scripts/start_worker.example.bat`](/Users/huangrensyuan/Desktop/codes/TempleManager/scripts/start_worker.example.bat) 作為 Windows 啟動範例；該範例會將 console 輸出額外寫到 `%LOCALAPPDATA%\TempleManager\worker_stdout.log`。
 
 Windows 手動設定：
 1. 開啟「工作排程器」，建立基本工作或一般工作。
