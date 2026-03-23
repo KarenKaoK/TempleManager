@@ -64,11 +64,13 @@ python -m app.scheduler.worker
 ```
 
 The scheduler config file is stored externally. On first use, the app copies the built-in template `scheduler_config.yaml` into the user data directory. Users can also choose another external config file from the report schedule settings dialog.
-For Windows, you can use [`scripts/start_worker.example.bat`](/Users/huangrensyuan/Desktop/codes/TempleManager/scripts/start_worker.example.bat) as a reference launcher. It also writes console output to `%LOCALAPPDATA%\TempleManager\worker_stdout.log`.
+For Windows, you can use [`scripts/start_worker.example.bat`](/Users/huangrensyuan/Desktop/codes/TempleManager/scripts/start_worker.example.bat) as a reference launcher. It also writes console output to `worker_stdout.log` in the project root.
+At startup, the worker prepares the runtime DB for the real application data and loads the scheduler config path / feature flags saved by the app. If it cannot load the real app settings, it now fails fast instead of silently falling back to the repo-local `app/database/temple.db`.
 
 ### Windows
 
 Use Task Scheduler to keep the worker running in the background.
+Prefer "Create Task" instead of "Create Basic Task".
 
 Suggested command:
 
@@ -77,6 +79,7 @@ temple_venv\Scripts\python.exe -m app.scheduler.worker
 ```
 
 Set `Start in` to the project root directory.
+If you store the Gmail account and App Password from the UI, the Task Scheduler job must run under the same Windows user that originally stored that secret in Credential Manager.
 
 ### macOS
 
@@ -109,9 +112,11 @@ Set `WorkingDirectory` to the project root directory.
 - The system log viewer loads the most recent 1000 lines by default for better performance.
 - Use "Load All" in the log viewer if you need the full history.
 - If a specific line cannot be decrypted, it will be shown as `[UNREADABLE LOG LINE]`.
+- If you launch the worker from a Windows `.bat` file, you may also keep `worker_stdout.log` in the project root as plain-text console diagnostics; it does not replace `log.log`.
 - If you launch the worker from a Windows `.bat` file, you may also keep `%LOCALAPPDATA%\TempleManager\worker_stdout.log` as plain-text console diagnostics; it does not replace `log.log`.
 
 ## Notes
 
 - Do not enable both the external worker and the internal app scheduler entry at the same time.
 - If you update `scheduler_config.yaml`, the external worker will use the updated configuration.
+- The built-in `app/scheduler/scheduler_config.yaml` is only the template/default source; production worker execution should use the external config path saved by the app.

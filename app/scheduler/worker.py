@@ -16,6 +16,13 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.controller.app_controller import AppController
+from app.config import (
+    DB_NAME,
+    DATA_DIR,
+    local_db_encryption_enabled,
+    resolve_encrypted_db_name,
+    resolve_legacy_plain_db_name,
+)
 from app.logging import log_data_change, log_system
 from app.mailer.smtp_client import send_email_smtp
 from app.mailer.outbox_db import connect, ensure_schema, insert_record
@@ -23,6 +30,7 @@ from app.report_generator import activity as report_activity
 from app.report_generator import believer as report_believer
 from app.report_generator import finance as report_finance
 from app.report_generator.cleanup import cleanup_reports
+from app.utils.local_db_store import ensure_runtime_db_ready, finalize_runtime_db
 
 
 def _log_scheduler_data(action: str, message: str) -> None:
@@ -365,16 +373,22 @@ def create_scheduler(
 
 
 def main() -> int:
+    if local_db_encryption_enabled():
+        ensure_runtime_db_ready(
+            runtime_db_path=DB_NAME,
+            encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
+            legacy_plain_db_path=resolve_legacy_plain_db_name(DATA_DIR),
+        )
+
     controller = None
     try:
         controller = AppController()
         config_path = controller.get_scheduler_config_path()
         feature_flags = controller.get_scheduler_feature_settings()
         db_path_override = getattr(controller, "db_path", None)
-    except Exception:
-        config_path = "app/scheduler/scheduler_config.yaml"
-        feature_flags = None
-        db_path_override = None
+    except Exception as e:
+        print(f"[ERR] scheduler worker failed to load app settings: {e}", file=sys.stderr)
+        return 1
     finally:
         try:
             if controller is not None and getattr(controller, "conn", None) is not None:
@@ -405,6 +419,12 @@ def main() -> int:
     except Exception as e:
         print(f"[ERR] scheduler worker failed to start: {e}", file=sys.stderr)
         return 1
+    finally:
+        if local_db_encryption_enabled():
+            finalize_runtime_db(
+                runtime_db_path=DB_NAME,
+                encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
+            )
     return 0
 
 

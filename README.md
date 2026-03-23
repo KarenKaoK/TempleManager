@@ -149,7 +149,7 @@ python -c "from pathlib import Path; from app.scheduler.worker import load_cfg; 
 - 系統日誌視窗預設只載入最近 1000 行，以改善大檔案開啟速度
 - 若需要查看完整歷史，可在系統日誌視窗按「載入全部」
 - 若單行 log 無法解密，畫面會顯示 `[UNREADABLE LOG LINE]`
-- 若使用 Windows `.bat` 啟動 worker，可另外保留 `%LOCALAPPDATA%\TempleManager\worker_stdout.log` 作為 console 診斷輸出；此檔不取代 `log.log`
+- 若使用 Windows `.bat` 啟動 worker，可另外保留專案根目錄下的 `worker_stdout.log` 作為 console 診斷輸出；此檔不取代 `log.log`
 
 ### 格式
 
@@ -376,15 +376,17 @@ python -m app.scheduler.worker
 > 主程式目前不會自動啟動內建排程；UI 僅負責設定排程內容與設定檔路徑。
 > 首次使用時，系統會將內建模板 `scheduler_config.yaml` 複製到使用者資料目錄（與 DB 同層），也可於 UI 改選其他外部檔案。
 > 正式寄信/報表排程請由外部 worker 常駐執行。
-> 可參考 [`scripts/start_worker.example.bat`](/Users/huangrensyuan/Desktop/codes/TempleManager/scripts/start_worker.example.bat) 作為 Windows 啟動範例；該範例會將 console 輸出額外寫到 `%LOCALAPPDATA%\TempleManager\worker_stdout.log`。
+> 可參考 [`scripts/start_worker.example.bat`](/Users/huangrensyuan/Desktop/codes/TempleManager/scripts/start_worker.example.bat) 作為 Windows 啟動範例；該範例會將 console 輸出額外寫到專案根目錄下的 `worker_stdout.log`。
+> worker 啟動時會先準備正式資料庫的 runtime DB，並優先讀取 UI 已儲存的排程設定檔路徑與功能旗標；若無法載入正式 app 設定，會直接報錯，不再 fallback 到 repo 內建 `app/database/temple.db`。
 
 Windows 手動設定：
-1. 開啟「工作排程器」，建立基本工作或一般工作。
+1. 開啟「工作排程器」，建議使用「建立工作」而非「建立基本工作」。
 2. 觸發程序可設為「使用者登入時」或「開機時」。
 3. 動作請填專案虛擬環境 Python，例如：
    `temple_venv\Scripts\python.exe -m app.scheduler.worker`
 4. 「起始於 (Start in)」請設為專案根目錄。
-5. 建立完成後可先手動執行一次，確認 worker 能正常常駐。
+5. 若使用 UI 儲存 Gmail 帳號與 App Password，工作排程器的執行 Windows 使用者必須與當初儲存該密碼的 Windows 使用者一致，否則無法從 Credential Manager 讀到密碼。
+6. 建立完成後可先手動執行一次，確認 worker 能正常常駐。
 
 macOS 手動設定：
 1. 在 `~/Library/LaunchAgents/` 建立 plist。
@@ -394,7 +396,7 @@ macOS 手動設定：
 4. 使用 `launchctl load` 或 `launchctl bootstrap` 啟用。
 5. 可用 `launchctl list` 確認是否成功載入。
 
-排程設定檔位於 `app/scheduler/scheduler_config.yaml`。以下為預設排程的報表類型與寄送時間：
+排程設定檔模板位於 `app/scheduler/scheduler_config.yaml`；正式執行時實際使用的是 UI/DB 設定所指向的外部 `scheduler_config.yaml`。以下為預設模板中的報表類型與寄送時間：
 
 | 排程 Job | 說明 | 排程時間 | 報表檔名 |
 |----------|------|----------|----------|
