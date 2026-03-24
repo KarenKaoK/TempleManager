@@ -21,6 +21,16 @@ def test_resolve_db_name_uses_data_dir(monkeypatch, tmp_path):
     assert result == str(data_dir / "temple.db")
 
 
+def test_resolve_db_name_keeps_plain_db_in_data_dir_when_encryption_enabled(monkeypatch, tmp_path):
+    monkeypatch.delenv("TEMPLEMANAGER_DB_PATH", raising=False)
+    monkeypatch.setattr(app_config, "local_db_encryption_enabled", lambda: True)
+
+    data_dir = tmp_path / "data"
+    result = app_config.resolve_db_name(data_dir=data_dir)
+
+    assert result == str(data_dir / "temple.db")
+
+
 def test_get_data_dir_uses_single_app_segment(monkeypatch):
     captured = {"appname": None, "appauthor": "NOT_SET"}
 
