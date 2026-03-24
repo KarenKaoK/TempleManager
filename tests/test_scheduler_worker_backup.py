@@ -1,9 +1,25 @@
 import app.scheduler.worker as worker_module
+from app.scheduler import worker_log_db
 
 
 def test_run_backup_schedule_check_runs_controller_and_closes_conn(monkeypatch):
     called = {"run_once": 0, "closed": 0, "db_path": ""}
     logs = {"data": [], "system": []}
+    monkeypatch.setattr(worker_log_db, "DATA_DIR", __import__("pathlib").Path("/tmp/templemanager_worker_test"))
+
+    class _SnapshotCtx:
+        def __enter__(self):
+            return "/tmp/worker_backup_snapshot.db"
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _SnapshotCtx:
+        def __enter__(self):
+            return "/tmp/worker_backup_snapshot.db"
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
 
     class _SnapshotCtx:
         def __enter__(self):
