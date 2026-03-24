@@ -236,7 +236,7 @@ def create_scheduler(
             try:
                 cred_controller = AppController(db_path=db_path_resolved)
                 try:
-                    smtp_user, smtp_pwd = cred_controller.get_scheduler_mail_credentials()
+                    smtp_user, smtp_pwd = cred_controller.get_scheduler_mail_credentials(background=True)
                 finally:
                     try:
                         cred_controller.conn.close()

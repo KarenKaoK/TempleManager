@@ -66,6 +66,7 @@ python -m app.scheduler.worker
 The scheduler config file is stored externally. On first use, the app copies the built-in template `scheduler_config.yaml` into the user data directory. Users can also choose another external config file from the report schedule settings dialog.
 For Windows, you can use [`scripts/start_worker.example.bat`](/Users/huangrensyuan/Desktop/codes/TempleManager/scripts/start_worker.example.bat) as a reference launcher. It also writes console output to `worker_stdout.log` in the project root.
 At startup, the worker prepares the runtime DB for the real application data and loads the scheduler config path / feature flags saved by the app. If it cannot load the real app settings, it now fails fast instead of silently falling back to the repo-local `app/database/temple.db`.
+Windows background email delivery now supports a background secret path: when the UI saves the Gmail App Password, the app also writes `worker_mail_secret.bin` into the TempleManager data directory, and the background worker prefers that secret instead of relying only on the normal user's Credential Manager.
 
 ### Windows
 
