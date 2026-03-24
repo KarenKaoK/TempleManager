@@ -10,6 +10,7 @@ import shutil
 from typing import Tuple, Optional,  List, Dict, Any
 from pathlib import Path
 import app.utils.secret_store as secret_store
+from app.utils import worker_mail_secret_store
 from cryptography.fernet import Fernet
 
 from datetime import datetime, date, timedelta
@@ -1818,10 +1819,13 @@ class AppController:
         before = self.get_scheduler_mail_settings()
         self.set_setting("scheduler/smtp_username", username)
         password_updated = False
+        worker_password_updated = False
         if (smtp_password or "").strip():
             try:
                 secret_store.set_secret(self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY, smtp_password)
+                worker_mail_secret_store.save_worker_mail_secret(smtp_password, db_path=self.db_path)
                 password_updated = True
+                worker_password_updated = True
             except Exception as e:
                 self._log_scheduler_system_event(
                     f"儲存排程郵件設定失敗（帳號 {self._fmt_log_val(username)}，原因：無法寫入 {secret_store.backend_label()}：{e}）",
@@ -1835,17 +1839,24 @@ class AppController:
                 f"舊帳號 {self._fmt_log_val(before.get('smtp_username'))}，"
                 f"新帳號 {self._fmt_log_val(username)}，"
                 f"密碼更新 {1 if password_updated else 0}，"
+                f"背景密碼更新 {1 if worker_password_updated else 0}，"
                 f"密碼保存位置 {self._fmt_log_val(secret_store.backend_label())}）"
             ),
         )
 
-    def get_scheduler_mail_credentials(self) -> Tuple[str, str]:
+    def get_scheduler_mail_credentials(self, *, background: bool = False) -> Tuple[str, str]:
         username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
         password = ""
-        try:
-            password = (secret_store.get_secret(self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY) or "").strip()
-        except Exception:
-            password = ""
+        if background:
+            try:
+                password = worker_mail_secret_store.load_worker_mail_secret(db_path=self.db_path)
+            except Exception:
+                password = ""
+        if not password:
+            try:
+                password = (secret_store.get_secret(self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY) or "").strip()
+            except Exception:
+                password = ""
         if not username:
             username = (os.environ.get("GMAIL_USER", "") or "").strip()
         if not password:
