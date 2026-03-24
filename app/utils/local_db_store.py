@@ -61,6 +61,8 @@ def ensure_runtime_db_ready(*, runtime_db_path: str, encrypted_db_path: str, leg
             raise RuntimeError(f"無法解密地端資料庫：{e}")
         runtime.write_bytes(plain)
         _best_effort_chmod(runtime)
+        if not runtime.exists():
+            raise RuntimeError(f"地端資料庫還原失敗：{runtime}")
         return
 
     if legacy is not None and legacy.is_file():
@@ -77,6 +79,13 @@ def ensure_runtime_db_ready(*, runtime_db_path: str, encrypted_db_path: str, leg
                     extra.unlink()
                 except Exception:
                     pass
+        if not runtime.exists():
+            raise RuntimeError(f"地端資料庫搬移失敗：{runtime}")
+        return
+
+    raise RuntimeError(
+        "找不到可用的地端資料庫。預期至少存在 temple.db.enc 或既有 temple.db。"
+    )
 
 
 def finalize_runtime_db(*, runtime_db_path: str, encrypted_db_path: str) -> None:

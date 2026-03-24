@@ -28,8 +28,11 @@ def resolve_db_name(data_dir: Optional[Path] = None) -> str:
     """
     DB 路徑優先順序：
     1) TEMPLEMANAGER_DB_PATH（手動覆蓋）
-    2) Windows / macOS 啟用地端加密時，使用 runtime/temple.db
-    3) 其他平台或未啟用時，使用使用者資料目錄中的 temple.db
+    2) 其他情況皆使用使用者資料目錄中的 temple.db
+
+    備註：
+    Windows / macOS 啟用地端加密時，正式保存檔為 temple.db.enc，
+    執行中的明文 DB 仍使用同層的 temple.db。
     """
     env_db_path = os.environ.get("TEMPLEMANAGER_DB_PATH")
     if env_db_path:
@@ -37,8 +40,6 @@ def resolve_db_name(data_dir: Optional[Path] = None) -> str:
 
     resolved_data_dir = Path(data_dir) if data_dir else get_data_dir()
     resolved_data_dir.mkdir(parents=True, exist_ok=True)
-    if data_dir is None and local_db_encryption_enabled():
-        return str(resolved_data_dir / "runtime" / "temple.db")
     return str(resolved_data_dir / "temple.db")
 
 
@@ -57,7 +58,7 @@ def resolve_legacy_plain_db_name(data_dir: Optional[Path] = None) -> str:
 DATA_DIR = get_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# 資料庫路徑（Windows / macOS 啟用地端加密時，此路徑為 runtime 明文 DB）
+# 資料庫路徑（執行中的明文 DB；正式保存檔為 DATA_DIR/temple.db.enc）
 DB_NAME = resolve_db_name(data_dir=DATA_DIR)
 
 

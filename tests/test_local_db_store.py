@@ -16,7 +16,7 @@ def _create_sqlite_db(path: Path) -> bytes:
 
 
 def test_ensure_runtime_db_ready_decrypts_encrypted_db(tmp_path, monkeypatch):
-    runtime = tmp_path / "runtime" / "temple.db"
+    runtime = tmp_path / "temple.db"
     enc = tmp_path / "temple.db.enc"
     plain_src = tmp_path / "plain.db"
 
@@ -43,7 +43,7 @@ def test_ensure_runtime_db_ready_decrypts_encrypted_db(tmp_path, monkeypatch):
 
 
 def test_finalize_runtime_db_encrypts_and_removes_runtime_files(tmp_path, monkeypatch):
-    runtime = tmp_path / "runtime" / "temple.db"
+    runtime = tmp_path / "temple.db"
     enc = tmp_path / "temple.db.enc"
 
     key = Fernet.generate_key().decode("utf-8")
@@ -74,3 +74,23 @@ def test_finalize_runtime_db_encrypts_and_removes_runtime_files(tmp_path, monkey
         assert row[0] == "persisted"
     finally:
         conn2.close()
+
+
+def test_ensure_runtime_db_ready_raises_when_no_encrypted_or_plain_db_exists(tmp_path, monkeypatch):
+    runtime = tmp_path / "temple.db"
+    enc = tmp_path / "temple.db.enc"
+
+    key = Fernet.generate_key().decode("utf-8")
+    secret_map = {local_db_store.LOCAL_DATA_ENCRYPTION_KEY_CURRENT: key}
+    monkeypatch.setattr(local_db_store.secret_store, "get_secret", lambda k: secret_map.get(k, ""))
+    monkeypatch.setattr(local_db_store.secret_store, "set_secret", lambda k, v: secret_map.__setitem__(k, v))
+
+    try:
+        local_db_store.ensure_runtime_db_ready(
+            runtime_db_path=str(runtime),
+            encrypted_db_path=str(enc),
+            legacy_plain_db_path="",
+        )
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "找不到可用的地端資料庫" in str(exc)
