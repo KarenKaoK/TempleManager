@@ -231,3 +231,61 @@ def test_main_uses_bootstrap_snapshot_instead_of_touching_live_db(monkeypatch):
 
     assert worker_module.main() == 0
     assert calls["snapshot"] == 1
+
+
+def test_main_closes_bootstrap_controller_before_snapshot_exit(monkeypatch):
+    calls = {"closed": 0}
+
+    class _Conn:
+        def close(self):
+            calls["closed"] += 1
+
+    class _FakeController:
+        def __init__(self, db_path=None):
+            self.conn = _Conn()
+            self.db_path = db_path or "/tmp/fake.db"
+
+        def get_scheduler_config_path(self):
+            return "/tmp/custom_scheduler_config.yaml"
+
+        def get_scheduler_feature_settings(self):
+            return {"mail_enabled": True, "backup_enabled": True}
+
+    class _FakeScheduler:
+        def start(self):
+            return None
+
+        def shutdown(self):
+            return None
+
+    class _SnapshotCtx:
+        def __enter__(self):
+            return "/tmp/bootstrap_snapshot.db"
+
+        def __exit__(self, exc_type, exc, tb):
+            assert calls["closed"] == 1
+            return False
+
+    monkeypatch.setattr(worker_module, "AppController", _FakeController)
+    monkeypatch.setattr(worker_module, "worker_db_snapshot", lambda *args, **kwargs: _SnapshotCtx())
+    monkeypatch.setattr(
+        worker_module,
+        "create_scheduler",
+        lambda config_path, feature_flags=None, db_path_override=None: (
+            _FakeScheduler(),
+            {
+                "config_file": config_path,
+                "db_path": db_path_override,
+                "timezone": "Asia/Taipei",
+                "mail_enabled": True,
+                "backup_enabled": True,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        worker_module.time,
+        "sleep",
+        lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    assert worker_module.main() == 0
