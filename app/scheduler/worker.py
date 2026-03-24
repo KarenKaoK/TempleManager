@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import time
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
@@ -123,6 +124,191 @@ def _insert_worker_backup_log(*, status: str, detail: str, job_id: str = "backup
                 pass
 
 
+def _get_worker_backup_state() -> Dict[str, Any]:
+    conn = None
+    try:
+        conn = worker_log_db.connect()
+        worker_log_db.ensure_schema(conn)
+        return worker_log_db.get_backup_state(conn)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _save_worker_backup_state(settings: Dict[str, Any]) -> None:
+    conn = None
+    try:
+        conn = worker_log_db.connect()
+        worker_log_db.ensure_schema(conn)
+        worker_log_db.upsert_backup_state(
+            conn,
+            enabled=bool(settings.get("enabled")),
+            frequency=str(settings.get("frequency", "daily")),
+            time_text=str(settings.get("time", "23:00")),
+            weekday=int(settings.get("weekday", 1)),
+            monthday=int(settings.get("monthday", 1)),
+            last_scheduled_run_at=str(settings.get("last_scheduled_run_at", "")),
+        )
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _get_worker_reload_state() -> Dict[str, Any]:
+    conn = None
+    try:
+        conn = worker_log_db.connect()
+        worker_log_db.ensure_schema(conn)
+        return worker_log_db.get_reload_state(conn)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _mark_worker_reload_applied(version: int) -> None:
+    conn = None
+    try:
+        conn = worker_log_db.connect()
+        worker_log_db.ensure_schema(conn)
+        worker_log_db.mark_reload_applied(conn, int(version))
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _parse_hhmm(hhmm: str) -> Tuple[int, int]:
+    m = re.match(r"^(\d{1,2}):(\d{2})$", str(hhmm or "").strip())
+    if not m:
+        return (23, 0)
+    return (max(0, min(23, int(m.group(1)))), max(0, min(59, int(m.group(2)))))
+
+
+def _worker_backup_should_run(now: Optional[datetime] = None) -> bool:
+    state = _get_worker_backup_state()
+    if not state.get("enabled"):
+        return False
+    now_dt = now or datetime.now()
+    hh, mm = _parse_hhmm(state.get("time_text", "23:00"))
+    if (now_dt.hour, now_dt.minute) < (hh, mm):
+        return False
+
+    freq = str(state.get("frequency", "daily")).lower()
+    if freq == "weekly" and now_dt.isoweekday() != int(state.get("weekday", 1)):
+        return False
+    if freq == "monthly" and now_dt.day != int(state.get("monthday", 1)):
+        return False
+
+    last_run_text = state.get("last_scheduled_run_at") or ""
+    if not last_run_text:
+        return True
+    try:
+        last_dt = datetime.strptime(last_run_text, "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return True
+
+    if freq == "daily":
+        return last_dt.date() != now_dt.date()
+    if freq == "weekly":
+        return last_dt.isocalendar()[:2] != now_dt.isocalendar()[:2]
+    if freq == "monthly":
+        return (last_dt.year, last_dt.month) != (now_dt.year, now_dt.month)
+    return last_dt.date() != now_dt.date()
+
+
+def _load_worker_runtime_settings() -> Tuple[str, Dict[str, bool], str]:
+    controller = None
+    try:
+        _log_worker_db(
+            level="INFO",
+            action="WORKER.BOOTSTRAP.START",
+            message=f"live_source={_snapshot_source_kind(DB_NAME)} live_db={DB_NAME}",
+            job_id="bootstrap",
+        )
+        with worker_db_snapshot("bootstrap", DB_NAME) as bootstrap_db_path:
+            _log_worker_db(
+                level="INFO",
+                action="WORKER.BOOTSTRAP.SNAPSHOT.CREATED",
+                message=f"snapshot={bootstrap_db_path}",
+                job_id="bootstrap",
+            )
+            controller = AppController(db_path=bootstrap_db_path)
+            config_path = controller.get_scheduler_config_path()
+            feature_flags = controller.get_scheduler_feature_settings()
+            _save_worker_backup_state(controller.get_backup_settings())
+            _log_worker_db(
+                level="INFO",
+                action="WORKER.BOOTSTRAP.CONFIG.LOADED",
+                message=(
+                    f"config_path={config_path} "
+                    f"mail_enabled={int(bool(feature_flags.get('mail_enabled', True)))} "
+                    f"backup_enabled={int(bool(feature_flags.get('backup_enabled', True)))}"
+                ),
+                job_id="bootstrap",
+            )
+            controller.conn.close()
+            controller = None
+        return config_path, feature_flags, DB_NAME
+    finally:
+        try:
+            if controller is not None and getattr(controller, "conn", None) is not None:
+                controller.conn.close()
+        except Exception:
+            pass
+
+
+def _reload_scheduler_if_requested(
+    sched: BackgroundScheduler,
+    *,
+    config_path: str,
+    feature_flags: Dict[str, bool],
+    db_path_override: str,
+):
+    state = _get_worker_reload_state()
+    version = int(state.get("config_version", 0))
+    applied = int(state.get("last_applied_version", 0))
+    required = bool(state.get("reload_required"))
+    if not required or version <= applied:
+        return sched, config_path, feature_flags, db_path_override
+
+    _log_worker_db(
+        level="INFO",
+        action="SCHEDULER.RELOAD.START",
+        message=f"config_version={version}",
+    )
+    new_config_path, new_feature_flags, new_db_path_override = _load_worker_runtime_settings()
+    sched.shutdown()
+    new_sched, runtime = create_scheduler(
+        config_path=new_config_path,
+        feature_flags=new_feature_flags,
+        db_path_override=new_db_path_override,
+    )
+    new_sched.start()
+    _mark_worker_reload_applied(version)
+    _log_worker_db(
+        level="INFO",
+        action="SCHEDULER.RELOAD.SUCCESS",
+        message=(
+            f"config_version={version} "
+            f"config={runtime['config_file']} "
+            f"mail_enabled={int(bool(runtime['mail_enabled']))} "
+            f"backup_enabled={int(bool(runtime['backup_enabled']))}"
+        ),
+    )
+    return new_sched, new_config_path, new_feature_flags, new_db_path_override
+
+
 def load_cfg(path: str) -> Dict[str, Any]:
     p = Path(path)
     if not p.exists():
@@ -232,11 +418,22 @@ def worker_db_snapshot(label: str, live_db_path: str) -> Iterator[str]:
 def run_backup_schedule_check(db_path: str) -> None:
     controller = None
     try:
+        if not _worker_backup_should_run():
+            _insert_worker_backup_log(status="SKIPPED", detail=f"db_path={db_path} reason=precheck")
+            print("[INFO] backup schedule check skipped")
+            _log_scheduler_data(
+                "SCHEDULER.BACKUP.CHECK",
+                f"排程備份檢查執行完成（db_path {db_path}，結果 skipped_precheck）",
+            )
+            return
         with worker_db_snapshot("backup_check", db_path) as snapshot_db_path:
             controller = AppController(db_path=snapshot_db_path)
             ran = controller.run_scheduled_backup_once()
         if ran:
             _insert_worker_backup_log(status="EXECUTED", detail=f"db_path={db_path}")
+            state = _get_worker_backup_state()
+            state["last_scheduled_run_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _save_worker_backup_state(state)
             print("[OK] backup schedule check executed")
             _log_scheduler_data(
                 "SCHEDULER.BACKUP.CHECK",
@@ -556,37 +753,8 @@ def create_scheduler(
 
 
 def main() -> int:
-    controller = None
     try:
-        _log_worker_db(
-            level="INFO",
-            action="WORKER.BOOTSTRAP.START",
-            message=f"live_source={_snapshot_source_kind(DB_NAME)} live_db={DB_NAME}",
-            job_id="bootstrap",
-        )
-        with worker_db_snapshot("bootstrap", DB_NAME) as bootstrap_db_path:
-            _log_worker_db(
-                level="INFO",
-                action="WORKER.BOOTSTRAP.SNAPSHOT.CREATED",
-                message=f"snapshot={bootstrap_db_path}",
-                job_id="bootstrap",
-            )
-            controller = AppController(db_path=bootstrap_db_path)
-            config_path = controller.get_scheduler_config_path()
-            feature_flags = controller.get_scheduler_feature_settings()
-            _log_worker_db(
-                level="INFO",
-                action="WORKER.BOOTSTRAP.CONFIG.LOADED",
-                message=(
-                    f"config_path={config_path} "
-                    f"mail_enabled={int(bool(feature_flags.get('mail_enabled', True)))} "
-                    f"backup_enabled={int(bool(feature_flags.get('backup_enabled', True)))}"
-                ),
-                job_id="bootstrap",
-            )
-            controller.conn.close()
-            controller = None
-        db_path_override = DB_NAME
+        config_path, feature_flags, db_path_override = _load_worker_runtime_settings()
     except Exception as e:
         _log_worker_db(
             level="ERROR",
@@ -596,12 +764,6 @@ def main() -> int:
         )
         print(f"[ERR] scheduler worker failed to load app settings: {e}", file=sys.stderr)
         return 1
-    finally:
-        try:
-            if controller is not None and getattr(controller, "conn", None) is not None:
-                controller.conn.close()
-        except Exception:
-            pass
 
     try:
         sched, runtime = create_scheduler(
@@ -610,6 +772,7 @@ def main() -> int:
             db_path_override=db_path_override,
         )
         sched.start()
+        _mark_worker_reload_applied(_get_worker_reload_state().get("config_version", 0))
         print(
             f"[START] scheduler worker running. "
             f"config={runtime['config_file']} db={runtime['db_path']} tz={runtime['timezone']} "
@@ -627,6 +790,12 @@ def main() -> int:
         try:
             while True:
                 time.sleep(5)
+                sched, config_path, feature_flags, db_path_override = _reload_scheduler_if_requested(
+                    sched,
+                    config_path=config_path,
+                    feature_flags=feature_flags,
+                    db_path_override=db_path_override,
+                )
         except KeyboardInterrupt:
             return 0
         finally:

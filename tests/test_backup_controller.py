@@ -30,6 +30,10 @@ def _mock_backup_logs(monkeypatch):
 
 def test_backup_defaults_and_save(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
+    reload_calls = []
+    monkeypatch.setattr(app_controller_module.worker_log_db, "connect", lambda: object())
+    monkeypatch.setattr(app_controller_module.worker_log_db, "ensure_schema", lambda _conn: None)
+    monkeypatch.setattr(app_controller_module.worker_log_db, "request_reload", lambda _conn: reload_calls.append("backup") or len(reload_calls))
     db = tmp_path / "backup_defaults.db"
     controller = _new_backup_controller(db)
     defaults = controller.get_backup_settings()
@@ -73,6 +77,7 @@ def test_backup_defaults_and_save(tmp_path, monkeypatch):
         call["kwargs"].get("action") == "BACKUP.SETTINGS.UPDATE"
         for call in logs["data"]
     )
+    assert reload_calls == ["backup"]
 
 def test_backup_settings_read_drive_credentials_path(tmp_path):
     db = tmp_path / "backup_legacy_path.db"
@@ -220,6 +225,10 @@ def test_manual_backup_mark_does_not_block_scheduled_backup(tmp_path):
 
 def test_scheduler_feature_settings_defaults_and_save(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
+    reload_calls = []
+    monkeypatch.setattr(app_controller_module.worker_log_db, "connect", lambda: object())
+    monkeypatch.setattr(app_controller_module.worker_log_db, "ensure_schema", lambda _conn: None)
+    monkeypatch.setattr(app_controller_module.worker_log_db, "request_reload", lambda _conn: reload_calls.append("feature") or len(reload_calls))
     db = tmp_path / "scheduler_feature_settings.db"
     controller = _new_backup_controller(db)
 
@@ -240,10 +249,15 @@ def test_scheduler_feature_settings_defaults_and_save(tmp_path, monkeypatch):
         call["kwargs"].get("action") == "SCHEDULER.FEATURE_FLAGS.UPDATE"
         for call in logs["data"]
     )
+    assert reload_calls == ["feature"]
 
 
 def test_scheduler_config_path_defaults_and_save(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
+    reload_calls = []
+    monkeypatch.setattr(app_controller_module.worker_log_db, "connect", lambda: object())
+    monkeypatch.setattr(app_controller_module.worker_log_db, "ensure_schema", lambda _conn: None)
+    monkeypatch.setattr(app_controller_module.worker_log_db, "request_reload", lambda _conn: reload_calls.append("config") or len(reload_calls))
     db = tmp_path / "scheduler_config_path.db"
     controller = _new_backup_controller(db)
 
@@ -260,10 +274,12 @@ def test_scheduler_config_path_defaults_and_save(tmp_path, monkeypatch):
         call["kwargs"].get("action") == "SCHEDULER.CONFIG_PATH.UPDATE"
         for call in logs["data"]
     )
+    assert reload_calls == ["config"]
 
 
 def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
+    reload_calls = []
     db = tmp_path / "scheduler_mail_settings.db"
     controller = _new_backup_controller(db)
     worker_secret_calls = {"saved": [], "loaded": []}
@@ -282,6 +298,9 @@ def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
         "load_worker_mail_secret",
         lambda db_path=None: worker_secret_calls["loaded"].append(db_path) or "bg-password",
     )
+    monkeypatch.setattr(app_controller_module.worker_log_db, "connect", lambda: object())
+    monkeypatch.setattr(app_controller_module.worker_log_db, "ensure_schema", lambda _conn: None)
+    monkeypatch.setattr(app_controller_module.worker_log_db, "request_reload", lambda _conn: reload_calls.append("mail") or len(reload_calls))
 
     controller.save_scheduler_mail_settings("temple@gmail.com", "app-password")
     info = controller.get_scheduler_mail_settings()
@@ -301,6 +320,7 @@ def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
         call["kwargs"].get("action") == "SCHEDULER.MAIL_SETTINGS.UPDATE"
         for call in logs["data"]
     )
+    assert reload_calls == ["mail"]
 
 
 def test_authorize_google_drive_oauth_without_token_path_does_not_fallback(tmp_path, monkeypatch):
