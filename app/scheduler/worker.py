@@ -5,10 +5,13 @@ Scheduler worker：統一排程主程式。
 """
 from __future__ import annotations
 
+import re
+import sqlite3
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -19,9 +22,7 @@ from app.controller.app_controller import AppController
 from app.config import (
     DB_NAME,
     DATA_DIR,
-    local_db_encryption_enabled,
     resolve_encrypted_db_name,
-    resolve_legacy_plain_db_name,
 )
 from app.logging import log_data_change, log_system
 from app.mailer.smtp_client import send_email_smtp
@@ -30,7 +31,7 @@ from app.report_generator import activity as report_activity
 from app.report_generator import believer as report_believer
 from app.report_generator import finance as report_finance
 from app.report_generator.cleanup import cleanup_reports
-from app.utils.local_db_store import ensure_runtime_db_ready, finalize_runtime_db
+from app.utils.local_db_store import ensure_runtime_db_ready
 
 
 def _log_scheduler_data(action: str, message: str) -> None:
@@ -72,11 +73,73 @@ def resolve_paths(base_dir: Path, paths: Optional[List[str]]) -> List[str]:
     return out
 
 
+def _safe_snapshot_name(label: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(label or "").strip())
+    return text or "job"
+
+
+def _snapshot_db_path(label: str) -> Path:
+    return Path(DATA_DIR) / f"temple_worker_{_safe_snapshot_name(label)}.db"
+
+
+def _cleanup_snapshot(snapshot_path: Path) -> None:
+    for suffix in ("", "-wal", "-shm"):
+        target = Path(str(snapshot_path) + suffix)
+        if target.exists():
+            try:
+                target.unlink()
+            except Exception:
+                pass
+
+
+def _copy_sqlite_db(source_db_path: str, target_db_path: str) -> None:
+    src_conn = None
+    dst_conn = None
+    try:
+        src_conn = sqlite3.connect(source_db_path)
+        dst_conn = sqlite3.connect(target_db_path)
+        src_conn.backup(dst_conn)
+        dst_conn.commit()
+    finally:
+        if dst_conn is not None:
+            dst_conn.close()
+        if src_conn is not None:
+            src_conn.close()
+
+
+@contextmanager
+def worker_db_snapshot(label: str, live_db_path: str) -> Iterator[str]:
+    snapshot_path = _snapshot_db_path(label)
+    encrypted_db_path = Path(resolve_encrypted_db_name(DATA_DIR))
+    live_db = Path(live_db_path)
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    _cleanup_snapshot(snapshot_path)
+
+    if live_db.is_file():
+        _copy_sqlite_db(str(live_db), str(snapshot_path))
+    elif encrypted_db_path.is_file():
+        ensure_runtime_db_ready(
+            runtime_db_path=str(snapshot_path),
+            encrypted_db_path=str(encrypted_db_path),
+            legacy_plain_db_path="",
+        )
+    else:
+        raise RuntimeError(
+            f"找不到可供 worker 使用的資料來源：{live_db} / {encrypted_db_path}"
+        )
+
+    try:
+        yield str(snapshot_path)
+    finally:
+        _cleanup_snapshot(snapshot_path)
+
+
 def run_backup_schedule_check(db_path: str) -> None:
     controller = None
     try:
-        controller = AppController(db_path=db_path)
-        ran = controller.run_scheduled_backup_once()
+        with worker_db_snapshot("backup_check", db_path) as snapshot_db_path:
+            controller = AppController(db_path=snapshot_db_path)
+            ran = controller.run_scheduled_backup_once()
         if ran:
             print("[OK] backup schedule check executed")
             _log_scheduler_data(
@@ -145,147 +208,148 @@ def create_scheduler(
             _log_scheduler_data("SCHEDULER.JOB.SKIP", f"排程工作略過（job_id {job_id}，原因 disabled）")
             return
 
-        to_emails = [str(x).strip() for x in (job.get("to") or []) if str(x).strip()]
-        subject = str(job.get("subject", "")).strip()
-        body = str(job.get("body", "")).rstrip()
+        with worker_db_snapshot(job_id, db_path_resolved) as snapshot_db_path:
+            to_emails = [str(x).strip() for x in (job.get("to") or []) if str(x).strip()]
+            subject = str(job.get("subject", "")).strip()
+            body = str(job.get("body", "")).rstrip()
 
-        report_type = str(job.get("report", "")).strip() or None
-        if report_type == "daily_finance":
-            try:
-                out_path = report_finance.generate_daily_report(db_path_resolved)
-                attachments = [out_path]
-                _log_scheduler_data(
-                    "SCHEDULER.REPORT.GENERATE",
-                    f"報表產生完成（job_id {job_id}，report daily_finance，檔案 {out_path}）",
-                )
-            except Exception as e:
-                print(f"[ERR] job={job_id} report gen failed: {e}")
-                _log_scheduler_system(
-                    f"報表產生失敗（job_id {job_id}，report daily_finance，原因：{e}）",
-                    level="ERROR",
-                )
-                return
-        elif report_type == "monthly_finance":
-            try:
-                out_path = report_finance.generate_monthly_report(db_path_resolved)
-                attachments = [out_path]
-                _log_scheduler_data(
-                    "SCHEDULER.REPORT.GENERATE",
-                    f"報表產生完成（job_id {job_id}，report monthly_finance，檔案 {out_path}）",
-                )
-            except Exception as e:
-                print(f"[ERR] job={job_id} report gen failed: {e}")
-                _log_scheduler_system(
-                    f"報表產生失敗（job_id {job_id}，report monthly_finance，原因：{e}）",
-                    level="ERROR",
-                )
-                return
-        elif report_type == "daily_activity":
-            try:
-                out_path = report_activity.generate_daily_activity_report(db_path_resolved)
-                attachments = [out_path]
-                _log_scheduler_data(
-                    "SCHEDULER.REPORT.GENERATE",
-                    f"報表產生完成（job_id {job_id}，report daily_activity，檔案 {out_path}）",
-                )
-            except ValueError as e:
-                print(f"[INFO] job={job_id} skipped (no activities): {e}")
-                _log_scheduler_data(
-                    "SCHEDULER.JOB.SKIP",
-                    f"排程工作略過（job_id {job_id}，report daily_activity，原因 no_activities）",
-                )
-                return
-            except Exception as e:
-                print(f"[ERR] job={job_id} report gen failed: {e}")
-                _log_scheduler_system(
-                    f"報表產生失敗（job_id {job_id}，report daily_activity，原因：{e}）",
-                    level="ERROR",
-                )
-                return
-        elif report_type == "monthly_believer":
-            try:
-                out_path = report_believer.generate_monthly_believer_report(db_path_resolved)
-                attachments = [out_path]
-                _log_scheduler_data(
-                    "SCHEDULER.REPORT.GENERATE",
-                    f"報表產生完成（job_id {job_id}，report monthly_believer，檔案 {out_path}）",
-                )
-            except Exception as e:
-                print(f"[ERR] job={job_id} report gen failed: {e}")
-                _log_scheduler_system(
-                    f"報表產生失敗（job_id {job_id}，report monthly_believer，原因：{e}）",
-                    level="ERROR",
-                )
-                return
-        else:
-            attachments = resolve_paths(project_root, job.get("attachments") or [])
-
-        if not to_emails:
-            print(f"[WARN] job={job_id} Job.to is empty, skipped")
-            _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：收件人為空）", level="WARN")
-            return
-        if not subject:
-            print(f"[WARN] job={job_id} Job.subject is empty, skipped")
-            _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：主旨為空）", level="WARN")
-            return
-
-        conn = connect(db_path_resolved)
-        try:
-            ensure_schema(conn)
-
-            try:
-                cred_controller = AppController(db_path=db_path_resolved)
+            report_type = str(job.get("report", "")).strip() or None
+            if report_type == "daily_finance":
                 try:
-                    smtp_user, smtp_pwd = cred_controller.get_scheduler_mail_credentials(background=True)
-                finally:
+                    out_path = report_finance.generate_daily_report(snapshot_db_path)
+                    attachments = [out_path]
+                    _log_scheduler_data(
+                        "SCHEDULER.REPORT.GENERATE",
+                        f"報表產生完成（job_id {job_id}，report daily_finance，檔案 {out_path}）",
+                    )
+                except Exception as e:
+                    print(f"[ERR] job={job_id} report gen failed: {e}")
+                    _log_scheduler_system(
+                        f"報表產生失敗（job_id {job_id}，report daily_finance，原因：{e}）",
+                        level="ERROR",
+                    )
+                    return
+            elif report_type == "monthly_finance":
+                try:
+                    out_path = report_finance.generate_monthly_report(snapshot_db_path)
+                    attachments = [out_path]
+                    _log_scheduler_data(
+                        "SCHEDULER.REPORT.GENERATE",
+                        f"報表產生完成（job_id {job_id}，report monthly_finance，檔案 {out_path}）",
+                    )
+                except Exception as e:
+                    print(f"[ERR] job={job_id} report gen failed: {e}")
+                    _log_scheduler_system(
+                        f"報表產生失敗（job_id {job_id}，report monthly_finance，原因：{e}）",
+                        level="ERROR",
+                    )
+                    return
+            elif report_type == "daily_activity":
+                try:
+                    out_path = report_activity.generate_daily_activity_report(snapshot_db_path)
+                    attachments = [out_path]
+                    _log_scheduler_data(
+                        "SCHEDULER.REPORT.GENERATE",
+                        f"報表產生完成（job_id {job_id}，report daily_activity，檔案 {out_path}）",
+                    )
+                except ValueError as e:
+                    print(f"[INFO] job={job_id} skipped (no activities): {e}")
+                    _log_scheduler_data(
+                        "SCHEDULER.JOB.SKIP",
+                        f"排程工作略過（job_id {job_id}，report daily_activity，原因 no_activities）",
+                    )
+                    return
+                except Exception as e:
+                    print(f"[ERR] job={job_id} report gen failed: {e}")
+                    _log_scheduler_system(
+                        f"報表產生失敗（job_id {job_id}，report daily_activity，原因：{e}）",
+                        level="ERROR",
+                    )
+                    return
+            elif report_type == "monthly_believer":
+                try:
+                    out_path = report_believer.generate_monthly_believer_report(snapshot_db_path)
+                    attachments = [out_path]
+                    _log_scheduler_data(
+                        "SCHEDULER.REPORT.GENERATE",
+                        f"報表產生完成（job_id {job_id}，report monthly_believer，檔案 {out_path}）",
+                    )
+                except Exception as e:
+                    print(f"[ERR] job={job_id} report gen failed: {e}")
+                    _log_scheduler_system(
+                        f"報表產生失敗（job_id {job_id}，report monthly_believer，原因：{e}）",
+                        level="ERROR",
+                    )
+                    return
+            else:
+                attachments = resolve_paths(project_root, job.get("attachments") or [])
+
+            if not to_emails:
+                print(f"[WARN] job={job_id} Job.to is empty, skipped")
+                _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：收件人為空）", level="WARN")
+                return
+            if not subject:
+                print(f"[WARN] job={job_id} Job.subject is empty, skipped")
+                _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：主旨為空）", level="WARN")
+                return
+
+            conn = connect(snapshot_db_path)
+            try:
+                ensure_schema(conn)
+
+                try:
+                    cred_controller = AppController(db_path=snapshot_db_path)
                     try:
-                        cred_controller.conn.close()
-                    except Exception:
-                        pass
-                if not smtp_user or not smtp_pwd:
-                    raise RuntimeError("Mail credentials not configured")
-                send_email_smtp(
-                    cfg,
-                    to_emails=to_emails,
-                    subject=subject,
-                    body=body,
-                    attachments=attachments,
-                    smtp_user=smtp_user,
-                    smtp_password=smtp_pwd,
-                )
-                outbox_id = insert_record(
-                    conn,
-                    job_id=job_id,
-                    to_emails=to_emails,
-                    subject=subject,
-                    body=body,
-                    attachments=attachments,
-                    status="SENT",
-                    error=None,
-                )
-                print(f"[OK] SENT job={job_id} outbox_id={outbox_id} to={to_emails}")
-                _log_scheduler_data(
-                    "SCHEDULER.MAIL.SEND",
-                    f"排程郵件寄送成功（job_id {job_id}，outbox_id {outbox_id}，收件者 {','.join(to_emails)}，附件數 {len(attachments)}）",
-                )
-            except Exception as e:
-                outbox_id = insert_record(
-                    conn,
-                    job_id=job_id,
-                    to_emails=to_emails,
-                    subject=subject,
-                    body=body,
-                    attachments=attachments,
-                    status="FAILED",
-                    error=f"{type(e).__name__}: {e}",
-                )
-                print(f"[ERR] FAILED job={job_id} outbox_id={outbox_id} err={e}")
-                _log_scheduler_system(
-                    f"排程郵件寄送失敗（job_id {job_id}，outbox_id {outbox_id}，原因：{type(e).__name__}: {e}）",
-                    level="ERROR",
-                )
-        finally:
-            conn.close()
+                        smtp_user, smtp_pwd = cred_controller.get_scheduler_mail_credentials()
+                    finally:
+                        try:
+                            cred_controller.conn.close()
+                        except Exception:
+                            pass
+                    if not smtp_user or not smtp_pwd:
+                        raise RuntimeError("Mail credentials not configured")
+                    send_email_smtp(
+                        cfg,
+                        to_emails=to_emails,
+                        subject=subject,
+                        body=body,
+                        attachments=attachments,
+                        smtp_user=smtp_user,
+                        smtp_password=smtp_pwd,
+                    )
+                    outbox_id = insert_record(
+                        conn,
+                        job_id=job_id,
+                        to_emails=to_emails,
+                        subject=subject,
+                        body=body,
+                        attachments=attachments,
+                        status="SENT",
+                        error=None,
+                    )
+                    print(f"[OK] SENT job={job_id} outbox_id={outbox_id} to={to_emails}")
+                    _log_scheduler_data(
+                        "SCHEDULER.MAIL.SEND",
+                        f"排程郵件寄送成功（job_id {job_id}，outbox_id {outbox_id}，收件者 {','.join(to_emails)}，附件數 {len(attachments)}）",
+                    )
+                except Exception as e:
+                    outbox_id = insert_record(
+                        conn,
+                        job_id=job_id,
+                        to_emails=to_emails,
+                        subject=subject,
+                        body=body,
+                        attachments=attachments,
+                        status="FAILED",
+                        error=f"{type(e).__name__}: {e}",
+                    )
+                    print(f"[ERR] FAILED job={job_id} outbox_id={outbox_id} err={e}")
+                    _log_scheduler_system(
+                        f"排程郵件寄送失敗（job_id {job_id}，outbox_id {outbox_id}，原因：{type(e).__name__}: {e}）",
+                        level="ERROR",
+                    )
+            finally:
+                conn.close()
 
     if mail_enabled:
         for job in (cfg.get("jobs") or []):
@@ -373,19 +437,13 @@ def create_scheduler(
 
 
 def main() -> int:
-    if local_db_encryption_enabled():
-        ensure_runtime_db_ready(
-            runtime_db_path=DB_NAME,
-            encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
-            legacy_plain_db_path=resolve_legacy_plain_db_name(DATA_DIR),
-        )
-
     controller = None
     try:
-        controller = AppController()
-        config_path = controller.get_scheduler_config_path()
-        feature_flags = controller.get_scheduler_feature_settings()
-        db_path_override = getattr(controller, "db_path", None)
+        with worker_db_snapshot("bootstrap", DB_NAME) as bootstrap_db_path:
+            controller = AppController(db_path=bootstrap_db_path)
+            config_path = controller.get_scheduler_config_path()
+            feature_flags = controller.get_scheduler_feature_settings()
+        db_path_override = DB_NAME
     except Exception as e:
         print(f"[ERR] scheduler worker failed to load app settings: {e}", file=sys.stderr)
         return 1
@@ -419,12 +477,6 @@ def main() -> int:
     except Exception as e:
         print(f"[ERR] scheduler worker failed to start: {e}", file=sys.stderr)
         return 1
-    finally:
-        if local_db_encryption_enabled():
-            finalize_runtime_db(
-                runtime_db_path=DB_NAME,
-                encrypted_db_path=resolve_encrypted_db_name(DATA_DIR),
-            )
     return 0
 
 
