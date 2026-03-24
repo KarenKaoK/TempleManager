@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import QDialog, QPushButton, QHBoxLayout, QMessageBox
 from app.utils.id_utils import generate_activity_id_safe, new_plan_id
 from app.config import DB_NAME
 from app.logging import log_data_change, log_system
+from app.scheduler import worker_log_db
 
 
 
@@ -70,6 +71,28 @@ class AppController:
 
     def _now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _request_worker_reload(self) -> None:
+        conn = None
+        try:
+            conn = worker_log_db.connect()
+            worker_log_db.ensure_schema(conn)
+            version = worker_log_db.request_reload(conn)
+            self._log_scheduler_data_change(
+                "SCHEDULER.WORKER.RELOAD.REQUEST",
+                f"通知背景 worker 重新載入設定（version {version}）",
+            )
+        except Exception as e:
+            self._log_scheduler_system_event(
+                f"通知背景 worker 重新載入設定失敗（原因：{e}）",
+                level="ERROR",
+            )
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def _ensure_runtime_indexes(self):
         cur = self.conn.cursor()
@@ -1794,6 +1817,7 @@ class AppController:
                 f"新路徑 {self._fmt_log_val(value)}）"
             ),
         )
+        self._request_worker_reload()
 
     def get_scheduler_mail_settings(self) -> Dict[str, Any]:
         username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
@@ -1843,6 +1867,7 @@ class AppController:
                 f"密碼保存位置 {self._fmt_log_val(secret_store.backend_label())}）"
             ),
         )
+        self._request_worker_reload()
 
     def get_scheduler_mail_credentials(self, *, background: bool = False) -> Tuple[str, str]:
         username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
@@ -1879,6 +1904,7 @@ class AppController:
                 f"備份排程：{int(bool(before.get('backup_enabled')))} -> {int(bool(after.get('backup_enabled')))}）"
             ),
         )
+        self._request_worker_reload()
 
     # -------------------------
     # Backup
@@ -1942,6 +1968,7 @@ class AppController:
                 "）"
             ),
         )
+        self._request_worker_reload()
 
     def _default_backup_dir(self) -> str:
         return os.path.join(os.path.dirname(DB_NAME), "backups")

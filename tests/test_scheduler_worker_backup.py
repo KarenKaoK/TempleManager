@@ -35,6 +35,7 @@ def test_run_backup_schedule_check_runs_controller_and_closes_conn(monkeypatch):
             return True
 
     monkeypatch.setattr(worker_module, "worker_db_snapshot", lambda *args, **kwargs: _SnapshotCtx())
+    monkeypatch.setattr(worker_module, "_worker_backup_should_run", lambda now=None: True)
     monkeypatch.setattr(worker_module, "AppController", _FakeController)
     monkeypatch.setattr(
         worker_module,
@@ -52,3 +53,23 @@ def test_run_backup_schedule_check_runs_controller_and_closes_conn(monkeypatch):
     assert called["run_once"] == 1
     assert called["closed"] == 1
     assert any(item.get("action") == "SCHEDULER.BACKUP.CHECK" for item in logs["data"])
+
+
+def test_run_backup_schedule_check_skips_without_snapshot_when_precheck_fails(monkeypatch):
+    called = {"snapshot": 0}
+    monkeypatch.setattr(worker_log_db, "DATA_DIR", __import__("pathlib").Path("/tmp/templemanager_worker_test_skip"))
+
+    class _SnapshotCtx:
+        def __enter__(self):
+            called["snapshot"] += 1
+            return "/tmp/worker_backup_snapshot.db"
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(worker_module, "worker_db_snapshot", lambda *args, **kwargs: _SnapshotCtx())
+    monkeypatch.setattr(worker_module, "_worker_backup_should_run", lambda now=None: False)
+
+    worker_module.run_backup_schedule_check("/tmp/fake.db")
+
+    assert called["snapshot"] == 0

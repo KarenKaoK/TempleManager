@@ -60,3 +60,47 @@ def test_worker_log_db_insert_email_outbox_and_backup_log(tmp_path, monkeypatch)
         assert backup_row["status"] == "SKIPPED"
     finally:
         conn.close()
+
+
+def test_worker_log_db_upsert_and_get_backup_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(worker_log_db, "DATA_DIR", tmp_path)
+    conn = worker_log_db.connect()
+    try:
+        worker_log_db.ensure_schema(conn)
+        worker_log_db.upsert_backup_state(
+            conn,
+            enabled=True,
+            frequency="weekly",
+            time_text="23:00",
+            weekday=2,
+            monthday=1,
+            last_scheduled_run_at="2026-03-24 23:00:00",
+        )
+        state = worker_log_db.get_backup_state(conn)
+        assert state["enabled"] is True
+        assert state["frequency"] == "weekly"
+        assert state["weekday"] == 2
+        assert state["last_scheduled_run_at"] == "2026-03-24 23:00:00"
+    finally:
+        conn.close()
+
+
+def test_worker_log_db_request_and_apply_reload_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(worker_log_db, "DATA_DIR", tmp_path)
+    conn = worker_log_db.connect()
+    try:
+        worker_log_db.ensure_schema(conn)
+        version = worker_log_db.request_reload(conn)
+        state = worker_log_db.get_reload_state(conn)
+        assert version == 1
+        assert state["config_version"] == 1
+        assert state["reload_required"] is True
+        assert state["last_applied_version"] == 0
+
+        worker_log_db.mark_reload_applied(conn, 1)
+        state = worker_log_db.get_reload_state(conn)
+        assert state["config_version"] == 1
+        assert state["reload_required"] is False
+        assert state["last_applied_version"] == 1
+    finally:
+        conn.close()
