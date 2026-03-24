@@ -14,6 +14,13 @@ def test_run_backup_schedule_check_runs_controller_and_closes_conn(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
+    class _SnapshotCtx:
+        def __enter__(self):
+            return "/tmp/worker_backup_snapshot.db"
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
     class _Conn:
         def close(self):
             called["closed"] += 1

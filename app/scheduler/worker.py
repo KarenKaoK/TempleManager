@@ -401,6 +401,7 @@ def create_scheduler(
                 _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：主旨為空）", level="WARN")
                 return
 
+            conn = connect(snapshot_db_path)
             try:
                 cred_controller = AppController(db_path=snapshot_db_path)
                 try:
