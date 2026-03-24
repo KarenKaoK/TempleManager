@@ -26,15 +26,16 @@ from app.config import (
 )
 from app.logging import log_data_change, log_system
 from app.mailer.smtp_client import send_email_smtp
-from app.mailer.outbox_db import connect, ensure_schema, insert_record
 from app.report_generator import activity as report_activity
 from app.report_generator import believer as report_believer
 from app.report_generator import finance as report_finance
 from app.report_generator.cleanup import cleanup_reports
+from app.scheduler import worker_log_db
 from app.utils.local_db_store import ensure_runtime_db_ready
 
 
 def _log_scheduler_data(action: str, message: str) -> None:
+    _log_worker_db(level="INFO", action=action, message=message)
     try:
         log_data_change(action=action, message=message, level="INFO")
     except Exception:
@@ -42,10 +43,84 @@ def _log_scheduler_data(action: str, message: str) -> None:
 
 
 def _log_scheduler_system(message: str, level: str = "WARN") -> None:
+    _log_worker_db(level=level, action="WORKER.SYSTEM", message=message)
     try:
         log_system(message, level=level)
     except Exception:
         pass
+
+
+def _log_worker_db(level: str, action: str, message: str, *, job_id: str = "") -> None:
+    conn = None
+    try:
+        conn = worker_log_db.connect()
+        worker_log_db.ensure_schema(conn)
+        worker_log_db.insert_event(
+            conn,
+            level=level,
+            action=action,
+            message=message,
+            job_id=job_id,
+        )
+    except Exception:
+        pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _insert_worker_email_outbox(
+    *,
+    job_id: str,
+    to_emails: List[str],
+    subject: str,
+    body: str,
+    attachments: List[str],
+    status: str,
+    error: str,
+) -> int:
+    conn = None
+    try:
+        conn = worker_log_db.connect()
+        worker_log_db.ensure_schema(conn)
+        return worker_log_db.insert_email_outbox(
+            conn,
+            job_id=job_id,
+            to_emails=",".join([e.strip() for e in to_emails if e and e.strip()]),
+            subject=subject,
+            body=body,
+            attachments=",".join([a.strip() for a in attachments if a and a.strip()]),
+            status=status,
+            error=error,
+        )
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _insert_worker_backup_log(*, status: str, detail: str, job_id: str = "backup_check") -> int:
+    conn = None
+    try:
+        conn = worker_log_db.connect()
+        worker_log_db.ensure_schema(conn)
+        return worker_log_db.insert_backup_log(
+            conn,
+            job_id=job_id,
+            status=status,
+            detail=detail,
+        )
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def load_cfg(path: str) -> Dict[str, Any]:
@@ -92,6 +167,14 @@ def _cleanup_snapshot(snapshot_path: Path) -> None:
                 pass
 
 
+def _snapshot_source_kind(live_db_path: str) -> str:
+    if Path(live_db_path).is_file():
+        return "temple.db"
+    if Path(resolve_encrypted_db_name(DATA_DIR)).is_file():
+        return "temple.db.enc"
+    return "missing"
+
+
 def _copy_sqlite_db(source_db_path: str, target_db_path: str) -> None:
     src_conn = None
     dst_conn = None
@@ -127,11 +210,23 @@ def worker_db_snapshot(label: str, live_db_path: str) -> Iterator[str]:
         raise RuntimeError(
             f"找不到可供 worker 使用的資料來源：{live_db} / {encrypted_db_path}"
         )
+    _log_worker_db(
+        level="INFO",
+        action="WORKER.SNAPSHOT.CREATED",
+        message=f"snapshot={snapshot_path} source={_snapshot_source_kind(live_db_path)}",
+        job_id=_safe_snapshot_name(label),
+    )
 
     try:
         yield str(snapshot_path)
     finally:
         _cleanup_snapshot(snapshot_path)
+        _log_worker_db(
+            level="INFO",
+            action="WORKER.SNAPSHOT.DELETED",
+            message=f"snapshot={snapshot_path}",
+            job_id=_safe_snapshot_name(label),
+        )
 
 
 def run_backup_schedule_check(db_path: str) -> None:
@@ -141,19 +236,28 @@ def run_backup_schedule_check(db_path: str) -> None:
             controller = AppController(db_path=snapshot_db_path)
             ran = controller.run_scheduled_backup_once()
         if ran:
+            _insert_worker_backup_log(status="EXECUTED", detail=f"db_path={db_path}")
             print("[OK] backup schedule check executed")
             _log_scheduler_data(
                 "SCHEDULER.BACKUP.CHECK",
                 f"排程備份檢查執行完成（db_path {db_path}，結果 executed）",
             )
         else:
+            _insert_worker_backup_log(status="SKIPPED", detail=f"db_path={db_path}")
             print("[INFO] backup schedule check skipped")
             _log_scheduler_data(
                 "SCHEDULER.BACKUP.CHECK",
                 f"排程備份檢查執行完成（db_path {db_path}，結果 skipped）",
             )
     except Exception as e:
+        _insert_worker_backup_log(status="FAILED", detail=f"db_path={db_path} err={e}")
         print(f"[ERR] backup schedule check failed: {e}")
+        _log_worker_db(
+            level="ERROR",
+            action="SCHEDULER.BACKUP.FAIL",
+            message=f"db_path={db_path} err={e}",
+            job_id="backup_check",
+        )
         _log_scheduler_system(
             f"排程備份檢查失敗（db_path {db_path}，原因：{e})",
             level="ERROR",
@@ -201,10 +305,12 @@ def create_scheduler(
         job = next((j for j in (cfg.get("jobs") or []) if str(j.get("id", "")).strip() == job_id), None)
         if not job:
             print(f"[WARN] job not found: {job_id}")
+            _log_worker_db(level="WARN", action="SCHEDULER.JOB.SKIP", message="job not found", job_id=job_id)
             _log_scheduler_system(f"排程工作不存在（job_id {job_id}）", level="WARN")
             return
         if not bool(job.get("enabled", True)):
             print(f"[INFO] job disabled: {job_id}")
+            _log_worker_db(level="INFO", action="SCHEDULER.JOB.SKIP", message="job disabled", job_id=job_id)
             _log_scheduler_data("SCHEDULER.JOB.SKIP", f"排程工作略過（job_id {job_id}，原因 disabled）")
             return
 
@@ -286,70 +392,77 @@ def create_scheduler(
 
             if not to_emails:
                 print(f"[WARN] job={job_id} Job.to is empty, skipped")
+                _log_worker_db(level="WARN", action="SCHEDULER.JOB.SKIP", message="recipient empty", job_id=job_id)
                 _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：收件人為空）", level="WARN")
                 return
             if not subject:
                 print(f"[WARN] job={job_id} Job.subject is empty, skipped")
+                _log_worker_db(level="WARN", action="SCHEDULER.JOB.SKIP", message="subject empty", job_id=job_id)
                 _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：主旨為空）", level="WARN")
                 return
 
             conn = connect(snapshot_db_path)
             try:
-                ensure_schema(conn)
-
+                cred_controller = AppController(db_path=snapshot_db_path)
                 try:
-                    cred_controller = AppController(db_path=snapshot_db_path)
+                    smtp_user, smtp_pwd = cred_controller.get_scheduler_mail_credentials()
+                finally:
                     try:
-                        smtp_user, smtp_pwd = cred_controller.get_scheduler_mail_credentials()
-                    finally:
-                        try:
-                            cred_controller.conn.close()
-                        except Exception:
-                            pass
-                    if not smtp_user or not smtp_pwd:
-                        raise RuntimeError("Mail credentials not configured")
-                    send_email_smtp(
-                        cfg,
-                        to_emails=to_emails,
-                        subject=subject,
-                        body=body,
-                        attachments=attachments,
-                        smtp_user=smtp_user,
-                        smtp_password=smtp_pwd,
-                    )
-                    outbox_id = insert_record(
-                        conn,
-                        job_id=job_id,
-                        to_emails=to_emails,
-                        subject=subject,
-                        body=body,
-                        attachments=attachments,
-                        status="SENT",
-                        error=None,
-                    )
-                    print(f"[OK] SENT job={job_id} outbox_id={outbox_id} to={to_emails}")
-                    _log_scheduler_data(
-                        "SCHEDULER.MAIL.SEND",
-                        f"排程郵件寄送成功（job_id {job_id}，outbox_id {outbox_id}，收件者 {','.join(to_emails)}，附件數 {len(attachments)}）",
-                    )
-                except Exception as e:
-                    outbox_id = insert_record(
-                        conn,
-                        job_id=job_id,
-                        to_emails=to_emails,
-                        subject=subject,
-                        body=body,
-                        attachments=attachments,
-                        status="FAILED",
-                        error=f"{type(e).__name__}: {e}",
-                    )
-                    print(f"[ERR] FAILED job={job_id} outbox_id={outbox_id} err={e}")
-                    _log_scheduler_system(
-                        f"排程郵件寄送失敗（job_id {job_id}，outbox_id {outbox_id}，原因：{type(e).__name__}: {e}）",
-                        level="ERROR",
-                    )
-            finally:
-                conn.close()
+                        cred_controller.conn.close()
+                    except Exception:
+                        pass
+                if not smtp_user or not smtp_pwd:
+                    raise RuntimeError("Mail credentials not configured")
+                send_email_smtp(
+                    cfg,
+                    to_emails=to_emails,
+                    subject=subject,
+                    body=body,
+                    attachments=attachments,
+                    smtp_user=smtp_user,
+                    smtp_password=smtp_pwd,
+                )
+                outbox_id = _insert_worker_email_outbox(
+                    job_id=job_id,
+                    to_emails=to_emails,
+                    subject=subject,
+                    body=body,
+                    attachments=attachments,
+                    status="SENT",
+                    error="",
+                )
+                print(f"[OK] SENT job={job_id} outbox_id={outbox_id} to={to_emails}")
+                _log_worker_db(
+                    level="INFO",
+                    action="SCHEDULER.MAIL.SEND",
+                    message=f"outbox_id={outbox_id} recipients={','.join(to_emails)} attachments={len(attachments)}",
+                    job_id=job_id,
+                )
+                _log_scheduler_data(
+                    "SCHEDULER.MAIL.SEND",
+                    f"排程郵件寄送成功（job_id {job_id}，outbox_id {outbox_id}，收件者 {','.join(to_emails)}，附件數 {len(attachments)}）",
+                )
+            except Exception as e:
+                outbox_id = _insert_worker_email_outbox(
+                    job_id=job_id,
+                    to_emails=to_emails,
+                    subject=subject,
+                    body=body,
+                    attachments=attachments,
+                    status="FAILED",
+                    error=f"{type(e).__name__}: {e}",
+                )
+                print(f"[ERR] FAILED job={job_id} outbox_id={outbox_id} err={e}")
+                _log_worker_db(
+                    level="ERROR",
+                    action="SCHEDULER.MAIL.FAIL",
+                    message=f"outbox_id={outbox_id} err={type(e).__name__}: {e}",
+                    job_id=job_id,
+                )
+                _log_scheduler_system(
+                    f"排程郵件寄送失敗（job_id {job_id}，outbox_id {outbox_id}，原因：{type(e).__name__}: {e}）",
+                    level="ERROR",
+                )
 
     if mail_enabled:
         for job in (cfg.get("jobs") or []):
@@ -383,6 +496,12 @@ def create_scheduler(
                         cleanup_reports(project_root, cfg)
                     except Exception as e:
                         print(f"[ERR] reports_cleanup job failed: {e}")
+                        _log_worker_db(
+                            level="ERROR",
+                            action="SCHEDULER.REPORTS_CLEANUP.FAIL",
+                            message=str(e),
+                            job_id="reports_cleanup",
+                        )
 
                 sched.add_job(
                     run_cleanup,
@@ -439,12 +558,42 @@ def create_scheduler(
 def main() -> int:
     controller = None
     try:
+        _log_worker_db(
+            level="INFO",
+            action="WORKER.BOOTSTRAP.START",
+            message=f"live_source={_snapshot_source_kind(DB_NAME)} live_db={DB_NAME}",
+            job_id="bootstrap",
+        )
         with worker_db_snapshot("bootstrap", DB_NAME) as bootstrap_db_path:
+            _log_worker_db(
+                level="INFO",
+                action="WORKER.BOOTSTRAP.SNAPSHOT.CREATED",
+                message=f"snapshot={bootstrap_db_path}",
+                job_id="bootstrap",
+            )
             controller = AppController(db_path=bootstrap_db_path)
             config_path = controller.get_scheduler_config_path()
             feature_flags = controller.get_scheduler_feature_settings()
+            _log_worker_db(
+                level="INFO",
+                action="WORKER.BOOTSTRAP.CONFIG.LOADED",
+                message=(
+                    f"config_path={config_path} "
+                    f"mail_enabled={int(bool(feature_flags.get('mail_enabled', True)))} "
+                    f"backup_enabled={int(bool(feature_flags.get('backup_enabled', True)))}"
+                ),
+                job_id="bootstrap",
+            )
+            controller.conn.close()
+            controller = None
         db_path_override = DB_NAME
     except Exception as e:
+        _log_worker_db(
+            level="ERROR",
+            action="WORKER.BOOTSTRAP.FAIL",
+            message=str(e),
+            job_id="bootstrap",
+        )
         print(f"[ERR] scheduler worker failed to load app settings: {e}", file=sys.stderr)
         return 1
     finally:
@@ -466,6 +615,14 @@ def main() -> int:
             f"config={runtime['config_file']} db={runtime['db_path']} tz={runtime['timezone']} "
             f"mail_enabled={runtime['mail_enabled']} backup_enabled={runtime['backup_enabled']}"
         )
+        _log_worker_db(
+            level="INFO",
+            action="SCHEDULER.START",
+            message=(
+                f"config={runtime['config_file']} db={runtime['db_path']} tz={runtime['timezone']} "
+                f"mail_enabled={int(bool(runtime['mail_enabled']))} backup_enabled={int(bool(runtime['backup_enabled']))}"
+            ),
+        )
 
         try:
             while True:
@@ -475,6 +632,7 @@ def main() -> int:
         finally:
             sched.shutdown()
     except Exception as e:
+        _log_worker_db(level="ERROR", action="SCHEDULER.START.FAIL", message=str(e))
         print(f"[ERR] scheduler worker failed to start: {e}", file=sys.stderr)
         return 1
     return 0
