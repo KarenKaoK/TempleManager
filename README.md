@@ -378,6 +378,7 @@ python -m app.scheduler.worker
 > 正式寄信/報表排程請由外部 worker 常駐執行。
 > 可參考 [`scripts/start_worker.example.bat`](/Users/huangrensyuan/Desktop/codes/TempleManager/scripts/start_worker.example.bat) 作為 Windows 啟動範例；該範例會將 console 輸出額外寫到專案根目錄下的 `worker_stdout.log`。
 > worker 啟動時會先準備正式資料庫的 runtime DB，並優先讀取 UI 已儲存的排程設定檔路徑與功能旗標；若無法載入正式 app 設定，會直接報錯，不再 fallback 到 repo 內建 `app/database/temple.db`。
+> Windows 背景寄信已支援 background secret 模式：當 UI 儲存 Gmail App Password 時，系統會同步寫出 `worker_mail_secret.bin` 到 TempleManager 正式資料目錄；背景 worker 寄信時會優先讀這份 secret，而不是只依賴一般使用者的 Credential Manager。
 
 Windows 手動設定：
 1. 開啟「工作排程器」，建議使用「建立工作」而非「建立基本工作」。
