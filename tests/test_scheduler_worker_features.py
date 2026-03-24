@@ -62,6 +62,7 @@ def test_create_scheduler_can_disable_backup_only(monkeypatch):
 
 def test_main_uses_scheduler_settings_from_controller(monkeypatch):
     calls = {}
+    monkeypatch.setattr(worker_module, "local_db_encryption_enabled", lambda: False)
 
     class _Conn:
         def close(self):
@@ -115,6 +116,8 @@ def test_main_uses_scheduler_settings_from_controller(monkeypatch):
 
 
 def test_main_returns_one_when_scheduler_startup_fails(monkeypatch):
+    monkeypatch.setattr(worker_module, "local_db_encryption_enabled", lambda: False)
+
     class _Conn:
         def close(self):
             return None
@@ -137,3 +140,76 @@ def test_main_returns_one_when_scheduler_startup_fails(monkeypatch):
     )
 
     assert worker_module.main() == 1
+
+
+def test_main_returns_one_when_controller_init_fails(monkeypatch):
+    monkeypatch.setattr(
+        worker_module,
+        "AppController",
+        lambda: (_ for _ in ()).throw(RuntimeError("controller init failed")),
+    )
+    monkeypatch.setattr(worker_module, "local_db_encryption_enabled", lambda: False)
+
+    assert worker_module.main() == 1
+
+
+def test_main_prepares_and_finalizes_runtime_db_when_encryption_enabled(monkeypatch):
+    calls = {"ensure": 0, "finalize": 0}
+
+    class _Conn:
+        def close(self):
+            return None
+
+    class _FakeController:
+        def __init__(self):
+            self.conn = _Conn()
+            self.db_path = "/tmp/fake.db"
+
+        def get_scheduler_config_path(self):
+            return "/tmp/custom_scheduler_config.yaml"
+
+        def get_scheduler_feature_settings(self):
+            return {"mail_enabled": True, "backup_enabled": True}
+
+    class _FakeScheduler:
+        def start(self):
+            return None
+
+        def shutdown(self):
+            return None
+
+    monkeypatch.setattr(worker_module, "local_db_encryption_enabled", lambda: True)
+    monkeypatch.setattr(
+        worker_module,
+        "ensure_runtime_db_ready",
+        lambda **kwargs: calls.__setitem__("ensure", calls["ensure"] + 1),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "finalize_runtime_db",
+        lambda **kwargs: calls.__setitem__("finalize", calls["finalize"] + 1),
+    )
+    monkeypatch.setattr(worker_module, "AppController", _FakeController)
+    monkeypatch.setattr(
+        worker_module,
+        "create_scheduler",
+        lambda config_path, feature_flags=None, db_path_override=None: (
+            _FakeScheduler(),
+            {
+                "config_file": config_path,
+                "db_path": db_path_override,
+                "timezone": "Asia/Taipei",
+                "mail_enabled": True,
+                "backup_enabled": True,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        worker_module.time,
+        "sleep",
+        lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    assert worker_module.main() == 0
+    assert calls["ensure"] == 1
+    assert calls["finalize"] == 1

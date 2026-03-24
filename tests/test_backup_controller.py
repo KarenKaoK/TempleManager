@@ -266,11 +266,22 @@ def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
     db = tmp_path / "scheduler_mail_settings.db"
     controller = _new_backup_controller(db)
+    worker_secret_calls = {"saved": [], "loaded": []}
 
     monkeypatch.setattr(app_controller_module.secret_store, "backend_label", lambda: "Windows Credential Manager")
     monkeypatch.setattr(app_controller_module.secret_store, "has_secret", lambda _k: True)
     monkeypatch.setattr(app_controller_module.secret_store, "set_secret", lambda _k, _v: None)
     monkeypatch.setattr(app_controller_module.secret_store, "get_secret", lambda _k: "app-password")
+    monkeypatch.setattr(
+        app_controller_module.worker_mail_secret_store,
+        "save_worker_mail_secret",
+        lambda secret, db_path=None: worker_secret_calls["saved"].append((secret, db_path)),
+    )
+    monkeypatch.setattr(
+        app_controller_module.worker_mail_secret_store,
+        "load_worker_mail_secret",
+        lambda db_path=None: worker_secret_calls["loaded"].append(db_path) or "bg-password",
+    )
 
     controller.save_scheduler_mail_settings("temple@gmail.com", "app-password")
     info = controller.get_scheduler_mail_settings()
@@ -281,6 +292,11 @@ def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
     user, pwd = controller.get_scheduler_mail_credentials()
     assert user == "temple@gmail.com"
     assert pwd == "app-password"
+    bg_user, bg_pwd = controller.get_scheduler_mail_credentials(background=True)
+    assert bg_user == "temple@gmail.com"
+    assert bg_pwd == "bg-password"
+    assert worker_secret_calls["saved"] == [("app-password", str(db))]
+    assert worker_secret_calls["loaded"] == [str(db)]
     assert any(
         call["kwargs"].get("action") == "SCHEDULER.MAIL_SETTINGS.UPDATE"
         for call in logs["data"]
