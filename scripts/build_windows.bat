@@ -1,5 +1,5 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "PROJECT_ROOT=%%~fI"
@@ -11,57 +11,57 @@ set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
 set "ICON_SOURCE=%PROJECT_ROOT%\assets\icon_source.png"
 set "ICON_TARGET=%PROJECT_ROOT%\assets\TempleManager.ico"
 
-echo [1/6] 建立虛擬環境...
+echo [1/6] Create virtual environment...
 if not exist "%PYTHON_EXE%" (
     py -3.12 -m venv "%VENV_DIR%"
     if errorlevel 1 goto :fail
 ) else (
-    echo     已存在，略過建立 venv
+    echo     Existing venv found. Skip.
 )
 
-echo [2/6] 升級 pip...
+echo [2/6] Upgrade pip...
 "%PYTHON_EXE%" -m pip install --upgrade pip
 if errorlevel 1 goto :fail
 
-echo [3/6] 安裝相依套件...
+echo [3/6] Install dependencies...
 "%PYTHON_EXE%" -m pip install --only-binary=:all: -r requirements.txt
 if errorlevel 1 goto :fail
 
-echo [4/6] 執行測試...
+echo [4/6] Run tests...
 "%PYTHON_EXE%" -m pytest -q
 if errorlevel 1 goto :fail
 
-echo [5/6] 準備 icon...
+echo [5/6] Prepare icon...
 where magick >nul 2>nul
 if errorlevel 1 (
-    echo     找不到 ImageMagick，略過重新產生 .ico
+    echo     ImageMagick not found. Skip icon generation.
 ) else (
     if exist "%ICON_SOURCE%" (
         magick "%ICON_SOURCE%" -define icon:auto-resize=256,128,64,48,32,24,16 "%ICON_TARGET%"
         if errorlevel 1 goto :fail
     ) else (
-        echo     找不到 icon_source.png，略過重新產生 .ico
+        echo     icon_source.png not found. Skip icon generation.
     )
 )
 
-echo [6/6] 執行 PyInstaller...
+echo [6/6] Run PyInstaller...
 "%PYTHON_EXE%" -m PyInstaller app/main.py ^
-    --noconfirm ^
-    --clean ^
-    --windowed ^
-    --onefile ^
-    --name TempleManager ^
-    --icon "%ICON_TARGET%" ^
-    --paths . ^
-    --add-data "app/scheduler/scheduler_config.yaml;app/scheduler" ^
-    --add-data "app/resources;app/resources"
+ --noconfirm ^
+ --clean ^
+ --windowed ^
+ --onefile ^
+ --name TempleManager ^
+ --icon "%ICON_TARGET%" ^
+ --paths . ^
+ --add-data "app/scheduler/scheduler_config.yaml;app/scheduler" ^
+ --add-data "app/resources;app/resources"
 if errorlevel 1 goto :fail
 
 echo.
-echo 打包完成：%PROJECT_ROOT%\dist\TempleManager.exe
+echo Build complete: %PROJECT_ROOT%\dist\TempleManager.exe
 exit /b 0
 
 :fail
 echo.
-echo 打包失敗，請檢查上方輸出。
+echo Build failed. Check the log above.
 exit /b 1
