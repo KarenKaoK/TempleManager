@@ -23,6 +23,11 @@ class ReportScheduleSettingsDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self.setWindowTitle("報表排程設定")
+        self._mail_settings = {
+            "smtp_username": "",
+            "smtp_password_set": False,
+        }
+        self._saved_config_path = ""
         self.resize(980, 500)
         self.setMinimumSize(860, 420)
 
@@ -45,8 +50,10 @@ class ReportScheduleSettingsDialog(QDialog):
         self.edt_smtp_password = QLineEdit("")
         self.edt_smtp_password.setEchoMode(QLineEdit.Password)
         self.edt_smtp_password.setPlaceholderText("App Password（留空表示不變更）")
-        self.btn_save_mail_secret = QPushButton("儲存郵件帳密")
-        self.btn_save_mail_secret.clicked.connect(self._save_mail_credentials)
+        self.btn_save_settings = QPushButton("儲存設定")
+        self.btn_save_settings.setEnabled(False)
+        self.btn_save_settings.clicked.connect(self._save_settings)
+        self.edt_smtp_username.textChanged.connect(self._update_save_button_state)
         self.edt_config_path = QLineEdit("")
         self.edt_config_path.setReadOnly(True)
         self.edt_config_path.setPlaceholderText("scheduler_config.yaml 路徑")
@@ -64,10 +71,10 @@ class ReportScheduleSettingsDialog(QDialog):
         form.addRow("報表郵件排程", self.lbl_mail_enabled)
         form.addRow("Gmail 帳號", self.edt_smtp_username)
         form.addRow("Gmail 密碼", self.edt_smtp_password)
-        form.addRow("", self.btn_save_mail_secret)
         form.addRow("設定檔路徑", path_wrap)
+        form.addRow("", self.btn_save_settings)
         self.lbl_toggle_hint = QLabel("提示：手動修改 scheduler_config.yaml 後，外部排程 worker 會依最新設定執行。")
-        self.lbl_toggle_hint.setWordWrap(False)
+        self.lbl_toggle_hint.setWordWrap(True)
         self.lbl_toggle_hint.setStyleSheet("QLabel { color:#6B7280; }")
         hint_wrap = QWidget()
         hint_layout = QVBoxLayout(hint_wrap)
@@ -81,6 +88,8 @@ class ReportScheduleSettingsDialog(QDialog):
 
         row_btn = QHBoxLayout()
         self.btn_toggle_mail = QPushButton("停用 Email 排程")
+        self.btn_reload_schedule = QPushButton("重新載入排程")
+        self.btn_reload_schedule.clicked.connect(self._reload_schedule)
         self.btn_toggle_mail.clicked.connect(self._toggle_mail_schedule)
         self.btn_open_config_dir = QPushButton("開啟設定檔位置")
         self.btn_worker_help = QPushButton("外部常駐 worker 設定說明")
@@ -89,6 +98,7 @@ class ReportScheduleSettingsDialog(QDialog):
         self.btn_worker_help.clicked.connect(self._show_external_worker_help)
         self.btn_close.clicked.connect(self.accept)
         row_btn.addWidget(self.btn_toggle_mail)
+        row_btn.addWidget(self.btn_reload_schedule)
         row_btn.addWidget(self.btn_open_config_dir)
         row_btn.addWidget(self.btn_worker_help)
         row_btn.addWidget(self.btn_close)
@@ -123,6 +133,26 @@ class ReportScheduleSettingsDialog(QDialog):
         self.lbl_scheduler_status.setText("由外部常駐 worker 執行")
 
         mail_enabled = bool(self._feature_flags().get("mail_enabled", True))
+        mail_info = self._current_mail_settings()
+        self._mail_settings = {
+            "smtp_username": str(mail_info.get("smtp_username") or ""),
+            "smtp_password_set": bool(mail_info.get("smtp_password_set")),
+        }
+        self.edt_smtp_username.setText(self._mail_settings["smtp_username"])
+        self.edt_smtp_password.clear()
+        pwd_text = "已設定" if self._mail_settings["smtp_password_set"] else "未設定"
+        backend = str(mail_info.get("secret_backend") or "")
+        backend_text = f"｜安全儲存：{backend}" if backend else ""
+        self.lbl_mail_enabled.setText(("已啟用" if mail_enabled else "未啟用") + f"｜密碼：{pwd_text}{backend_text}")
+        self.btn_toggle_mail.setText("停用 Email 排程" if mail_enabled else "啟用 Email 排程")
+        path = self._config_path()
+        self._saved_config_path = path
+        self.edt_config_path.setText(path)
+        self.edt_config_path.setCursorPosition(0)
+        self.edt_config_path.setToolTip(path)
+        self._update_save_button_state()
+
+    def _current_mail_settings(self):
         getter = getattr(self.controller, "get_scheduler_mail_settings", None)
         mail_info = {"smtp_username": "", "smtp_password_set": False, "secret_backend": "", "secret_error": ""}
         if callable(getter):
@@ -130,19 +160,16 @@ class ReportScheduleSettingsDialog(QDialog):
                 mail_info.update(getter() or {})
             except Exception:
                 pass
-        self.edt_smtp_username.setText(str(mail_info.get("smtp_username") or ""))
-        pwd_text = "已設定" if bool(mail_info.get("smtp_password_set")) else "未設定"
-        backend = str(mail_info.get("secret_backend") or "")
-        backend_text = f"｜安全儲存：{backend}" if backend else ""
-        self.lbl_mail_enabled.setText(("已啟用" if mail_enabled else "未啟用") + f"｜密碼：{pwd_text}{backend_text}")
-        self.btn_toggle_mail.setText("停用 Email 排程" if mail_enabled else "啟用 Email 排程")
-        path = self._config_path()
-        self.edt_config_path.setText(path)
-        self.edt_config_path.setCursorPosition(0)
-        self.edt_config_path.setToolTip(path)
+        return mail_info
+
+    def _update_save_button_state(self):
+        username_changed = (self.edt_smtp_username.text() or "").strip() != self._mail_settings.get("smtp_username", "")
+        password_changed = bool(self.edt_smtp_password.text())
+        path_changed = os.path.abspath(self.edt_config_path.text() or "") != os.path.abspath(self._saved_config_path or "")
+        self.btn_save_settings.setEnabled(username_changed or password_changed or path_changed)
 
     def _open_config_dir(self):
-        cfg_path = self._config_path()
+        cfg_path = os.path.abspath(self.edt_config_path.text() or self._config_path())
         folder = os.path.dirname(cfg_path)
         if not os.path.isdir(folder):
             QMessageBox.warning(self, "路徑不存在", f"找不到設定檔資料夾：\n{folder}")
@@ -236,21 +263,17 @@ class ReportScheduleSettingsDialog(QDialog):
         )
         if not path:
             return
-        saver = getattr(self.controller, "save_scheduler_config_path", None)
-        if callable(saver):
-            try:
-                saver(path)
-            except Exception as e:
-                QMessageBox.warning(self, "儲存失敗", str(e))
-                return
-        self._refresh_status()
-        QMessageBox.information(self, "已更新", "排程設定檔路徑已更新，請按「重新載入排程」。")
+        path = os.path.abspath(path)
+        self.edt_config_path.setText(path)
+        self.edt_config_path.setCursorPosition(0)
+        self.edt_config_path.setToolTip(path)
+        self._update_save_button_state()
 
     def _toggle_mail_schedule(self):
         flags = self._feature_flags()
         next_mail = not bool(flags.get("mail_enabled", True))
+        cfg_path = os.path.abspath(self.edt_config_path.text() or self._config_path())
 
-        cfg_path = self._config_path()
         if next_mail and not os.path.isfile(cfg_path):
             QMessageBox.warning(self, "無法啟用", "請先選擇有效的 scheduler_config.yaml 檔案。")
             return
@@ -291,7 +314,19 @@ class ReportScheduleSettingsDialog(QDialog):
         self._refresh_status()
         QMessageBox.information(self, "完成", "Email 排程設定已更新。")
 
-    def _save_mail_credentials(self):
+    def _reload_schedule(self):
+        requester = getattr(self.controller, "_request_worker_reload", None)
+        if not callable(requester):
+            QMessageBox.warning(self, "操作失敗", "目前控制器不支援重新載入排程。")
+            return
+        try:
+            requester()
+        except Exception as e:
+            QMessageBox.warning(self, "操作失敗", str(e))
+            return
+        QMessageBox.information(self, "完成", "已通知背景 worker 重新載入排程設定。")
+
+    def _save_settings(self):
         username = (self.edt_smtp_username.text() or "").strip()
         password = self.edt_smtp_password.text() or ""
         if not username:
@@ -307,16 +342,22 @@ class ReportScheduleSettingsDialog(QDialog):
         if not password and not bool(current.get("smtp_password_set")):
             QMessageBox.warning(self, "設定錯誤", "首次儲存需輸入 Gmail 密碼。")
             return
-
-        saver = getattr(self.controller, "save_scheduler_mail_settings", None)
-        if not callable(saver):
-            QMessageBox.warning(self, "儲存失敗", "目前控制器不支援郵件帳密設定。")
+        config_path = os.path.abspath(self.edt_config_path.text() or "")
+        if not config_path:
+            QMessageBox.warning(self, "設定錯誤", "請先選擇 scheduler_config.yaml 檔案。")
+            return
+        mail_saver = getattr(self.controller, "save_scheduler_mail_settings", None)
+        path_saver = getattr(self.controller, "save_scheduler_config_path", None)
+        reload_requester = getattr(self.controller, "_request_worker_reload", None)
+        if not callable(mail_saver) or not callable(path_saver) or not callable(reload_requester):
+            QMessageBox.warning(self, "儲存失敗", "目前控制器不支援報表排程設定。")
             return
         try:
-            saver(username, password)
+            mail_saver(username, password, request_reload=False)
+            path_saver(config_path, request_reload=False)
+            reload_requester()
         except Exception as e:
             QMessageBox.warning(self, "儲存失敗", str(e))
             return
-        self.edt_smtp_password.clear()
         self._refresh_status()
-        QMessageBox.information(self, "完成", "郵件帳密已儲存。")
+        QMessageBox.information(self, "完成", "報表排程設定已儲存，已通知背景 worker 重新載入設定。")

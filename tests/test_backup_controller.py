@@ -277,6 +277,26 @@ def test_scheduler_config_path_defaults_and_save(tmp_path, monkeypatch):
     assert reload_calls == ["config"]
 
 
+def test_scheduler_config_path_save_without_reload(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
+    reload_calls = []
+    monkeypatch.setattr(app_controller_module.worker_log_db, "connect", lambda: object())
+    monkeypatch.setattr(app_controller_module.worker_log_db, "ensure_schema", lambda _conn: None)
+    monkeypatch.setattr(app_controller_module.worker_log_db, "request_reload", lambda _conn: reload_calls.append("config") or len(reload_calls))
+    db = tmp_path / "scheduler_config_path_no_reload.db"
+    controller = _new_backup_controller(db)
+
+    custom = tmp_path / "custom_scheduler.yaml"
+    controller.save_scheduler_config_path(str(custom), request_reload=False)
+
+    assert controller.get_scheduler_config_path() == str(custom.resolve())
+    assert any(
+        call["kwargs"].get("action") == "SCHEDULER.CONFIG_PATH.UPDATE"
+        for call in logs["data"]
+    )
+    assert reload_calls == []
+
+
 def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
     logs = _mock_backup_logs(monkeypatch)
     reload_calls = []
@@ -321,6 +341,36 @@ def test_scheduler_mail_settings_store_secret(tmp_path, monkeypatch):
         for call in logs["data"]
     )
     assert reload_calls == ["mail"]
+
+
+def test_scheduler_mail_settings_store_secret_without_reload(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
+    reload_calls = []
+    db = tmp_path / "scheduler_mail_settings_no_reload.db"
+    controller = _new_backup_controller(db)
+
+    monkeypatch.setattr(app_controller_module.secret_store, "backend_label", lambda: "Windows Credential Manager")
+    monkeypatch.setattr(app_controller_module.secret_store, "has_secret", lambda _k: True)
+    monkeypatch.setattr(app_controller_module.secret_store, "set_secret", lambda _k, _v: None)
+    monkeypatch.setattr(
+        app_controller_module.worker_mail_secret_store,
+        "save_worker_mail_secret",
+        lambda secret, db_path=None: None,
+    )
+    monkeypatch.setattr(app_controller_module.worker_log_db, "connect", lambda: object())
+    monkeypatch.setattr(app_controller_module.worker_log_db, "ensure_schema", lambda _conn: None)
+    monkeypatch.setattr(app_controller_module.worker_log_db, "request_reload", lambda _conn: reload_calls.append("mail") or len(reload_calls))
+
+    controller.save_scheduler_mail_settings("temple@gmail.com", "app-password", request_reload=False)
+    info = controller.get_scheduler_mail_settings()
+
+    assert info["smtp_username"] == "temple@gmail.com"
+    assert info["smtp_password_set"] is True
+    assert any(
+        call["kwargs"].get("action") == "SCHEDULER.MAIL_SETTINGS.UPDATE"
+        for call in logs["data"]
+    )
+    assert reload_calls == []
 
 
 def test_authorize_google_drive_oauth_without_token_path_does_not_fallback(tmp_path, monkeypatch):
