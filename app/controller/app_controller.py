@@ -1800,7 +1800,7 @@ class AppController:
             self.set_setting("scheduler/config_path", ensured)
         return ensured
 
-    def save_scheduler_config_path(self, path: str):
+    def save_scheduler_config_path(self, path: str, *, request_reload: bool = True):
         before = self.get_scheduler_config_path()
         value = (path or "").strip()
         if not value:
@@ -1817,7 +1817,8 @@ class AppController:
                 f"新路徑 {self._fmt_log_val(value)}）"
             ),
         )
-        self._request_worker_reload()
+        if request_reload:
+            self._request_worker_reload()
 
     def get_scheduler_mail_settings(self) -> Dict[str, Any]:
         username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
@@ -1835,7 +1836,7 @@ class AppController:
             "secret_error": secret_error,
         }
 
-    def save_scheduler_mail_settings(self, smtp_username: str, smtp_password: str = ""):
+    def save_scheduler_mail_settings(self, smtp_username: str, smtp_password: str = "", *, request_reload: bool = True):
         username = (smtp_username or "").strip()
         if not username:
             self._log_scheduler_system_event("儲存排程郵件設定失敗（原因：未輸入 Gmail 帳號）", level="WARN")
@@ -1867,7 +1868,8 @@ class AppController:
                 f"密碼保存位置 {self._fmt_log_val(secret_store.backend_label())}）"
             ),
         )
-        self._request_worker_reload()
+        if request_reload:
+            self._request_worker_reload()
 
     def get_scheduler_mail_credentials(self, *, background: bool = False) -> Tuple[str, str]:
         username = (self.get_setting("scheduler/smtp_username", "") or "").strip()
