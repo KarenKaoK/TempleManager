@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import app.scheduler.worker as worker_module
 from app.scheduler import worker_log_db
 
@@ -59,6 +61,65 @@ def test_create_scheduler_can_disable_backup_only(monkeypatch):
     assert "mail_job_1" in job_ids
     assert runtime["mail_enabled"] is True
     assert runtime["backup_enabled"] is False
+
+
+def test_create_scheduler_mail_job_does_not_require_undefined_connect(monkeypatch, tmp_path):
+    cfg = {
+        "timezone": "Asia/Taipei",
+        "db": {"path": "./app/database/temple.db"},
+        "jobs": [
+            {
+                "id": "mail_job_1",
+                "enabled": True,
+                "to": ["a@example.com"],
+                "subject": "s",
+                "body": "b",
+                "cron": {"hour": 1, "minute": 2},
+            }
+        ],
+        "reports": {"cleanup": {"enabled": False}},
+    }
+
+    sent = {"count": 0}
+
+    class _SnapshotCtx:
+        def __enter__(self):
+            return str((tmp_path / "worker_snapshot.db").resolve())
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _Conn:
+        def close(self):
+            return None
+
+    class _FakeController:
+        def __init__(self, db_path=None):
+            self.conn = _Conn()
+
+        def get_scheduler_mail_credentials(self):
+            return ("user@gmail.com", "pwd")
+
+    monkeypatch.setattr(worker_module, "load_cfg", lambda _path: cfg)
+    monkeypatch.setattr(worker_module, "worker_db_snapshot", lambda *args, **kwargs: _SnapshotCtx())
+    monkeypatch.setattr(worker_module, "AppController", _FakeController)
+    monkeypatch.setattr(worker_module, "_insert_worker_email_outbox", lambda **kwargs: 1)
+    monkeypatch.setattr(
+        worker_module,
+        "send_email_smtp",
+        lambda *args, **kwargs: sent.__setitem__("count", sent["count"] + 1),
+    )
+    monkeypatch.setattr(worker_module, "log_data_change", lambda **kwargs: None)
+    monkeypatch.setattr(worker_module, "log_system", lambda *args, **kwargs: None)
+
+    sched, _runtime = worker_module.create_scheduler(
+        config_path="app/scheduler/scheduler_config.yaml",
+        feature_flags={"mail_enabled": True, "backup_enabled": False},
+    )
+    job = sched.get_job("mail_job_1")
+    job.func(*job.args, **job.kwargs)
+
+    assert sent["count"] == 1
 
 
 def test_main_uses_scheduler_settings_from_controller(monkeypatch):

@@ -420,7 +420,6 @@ def run_backup_schedule_check(db_path: str) -> None:
     try:
         if not _worker_backup_should_run():
             _insert_worker_backup_log(status="SKIPPED", detail=f"db_path={db_path} reason=precheck")
-            print("[INFO] backup schedule check skipped")
             _log_scheduler_data(
                 "SCHEDULER.BACKUP.CHECK",
                 f"排程備份檢查執行完成（db_path {db_path}，結果 skipped_precheck）",
@@ -441,7 +440,6 @@ def run_backup_schedule_check(db_path: str) -> None:
             )
         else:
             _insert_worker_backup_log(status="SKIPPED", detail=f"db_path={db_path}")
-            print("[INFO] backup schedule check skipped")
             _log_scheduler_data(
                 "SCHEDULER.BACKUP.CHECK",
                 f"排程備份檢查執行完成（db_path {db_path}，結果 skipped）",
@@ -598,7 +596,6 @@ def create_scheduler(
                 _log_scheduler_system(f"排程工作略過（job_id {job_id}，原因：主旨為空）", level="WARN")
                 return
 
-            conn = connect(snapshot_db_path)
             try:
                 cred_controller = AppController(db_path=snapshot_db_path)
                 try:
