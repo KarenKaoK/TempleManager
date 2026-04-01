@@ -193,7 +193,7 @@ class ReportScheduleSettingsDialog(QDialog):
   }
 </style>
 <h3>用途</h3>
-<p>主程式目前不會自動啟動內建排程；正式寄信與報表排程請改由外部常駐 worker 執行。</p>
+<p>主程式 / EXE 與 worker 已分離；UI 只負責設定，正式寄信與報表排程請由外部常駐 worker 獨立執行。</p>
 
 <h3>執行指令</h3>
 <pre>python -m app.scheduler.worker</pre>
@@ -201,16 +201,21 @@ class ReportScheduleSettingsDialog(QDialog):
 
 <h3>設定檔</h3>
 <p>目前畫面中的「設定檔路徑」就是 worker 會使用的 <code>scheduler_config.yaml</code>。首次使用時，系統會先將模板複製到使用者資料目錄，也可以自行改選其他外部檔案。</p>
+<p>「儲存設定」用在 Gmail 帳密或 <code>scheduler_config.yaml</code> 路徑變更；「重新載入排程」用在 <code>scheduler_config.yaml</code> 內容變更。</p>
+<p>reload 會先寫入 worker DB 註記，背景 worker 每 5 秒檢查一次並套用新設定。</p>
 
 <h3>Windows</h3>
 <ol>
-  <li>開啟「工作排程器」，建立基本工作或一般工作。</li>
+  <li>開啟「工作排程器」，建議使用「建立工作」而非「建立基本工作」。</li>
   <li>觸發程序可設為「使用者登入時」或「開機時」。</li>
-  <li>動作填入虛擬環境 Python，例如：</li>
+  <li>Windows 建議透過「工作排程器」啟動 worker。</li>
+  <li>動作請填：</li>
 </ol>
-<pre>temple_venv\\Scripts\\python.exe -m app.scheduler.worker</pre>
-<ol start="4">
-  <li>「起始於 (Start in)」請設為專案根目錄。</li>
+<pre>Program/script: temple_venv\\Scripts\\python.exe
+Add arguments: -m app.scheduler.worker
+Start in: 專案根目錄</pre>
+<ol start="5">
+  <li>若使用 UI 儲存 Gmail 帳號與 App Password，工作排程器的執行 Windows 使用者必須與當初儲存該密碼的 Windows 使用者一致，否則無法從 Credential Manager 讀到密碼。</li>
   <li>儲存後可先手動執行一次，確認 worker 能正常常駐。</li>
 </ol>
 
@@ -229,7 +234,7 @@ class ReportScheduleSettingsDialog(QDialog):
 <h3>注意</h3>
 <ul>
   <li>請勿同時恢復主程式內建 scheduler 啟動入口，避免重複寄送。</li>
-  <li>若變更 <code>scheduler_config.yaml</code>，外部 worker 下次讀取時就會套用最新設定。</li>
+  <li>worker 啟動時會優先讀取 UI 已儲存的設定檔路徑與功能旗標；若無法載入正式 app 設定，會直接報錯。</li>
 </ul>
 """
 
