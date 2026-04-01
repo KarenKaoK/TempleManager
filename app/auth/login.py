@@ -28,6 +28,7 @@ class LoginDialog(QDialog):
 
     def __init__(self):
         super().__init__()
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
         self._setup_cover_ui()

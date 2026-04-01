@@ -11,6 +11,7 @@ from app.config import (
 )
 from app.database.setup_db import initialize_database
 from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtCore import QCoreApplication, QEvent
 from PyQt5 import sip as pyqt_sip
 from app.controller.app_controller import AppController
 from app.auth.login import LoginDialog
@@ -71,6 +72,14 @@ def run_app():
         pass
 
     app = QApplication(sys.argv)
+
+    def _flush_qt_deletes():
+        try:
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            app.processEvents()
+        except Exception:
+            pass
+
     app.setStyleSheet("""
         /* === 全域基礎 === */
         QWidget {
@@ -303,6 +312,12 @@ def run_app():
             controller = None
             login_dialog = LoginDialog()
             if login_dialog.exec_() != QDialog.Accepted:
+                try:
+                    if login_dialog is not None:
+                        login_dialog.deleteLater()
+                except Exception as e:
+                    print(f"[WARN] failed to delete login dialog during shutdown: {e}", file=sys.stderr)
+                _flush_qt_deletes()
                 break  # 使用者取消登入 → 結束程式
 
             username = login_dialog.username
@@ -317,9 +332,20 @@ def run_app():
 
             app.exec_()
             try:
+                if main_window is not None:
+                    main_window.deleteLater()
+            except Exception as e:
+                print(f"[WARN] failed to delete main window during shutdown: {e}", file=sys.stderr)
+            try:
+                if login_dialog is not None:
+                    login_dialog.deleteLater()
+            except Exception as e:
+                print(f"[WARN] failed to delete login dialog after app exit: {e}", file=sys.stderr)
+            _flush_qt_deletes()
+            try:
                 controller.conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[WARN] failed to close controller connection: {e}", file=sys.stderr)
             if local_db_encryption_enabled():
                 finalize_runtime_db(
                     runtime_db_path=DB_NAME,

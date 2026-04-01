@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QAction, QMessageBox, QWidget, QStackedWidget, QDialog,
     QHBoxLayout, QPushButton, QVBoxLayout, QFrame, QInputDialog, QLineEdit
 )
-from PyQt5.QtCore import QEvent, QTimer
+from PyQt5.QtCore import QEvent, QTimer, Qt
 import time
 
 from app.dialogs.income_dialog import IncomeSetupDialog
@@ -33,6 +33,7 @@ from app.auth.permissions import (
 class MainWindow(QMainWindow):
     def __init__(self, username, role, controller):
         super().__init__()
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.username = username
         self.role = role
         self.operator_name = username
@@ -541,17 +542,35 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         # 避免 QApp 持有已銷毀視窗的 event filter，造成關閉時 crash / segmentation fault
         try:
+            app = QApplication.instance()
+            if app is not None:
+                # macOS 上若輸入法仍綁定在 QLineEdit 等輸入元件，
+                # 視窗關閉時可能在 IMK / Qt 清理階段觸發 crash。
+                focus_widget = app.focusWidget()
+                if focus_widget is not None:
+                    try:
+                        focus_widget.clearFocus()
+                    except Exception as e:
+                        log_system(f"主視窗關閉前清除焦點失敗：{e}", level="WARN")
+                try:
+                    self.setFocus()
+                except Exception as e:
+                    log_system(f"主視窗關閉前設定視窗焦點失敗：{e}", level="WARN")
+                app.processEvents()
+        except Exception as e:
+            log_system(f"主視窗關閉前處理焦點/事件失敗：{e}", level="WARN")
+        try:
             if hasattr(self, "_idle_timer") and self._idle_timer is not None:
                 self._idle_timer.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            log_system(f"主視窗關閉前停止閒置計時器失敗：{e}", level="WARN")
         try:
             app = QApplication.instance()
             if app and self._idle_filter_installed:
                 app.removeEventFilter(self)
                 self._idle_filter_installed = False
-        except Exception:
-            pass
+        except Exception as e:
+            log_system(f"主視窗關閉前移除 event filter 失敗：{e}", level="WARN")
         super().closeEvent(event)
 
     def on_global_font_size_changed(self, label):
