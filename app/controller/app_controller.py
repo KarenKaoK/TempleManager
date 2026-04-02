@@ -94,6 +94,27 @@ class AppController:
                 except Exception:
                     pass
 
+    def _append_worker_backup_log(self, *, job_id: str, status: str, detail: str) -> None:
+        conn = None
+        try:
+            conn = worker_log_db.connect(db_path=self.db_path)
+            worker_log_db.ensure_schema(conn)
+            worker_log_db.insert_backup_log(
+                conn,
+                job_id=str(job_id or "backup"),
+                status=str(status or ""),
+                detail=str(detail or ""),
+            )
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception as e:
+                    self._log_backup_system_event(
+                        f"關閉 worker 備份紀錄連線失敗（原因：{e}）",
+                        level="WARN",
+                    )
+
     def _ensure_runtime_indexes(self):
         cur = self.conn.cursor()
         if self._table_exists("transactions"):
@@ -2112,31 +2133,6 @@ class AppController:
     def restore_database_from_encrypted_backup(self, encrypted_file: str):
         enc = (encrypted_file or "").strip()
         restore_started_at = self._now()
-        pre_restore_logs: List[Tuple[str, str, str, str, int, str]] = []
-
-        # 還原前先保留目前 backup_logs，避免整庫覆蓋後遺失 MANUAL 歷史紀錄
-        try:
-            if self._table_exists("backup_logs"):
-                cur = self.conn.cursor()
-                rows = cur.execute(
-                    """
-                    SELECT created_at, trigger_mode, status, backup_file, file_size_bytes, error_message
-                    FROM backup_logs
-                    ORDER BY id ASC
-                    """
-                ).fetchall()
-                pre_restore_logs = [
-                    (
-                        str(r[0] or ""),
-                        str(r[1] or ""),
-                        str(r[2] or ""),
-                        str(r[3] or ""),
-                        int(r[4] or 0),
-                        str(r[5] or ""),
-                    ) for r in rows
-                ]
-        except Exception:
-            pre_restore_logs = []
 
         if not enc:
             raise ValueError("請選擇加密備份檔（.db.enc）")
@@ -2180,17 +2176,11 @@ class AppController:
             finally:
                 src_conn.close()
         except Exception as e:
-            try:
-                self._insert_backup_log(
-                    created_at=restore_started_at,
-                    trigger_mode="RESTORE",
-                    status="FAILED",
-                    backup_file=enc,
-                    file_size_bytes=0,
-                    error_message=str(e),
-                )
-            except Exception:
-                pass
+            self._append_worker_backup_log(
+                job_id="restore_backup",
+                status="FAILED",
+                detail=f"started_at={restore_started_at} file={enc} err={e}",
+            )
             self._log_backup_system_event(f"還原加密備份失敗（檔案 {self._fmt_log_val(enc)}，原因：{e}）", level="WARN")
             raise
         finally:
@@ -2200,50 +2190,15 @@ class AppController:
                 except Exception:
                     pass
 
-        # 還原後把「還原前」的 backup_logs 合併回來，避免 MANUAL 記錄被舊備份覆蓋掉
-        try:
-            if pre_restore_logs and self._table_exists("backup_logs"):
-                cur = self.conn.cursor()
-                existing_rows = cur.execute(
-                    """
-                    SELECT created_at, trigger_mode, status, backup_file, file_size_bytes, error_message
-                    FROM backup_logs
-                    """
-                ).fetchall()
-                existing_set = {
-                    (
-                        str(r[0] or ""),
-                        str(r[1] or ""),
-                        str(r[2] or ""),
-                        str(r[3] or ""),
-                        int(r[4] or 0),
-                        str(r[5] or ""),
-                    ) for r in existing_rows
-                }
-                to_insert = [r for r in pre_restore_logs if r not in existing_set]
-                if to_insert:
-                    cur.executemany(
-                        """
-                        INSERT INTO backup_logs (created_at, trigger_mode, status, backup_file, file_size_bytes, error_message)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        to_insert,
-                    )
-                    self.conn.commit()
-        except Exception:
-            pass
-
-        try:
-            self._insert_backup_log(
-                created_at=restore_started_at,
-                trigger_mode="RESTORE",
-                status="SUCCESS",
-                backup_file=enc,
-                file_size_bytes=os.path.getsize(enc) if os.path.isfile(enc) else 0,
-                error_message="",
-            )
-        except Exception:
-            pass
+        self._append_worker_backup_log(
+            job_id="restore_backup",
+            status="SUCCESS",
+            detail=(
+                f"started_at={restore_started_at} "
+                f"file={enc} "
+                f"size={os.path.getsize(enc) if os.path.isfile(enc) else 0}"
+            ),
+        )
         self._log_backup_data_change("BACKUP.RESTORE.ENCRYPTED.SUCCESS", f"還原加密備份成功（檔案 {self._fmt_log_val(enc)}）")
 
     def _parse_hhmm(self, hhmm: str) -> Tuple[int, int]:
@@ -2381,7 +2336,17 @@ class AppController:
                 drive_file_id=drive_file_id,
                 drive_file_name=drive_display_name,
             )
-            self._insert_backup_log(created_at, trigger, "SUCCESS", backup_file_display, size, "")
+            self._append_worker_backup_log(
+                job_id="manual_backup" if manual else "scheduled_backup",
+                status="SUCCESS",
+                detail=(
+                    f"trigger={trigger} "
+                    f"local={int(enable_local)} "
+                    f"drive={int(enable_drive)} "
+                    f"file={backup_file_display} "
+                    f"size={size}"
+                ),
+            )
             self._log_backup_data_change(
                 "BACKUP.RUN.SUCCESS",
                 (
@@ -2407,7 +2372,17 @@ class AppController:
                 drive_file_id="",
                 drive_file_name=drive_display_name if drive_display_name else (os.path.basename(backup_file) if backup_file else ""),
             )
-            self._insert_backup_log(created_at, trigger, "FAILED", backup_file_display, 0, str(e))
+            self._append_worker_backup_log(
+                job_id="manual_backup" if manual else "scheduled_backup",
+                status="FAILED",
+                detail=(
+                    f"trigger={trigger} "
+                    f"local={int(enable_local)} "
+                    f"drive={int(enable_drive)} "
+                    f"file={backup_file_display} "
+                    f"err={e}"
+                ),
+            )
             self._log_backup_system_event(
                 (
                     f"備份失敗（trigger {trigger}，時間 {created_at}，"
@@ -2580,18 +2555,17 @@ class AppController:
                 pass
 
     def list_backup_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
-        lim = max(1, int(limit or 100))
-        cur = self.conn.cursor()
-        cur.execute(
-            """
-            SELECT id, created_at, trigger_mode, status, backup_file, file_size_bytes, error_message
-            FROM backup_logs
-            ORDER BY id DESC
-            LIMIT ?
-            """,
-            (lim,),
-        )
-        return [dict(r) for r in cur.fetchall()]
+        conn = None
+        try:
+            conn = worker_log_db.connect(db_path=self.db_path)
+            worker_log_db.ensure_schema(conn)
+            return worker_log_db.list_backup_logs(conn, limit=limit)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def should_run_scheduled_backup(self, now: Optional[datetime] = None) -> bool:
         s = self.get_backup_settings()

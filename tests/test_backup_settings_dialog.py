@@ -1,34 +1,38 @@
 from unittest.mock import MagicMock
+from pathlib import Path
+from PyQt5.QtCore import Qt
 
 from app.dialogs.backup_settings_dialog import BackupHelpDialog, BackupSettingsDialog, GoogleSettingsDialog, ScheduleSettingsDialog
 
 
 class DummyController:
+    def __init__(self):
+        self._cfg_path = str(Path("app/scheduler/scheduler_config.yaml").resolve())
+
     def get_backup_settings(self):
         return {
-            "enabled": False,
-            "frequency": "daily",
-            "time": "23:00",
-            "weekday": 1,
-            "monthday": 1,
             "keep_latest": 20,
             "local_dir": "",
             "drive_folder_id": "",
             "drive_credentials_path": "",
             "enable_local": True,
             "enable_drive": False,
-            "use_cli_scheduler": False,
-            "last_scheduled_run_at": "",
         }
 
     def get_scheduler_feature_settings(self):
         return {"mail_enabled": True, "backup_enabled": True}
 
+    def get_scheduler_config_path(self):
+        return self._cfg_path
+
+    def save_scheduler_config_path(self, path, *, request_reload=True):
+        self._cfg_path = path
+
     def save_backup_settings(self, _settings):
         return None
 
     def list_backup_logs(self, limit=200):
-        return []
+        return [{"created_at": "2026-04-01 17:10:00", "job_id": "daily_backup", "status": "SUCCESS", "detail": "file=/tmp/x.db.enc"}]
 
     def authorize_google_drive_oauth(self, _client):
         return {"email": "test@example.com"}
@@ -39,11 +43,56 @@ class DummyController:
     def mark_backup_run(self):
         return None
 
+    def _request_worker_reload(self):
+        return None
+
 
 def test_backup_settings_dialog_has_help_button(qtbot):
     dialog = BackupSettingsDialog(DummyController())
     qtbot.addWidget(dialog)
     assert dialog.btn_help_doc.text() == "說明文件"
+    assert "由外部常駐 worker 執行" in dialog.lbl_runtime_summary.text()
+    assert dialog.edt_config_path.isReadOnly() is True
+    assert hasattr(dialog, "_left_form_labels") is True
+
+
+def test_backup_settings_dialog_uses_padding_based_styles(qtbot):
+    dialog = BackupSettingsDialog(DummyController())
+    qtbot.addWidget(dialog)
+    css = dialog.styleSheet()
+    assert "QLineEdit, QSpinBox" in css
+    assert "padding: 8px 10px;" in css
+    assert "QCheckBox" in css
+    assert "QPushButton" in css
+
+
+def test_backup_settings_dialog_support_labels_use_rich_text(qtbot):
+    dialog = BackupSettingsDialog(DummyController())
+    qtbot.addWidget(dialog)
+    assert dialog.lbl_runtime_summary.textFormat() == Qt.RichText
+    assert dialog.lbl_cli_help.textFormat() == Qt.RichText
+    assert dialog.lbl_google_summary.textFormat() == Qt.RichText
+    assert "line-height:1.5" in dialog.lbl_cli_help.text()
+
+
+def test_backup_settings_dialog_buttons_share_rows(qtbot):
+    dialog = BackupSettingsDialog(DummyController())
+    qtbot.addWidget(dialog)
+
+    assert dialog.edt_config_path.parentWidget() is dialog.btn_select_config.parentWidget()
+    assert dialog.lbl_google_summary.parentWidget() is dialog.btn_google_settings.parentWidget()
+    assert dialog.btn_google_settings.parentWidget() is dialog.btn_rotate_cloud_key.parentWidget()
+
+    action_parent = dialog.btn_save.parentWidget()
+    assert dialog.btn_backup_now.parentWidget() is action_parent
+    assert dialog.btn_reload_schedule.parentWidget() is action_parent
+    assert dialog.btn_toggle_backup_schedule.parentWidget() is action_parent
+    assert dialog.btn_restore_encrypted.parentWidget() is action_parent
+    assert dialog.btn_decrypt_help.parentWidget() is action_parent
+    assert dialog.btn_help_doc.parentWidget() is action_parent
+    assert dialog.btn_close.parentWidget() is action_parent
+    assert dialog.btn_select_config.objectName() == "compactButton"
+    assert dialog.btn_google_settings.objectName() == "compactButton"
 
 
 def test_backup_settings_dialog_open_help_document(qtbot, monkeypatch):
@@ -93,7 +142,6 @@ def test_backup_settings_dialog_manual_backup_running_state_toggles(qtbot):
     assert dialog.btn_backup_now.isEnabled() is False
     assert dialog.btn_backup_now.text() == "備份中..."
     assert dialog.btn_save.isEnabled() is False
-    assert dialog.btn_refresh.isEnabled() is False
 
     dialog._set_manual_backup_running(False)
     assert dialog.btn_backup_now.isEnabled() is True
@@ -109,33 +157,12 @@ def test_backup_settings_dialog_format_bytes_human():
     assert BackupSettingsDialog._format_bytes_human(1024 * 1024 * 1024) == "1.0 GB"
 
 
-def test_schedule_settings_dialog_hidden_cli_always_returns_false(qtbot):
-    dialog = ScheduleSettingsDialog(
-        enabled=True,
-        frequency="daily",
-        time_text="20:45",
-        weekday=1,
-        monthday=1,
-        use_cli_scheduler=True,  # 模擬舊設定殘留
-    )
+def test_backup_settings_dialog_log_section_hidden(qtbot):
+    dialog = BackupSettingsDialog(DummyController())
     qtbot.addWidget(dialog)
-
-    values = dialog.get_values()
-    assert values["use_cli_scheduler"] is False
-    assert dialog.chk_use_cli_scheduler.isHidden() is True
-
-
-def test_backup_settings_dialog_runtime_scheduler_status_text():
-    text = BackupSettingsDialog._build_runtime_scheduler_status_text(
-        service_running=True,
-        backup_job_enabled=True,
-        schedule_enabled=True,
-        last_run_at_text="2026-02-23 07:06:25",
-    )
-    assert "排程服務：運行中" in text
-    assert "備份排程：已啟用" in text
-    assert "排程設定：已啟用" in text
-    assert "上次排程執行：2026-02-23 07:06:25" in text
+    assert dialog.lbl_logs_title.isHidden() is True
+    assert dialog.table_logs.isHidden() is True
+    assert dialog.table_logs.rowCount() == 0
 
 
 def test_backup_settings_dialog_google_summary_token_from_secret_store(qtbot, monkeypatch):

@@ -80,6 +80,16 @@ def run_app():
         except Exception:
             pass
 
+    def _safe_delete_qobject(obj, name: str):
+        if obj is None:
+            return
+        try:
+            if hasattr(pyqt_sip, "isdeleted") and pyqt_sip.isdeleted(obj):
+                return
+            obj.deleteLater()
+        except Exception as e:
+            print(f"[WARN] failed to delete {name}: {e}", file=sys.stderr)
+
     app.setStyleSheet("""
         /* === 全域基礎 === */
         QWidget {
@@ -312,11 +322,7 @@ def run_app():
             controller = None
             login_dialog = LoginDialog()
             if login_dialog.exec_() != QDialog.Accepted:
-                try:
-                    if login_dialog is not None:
-                        login_dialog.deleteLater()
-                except Exception as e:
-                    print(f"[WARN] failed to delete login dialog during shutdown: {e}", file=sys.stderr)
+                _safe_delete_qobject(login_dialog, "login dialog during shutdown")
                 _flush_qt_deletes()
                 break  # 使用者取消登入 → 結束程式
 
@@ -331,16 +337,8 @@ def run_app():
             main_window.showMaximized()
 
             app.exec_()
-            try:
-                if main_window is not None:
-                    main_window.deleteLater()
-            except Exception as e:
-                print(f"[WARN] failed to delete main window during shutdown: {e}", file=sys.stderr)
-            try:
-                if login_dialog is not None:
-                    login_dialog.deleteLater()
-            except Exception as e:
-                print(f"[WARN] failed to delete login dialog after app exit: {e}", file=sys.stderr)
+            _safe_delete_qobject(main_window, "main window during shutdown")
+            _safe_delete_qobject(login_dialog, "login dialog after app exit")
             _flush_qt_deletes()
             try:
                 controller.conn.close()

@@ -23,6 +23,13 @@ reports:
       minute: 45
 
 jobs:
+  - id: "daily_backup"
+    enabled: True
+    task: "backup"
+    cron:
+      hour: 11
+      minute: 40
+
   - id: "heartbeat"
     enabled: true
     to:
@@ -89,4 +96,3 @@ jobs:
       day: 7
       hour: 15
       minute: 50
-

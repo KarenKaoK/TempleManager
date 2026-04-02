@@ -495,7 +495,9 @@ def test_drive_backup_uploads_encrypted_file_and_cleans_temp_enc(tmp_path, monke
 
     rows = controller.list_backup_logs(limit=1)
     assert len(rows) == 1
-    assert ".db.enc" in str(rows[0].get("backup_file") or "")
+    assert rows[0].get("job_id") == "manual_backup"
+    assert rows[0].get("status") == "SUCCESS"
+    assert ".db.enc" in str(rows[0].get("detail") or "")
 
 
 def test_rotate_cloud_backup_key_keeps_previous_key(tmp_path, monkeypatch):
@@ -564,14 +566,14 @@ def test_restore_database_from_encrypted_backup(tmp_path, monkeypatch):
     assert controller.get_setting("restore/probe", "") == "ok"
     rows = controller.list_backup_logs(limit=5)
     assert any(
-        str(r.get("trigger_mode") or "") == "RESTORE"
+        str(r.get("job_id") or "") == "restore_backup"
         and str(r.get("status") or "") == "SUCCESS"
-        and str(r.get("backup_file") or "") == str(enc_file)
+        and str(enc_file) in str(r.get("detail") or "")
         for r in rows
     )
 
 
-def test_restore_keeps_existing_manual_backup_logs(tmp_path, monkeypatch):
+def test_restore_writes_worker_backup_log_only(tmp_path, monkeypatch):
     db = tmp_path / "restore_keep_manual.db"
     controller = _new_backup_controller(db)
 
@@ -581,20 +583,8 @@ def test_restore_keeps_existing_manual_backup_logs(tmp_path, monkeypatch):
     monkeypatch.setattr(app_controller_module.secret_store, "delete_secret", lambda k: secret_map.pop(k, None))
     monkeypatch.setattr(app_controller_module.secret_store, "backend_label", lambda: "TestSecretStore")
 
-    # 先在目前 DB 放一筆較新的 MANUAL 記錄（這筆不在還原來源裡）
-    cur = controller.conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO backup_logs (created_at, trigger_mode, status, backup_file, file_size_bytes, error_message)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        ("2026-03-20 10:00:00", "MANUAL", "SUCCESS", "LOCAL:/tmp/latest_manual.db", 12345, ""),
-    )
-    controller.conn.commit()
-
     key = controller._get_or_create_cloud_backup_encryption_key()
 
-    # 還原來源刻意只放舊資料，模擬整庫覆蓋會把新 MANUAL 洗掉的情境
     src_db = tmp_path / "restore_old_source.db"
     sconn = sqlite3.connect(src_db)
     sconn.execute("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT)")
@@ -609,13 +599,6 @@ def test_restore_keeps_existing_manual_backup_logs(tmp_path, monkeypatch):
         )
         """
     )
-    sconn.execute(
-        """
-        INSERT INTO backup_logs (created_at, trigger_mode, status, backup_file, file_size_bytes, error_message)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        ("2026-03-01 08:00:00", "MANUAL", "SUCCESS", "LOCAL:/tmp/old_manual.db", 2222, ""),
-    )
     sconn.commit()
     sconn.close()
 
@@ -627,10 +610,9 @@ def test_restore_keeps_existing_manual_backup_logs(tmp_path, monkeypatch):
 
     controller.restore_database_from_encrypted_backup(str(enc_file))
     rows = controller.list_backup_logs(limit=50)
-    files = {str(r.get("backup_file") or "") for r in rows}
-    assert "LOCAL:/tmp/latest_manual.db" in files
-    assert "LOCAL:/tmp/old_manual.db" in files
     assert any(
-        str(r.get("trigger_mode") or "") == "RESTORE" and str(r.get("status") or "") == "SUCCESS"
+        str(r.get("job_id") or "") == "restore_backup"
+        and str(r.get("status") or "") == "SUCCESS"
+        and str(enc_file) in str(r.get("detail") or "")
         for r in rows
     )
