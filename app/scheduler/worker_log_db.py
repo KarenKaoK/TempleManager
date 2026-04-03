@@ -7,12 +7,14 @@ from pathlib import Path
 from app.config import DATA_DIR
 
 
-def worker_log_db_path() -> str:
+def worker_log_db_path(db_path: str | None = None) -> str:
+    if db_path:
+        return str(Path(db_path).resolve().parent / "worker_logs.db")
     return str(Path(DATA_DIR) / "worker_logs.db")
 
 
-def connect() -> sqlite3.Connection:
-    db_path = Path(worker_log_db_path())
+def connect(db_path: str | None = None) -> sqlite3.Connection:
+    db_path = Path(worker_log_db_path(db_path=db_path))
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -160,6 +162,20 @@ def insert_backup_log(
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+def list_backup_logs(conn: sqlite3.Connection, *, limit: int = 100):
+    lim = max(1, int(limit or 100))
+    rows = conn.execute(
+        """
+        SELECT created_at, job_id, status, detail
+        FROM worker_backup_logs
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (lim,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def upsert_backup_state(
