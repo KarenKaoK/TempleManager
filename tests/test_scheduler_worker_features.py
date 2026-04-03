@@ -10,6 +10,12 @@ def test_create_scheduler_respects_mail_and_backup_feature_flags(monkeypatch):
         "db": {"path": "./app/database/temple.db"},
         "jobs": [
             {
+                "id": "daily_backup",
+                "enabled": True,
+                "task": "backup",
+                "cron": {"hour": 23, "minute": 0},
+            },
+            {
                 "id": "mail_job_1",
                 "enabled": True,
                 "to": ["a@example.com"],
@@ -27,7 +33,7 @@ def test_create_scheduler_respects_mail_and_backup_feature_flags(monkeypatch):
         feature_flags={"mail_enabled": False, "backup_enabled": True},
     )
     job_ids = {j.id for j in sched.get_jobs()}
-    assert "auto_backup_check" in job_ids
+    assert "daily_backup" in job_ids
     assert "mail_job_1" not in job_ids
     assert "reports_cleanup" not in job_ids
     assert runtime["mail_enabled"] is False
@@ -39,6 +45,12 @@ def test_create_scheduler_can_disable_backup_only(monkeypatch):
         "timezone": "Asia/Taipei",
         "db": {"path": "./app/database/temple.db"},
         "jobs": [
+            {
+                "id": "daily_backup",
+                "enabled": True,
+                "task": "backup",
+                "cron": {"hour": 23, "minute": 0},
+            },
             {
                 "id": "mail_job_1",
                 "enabled": True,
@@ -57,7 +69,7 @@ def test_create_scheduler_can_disable_backup_only(monkeypatch):
         feature_flags={"mail_enabled": True, "backup_enabled": False},
     )
     job_ids = {j.id for j in sched.get_jobs()}
-    assert "auto_backup_check" not in job_ids
+    assert "daily_backup" not in job_ids
     assert "mail_job_1" in job_ids
     assert runtime["mail_enabled"] is True
     assert runtime["backup_enabled"] is False

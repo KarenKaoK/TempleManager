@@ -509,7 +509,34 @@ def create_scheduler(
             _log_scheduler_data("SCHEDULER.JOB.SKIP", f"排程工作略過（job_id {job_id}，原因 disabled）")
             return
 
+        task = str(job.get("task", "") or "").strip().lower()
+
         with worker_db_snapshot(job_id, db_path_resolved) as snapshot_db_path:
+            if task == "backup":
+                controller = AppController(db_path=snapshot_db_path)
+                close_error = None
+                try:
+                    result = controller.create_local_backup(manual=False)
+                finally:
+                    try:
+                        controller.conn.close()
+                    except Exception as e:
+                        close_error = e
+                if close_error is not None:
+                    _log_scheduler_system(
+                        f"排程備份後關閉 DB 連線失敗（job_id {job_id}，原因：{close_error}）",
+                        level="WARN",
+                    )
+                _log_scheduler_data(
+                    "SCHEDULER.BACKUP.RUN",
+                    (
+                        f"排程備份執行完成（job_id {job_id}，"
+                        f"backup_file {result.get('backup_file')}，"
+                        f"size {result.get('file_size_bytes', 0)}）"
+                    ),
+                )
+                return
+
             to_emails = [str(x).strip() for x in (job.get("to") or []) if str(x).strip()]
             subject = str(job.get("subject", "")).strip()
             body = str(job.get("body", "")).rstrip()
@@ -658,21 +685,26 @@ def create_scheduler(
                     level="ERROR",
                 )
 
-    if mail_enabled:
-        for job in (cfg.get("jobs") or []):
-            if not bool(job.get("enabled", True)):
-                continue
-            job_id = str(job.get("id", "")).strip()
-            if not job_id:
-                continue
-            cron = job.get("cron") or {}
-            trigger = CronTrigger(timezone=tz, **cron)
-            sched.add_job(run_job, trigger, kwargs={"job_id": job_id}, id=job_id, replace_existing=True)
-            _log_scheduler_data(
-                "SCHEDULER.JOB.REGISTER",
-                f"註冊排程工作（job_id {job_id}，cron {cron}）",
-            )
+    for job in (cfg.get("jobs") or []):
+        if not bool(job.get("enabled", True)):
+            continue
+        job_id = str(job.get("id", "")).strip()
+        if not job_id:
+            continue
+        task = str(job.get("task", "") or "").strip().lower()
+        if task == "backup" and not backup_enabled:
+            continue
+        if task != "backup" and not mail_enabled:
+            continue
+        cron = job.get("cron") or {}
+        trigger = CronTrigger(timezone=tz, **cron)
+        sched.add_job(run_job, trigger, kwargs={"job_id": job_id}, id=job_id, replace_existing=True)
+        _log_scheduler_data(
+            "SCHEDULER.JOB.REGISTER",
+            f"註冊排程工作（job_id {job_id}，cron {cron}）",
+        )
 
+    if mail_enabled:
         cleanup_cfg = ((cfg.get("reports") or {}).get("cleanup") or {})
         if cleanup_cfg.get("enabled", True):
             cleanup_cron = cleanup_cfg.get("cron") or {}
@@ -712,22 +744,7 @@ def create_scheduler(
         print("[INFO] mail jobs disabled by feature flag")
         _log_scheduler_data("SCHEDULER.FEATURE.SKIP", "略過郵件排程（原因：mail_enabled=0）")
 
-    if backup_enabled:
-        sched.add_job(
-            run_backup_schedule_check,
-            IntervalTrigger(minutes=1),
-            kwargs={"db_path": db_path_resolved},
-            id="auto_backup_check",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
-        print("[INFO] auto_backup_check job registered (interval=1m)")
-        _log_scheduler_data(
-            "SCHEDULER.JOB.REGISTER",
-            "註冊排程備份檢查工作（job_id auto_backup_check，trigger interval=1m）",
-        )
-    else:
+    if not backup_enabled:
         print("[INFO] backup job disabled by feature flag")
         _log_scheduler_data("SCHEDULER.FEATURE.SKIP", "略過備份排程（原因：backup_enabled=0）")
 

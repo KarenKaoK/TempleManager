@@ -82,7 +82,7 @@ Temple Manager 適用於 **中小型廟宇**，幫助管理者 **數位化寺廟
 - **主頁表格可讀性**：信眾戶長/戶員清單支援水平捲動，欄位內容過長時可左右查看
 
 ### ✉️ 排程與自動寄信
-- **統一排程服務**：`python -m app.scheduler.worker` 長駐執行，依 `app/scheduler/scheduler_config.yaml` 觸發排程
+- **統一排程服務**：`python -m app.scheduler.worker` 長駐執行，依外部 `scheduler_config.yaml` 觸發報表、寄信與自動備份
 - **自動報表產生**：寄信前自動產出 CSV 報表為附件，無需手動產生
 - **支援多封不同排程信件**：Heartbeat 心跳、每日/每月收支、活動報名狀況、信眾資料表
 - **寄送紀錄寫入 SQLite**：`email_outbox` 表記錄 SENT / FAILED、保留錯誤訊息以供排查
@@ -365,7 +365,7 @@ rm -rf ./temple_old.db
 
 > 開發期注意：若調整到資料表 schema（例如 `activity_signups`、`lighting_signups`、`transactions` 欄位變更），建議直接重建 DB 後再搬資料；目前開發階段不以 migration/ALTER TABLE（含 runtime `ALTER TABLE` fallback）相容舊資料庫為優先。
 
-### 2-2. 啟動自動發信排程
+### 2-2. 啟動外部排程 worker
 
 正式部署請採外部常駐 worker：
 ```bash
@@ -373,7 +373,7 @@ python -m app.scheduler.worker
 ```
 
 - 正式部署以「系統管理 -> 報表排程設定」完成 Gmail 帳密安全儲存，不再依賴 `export GMAIL_*`。
-- 主程式 / EXE 與 worker 已分離；UI 只負責設定，正式排程由外部 worker 獨立執行。
+- 主程式 / EXE 與 worker 已分離；UI 只負責設定與立即備份，自動寄信與自動備份由外部 worker 獨立執行。
 - 首次使用時，系統會將內建模板 `scheduler_config.yaml` 複製到使用者資料目錄（與 DB 同層），也可於 UI 改選其他外部檔案。
 - Windows 建議透過「工作排程器」啟動 `python -m app.scheduler.worker`。
 - 可參考 [`scripts/start_worker.example.bat`](/Users/huangrensyuan/Desktop/codes/TempleManager/scripts/start_worker.example.bat) 作為 Windows 啟動範例；該範例會將 console 輸出額外寫到專案根目錄下的 `worker_stdout.log`。
@@ -495,7 +495,7 @@ macOS 手動設定：
 **系統管理（僅管理員）**
 - 帳號管理：新增帳號（含姓名/經手人顯示名稱）、重設密碼（手動輸入或系統產生臨時密碼；密碼至少 8 碼且不可與帳號相同）
 - 帳號狀態：停用/啟用、刪除（至少保留一位管理員）
-- 資料備份與維護：本機/Google Drive 備份、立即備份、排程設定（內建）、備份紀錄查詢
+- 資料備份與維護：本機/Google Drive 備份、立即備份、外部 worker 排程設定、備份紀錄查詢
 - 安全設定：密碼提醒天數、閒置自動登出分鐘
 - 封面設定：上傳登入封面照片與設定登入標題
 - 審計紀錄：記錄誰在何時對哪個帳號執行重設/刪除/停用等操作
@@ -519,7 +519,7 @@ macOS 手動設定：
 - 工作人員：不可使用。
 
 #### 資料備份與維護
-- 管理員：可設定備份目的地與排程、執行立即備份、查看備份紀錄與錯誤訊息。
+- 管理員：可設定備份目的地與外部 worker 排程、執行立即備份、查看備份紀錄與錯誤訊息。
 - 會計：不可使用。
 - 工作人員：不可使用。
 
@@ -865,13 +865,13 @@ TempleManager/
 #### 資料備份與維護
 - 備份設定與執行（本機 / Google Drive）
 - 備份紀錄查詢與失敗訊息檢視
-- 備份排程（內建）
+- 外部 worker 自動備份
 
 ##### 資料備份
 - 備份目的地：可同時備份到本機 + Google Drive（OAuth）
 - 保留規則：本機與 Drive 都依「保留最新備份數」清理舊檔
 - 雲端加密：上傳至 Drive 前先轉為 `.db.enc`，避免雲端保存明文備份
-- 本機檔案：維持 `.db`（搭配檔案權限與作業系統磁碟加密）
+- 本機檔案：保存為 `.db.enc`
 
 ##### 從雲端下載加密備份後恢復
 1. 先從 Google Drive 下載 `temple_backup_xxx.db.enc` 到本機
@@ -881,30 +881,18 @@ TempleManager/
 5. 還原成功後建議立即執行一次「立即備份」確認狀態
 6. 備份紀錄會新增一筆 `RESTORE`，且原本本機手動/排程紀錄會保留
 
-##### 實際執行邏輯（避免混淆）：
-1. `啟用自動備份`
-   - 代表「允許排程判斷」生效。
-2. `程式內建排程`
-   - 主程式開啟時，依 UI 設定（每日/每週/每月、時間、週幾/幾號）判斷是否執行。
-3. `改用 CLI/作業系統排程（已隱藏）`
-   - 屬相容模式，UI 目前不顯示此選項。
-   - 啟用時：由 OS 排程器呼叫 CLI（適合主程式未開啟）。
-   - CLI 模式下，UI 頻率仍然有效：OS 只負責「呼叫」，真正是否執行仍依 UI 設定（每日/每週/每月、時間、週幾/幾號）。
-   - 因此不會打架，是「OS 觸發 + UI 條件判斷」雙層機制。
-4. `立即備份`
-   - 按下就執行，不看排程時間。
-   - 會依當下勾選目的地備份（本機 / Drive / 雙寫）。
-5. Google Drive 採 OAuth：首次需人工授權一次，後續使用 token 自動續期。
-
-##### 建議配置：
-- 目前建議：使用「程式內建排程」（UI 可設定頻率/時間，操作較簡單）。
-- 主程式持續開啟時（即使登出回登入頁），仍可由程式內排程持續執行。
+##### 實際執行邏輯：
+- `立即備份`：按下就執行，不看排程時間。
+- `自動備份`：由外部 `python -m app.scheduler.worker` 依 `jobs.daily_backup.cron` 執行。
+- `backup` 區塊：只保存備份目的地、保留數、OAuth 路徑與執行狀態。
+- `jobs.daily_backup`：才是自動備份時間來源。
+- Google Drive 採 OAuth：首次需人工授權一次，後續使用 token 自動續期。
 
 ##### 建議設定流程（上線順序）：
 - 步驟 1：先準備 Google OAuth `credentials.json`
 - 步驟 2：先完成系統內備份設定與立即備份驗證
-- 步驟 3：最後到系統內「資料備份」填入目的地、JSON 路徑、資料夾 ID 與保留數量
-- 步驟 4：用「立即備份」驗證一次
+- 步驟 3：到外部 `scheduler_config.yaml` 設定 `jobs.daily_backup.cron`
+- 步驟 4：啟動 `python -m app.scheduler.worker`，再檢查 `worker_logs.db`
 
 ##### Google Drive（OAuth）設定（詳細）：
 1. 第一步：建立 OAuth 憑證
@@ -931,16 +919,6 @@ TempleManager/
    - 在「系統管理 -> 資料備份」勾選 `Google Drive（OAuth）`
    - 填入 `OAuth 憑證 JSON` 與 `Drive 資料夾 ID`
    - 可同時勾選本機備份，形成雙寫
-
-##### CLI / OS 排程（相容模式，UI 目前隱藏）
-- 目前 UI 策略：
-  - 備份功能以「程式內建排程」為主（降低操作複雜度）
-  - `CLI/OS 排程` 模式已先從 UI 隱藏
-  - `schema` 與 `controller` 仍保留相容欄位/設定鍵，後續可恢復進階模式
-- 使用時機：
-  - 主程式未開啟也要自動備份時
-- 注意：
-  - OS 排程器只負責呼叫 CLI，是否真的執行仍依 UI 內儲存的頻率/時間設定判斷
 
 ##### Windows（工作排程器）：
 1. 開啟「工作排程器」-> 建立工作

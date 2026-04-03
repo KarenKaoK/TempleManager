@@ -1,3 +1,4 @@
+from html import escape
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QTimer
 import os
 import sys
@@ -20,6 +21,7 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QGridLayout,
     QWidget,
     QHeaderView,
 )
@@ -81,7 +83,7 @@ class ScheduleSettingsDialog(QDialog):
         form.setFormAlignment(Qt.AlignTop)
         form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
         form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(10)
+        form.setVerticalSpacing(14)
 
         self.chk_enabled = QCheckBox("啟用自動備份")
         form.addRow("自動備份", self.chk_enabled)
@@ -229,6 +231,11 @@ class GoogleSettingsDialog(QDialog):
             if not client_path:
                 QMessageBox.warning(self, "設定錯誤", "請先設定 OAuth 憑證 JSON")
                 return
+            QMessageBox.information(
+                self,
+                "Google 授權",
+                "即將開啟預設瀏覽器完成 Google 授權。\n完成後請回到 TempleManager。",
+            )
             self.btn_google_auth.setEnabled(False)
             self.btn_google_auth.setText("授權中...")
             QApplication.processEvents()
@@ -288,15 +295,9 @@ class BackupSettingsDialog(QDialog):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
-        self._schedule_enabled = False
-        self._schedule_frequency = "daily"
-        self._schedule_time = "23:00"
-        self._schedule_weekday = 1
-        self._schedule_monthday = 1
         self._google_drive_folder_id = ""
         self._google_oauth_client_secret_path = ""
-        self._schedule_use_cli = False
-        self._last_run_at_text = ""
+        self._saved_config_path = ""
         self._backup_job_enabled = True
         self._scheduler_service_running = False
         self._backup_thread = None
@@ -306,138 +307,171 @@ class BackupSettingsDialog(QDialog):
         self._resize_like_main_window(parent)
         self._build_ui()
         self._load_settings()
-        self._reload_logs(limit=80)
         self._log_reload_pending = False
         self._backup_notice_reset_timer = None
-        self._apply_font_safe_heights()
+        self._apply_dialog_styles()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setSpacing(10)
 
         form_box = QWidget()
-        form = QFormLayout(form_box)
+        form = QGridLayout(form_box)
         self._form = form
-        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        form.setFormAlignment(Qt.AlignTop)
-        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(10)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(14)
+        form.setColumnStretch(1, 1)
 
-        self.lbl_schedule_summary = QLabel("")
-        self.lbl_schedule_summary.setWordWrap(True)
-        self.btn_schedule_settings = QPushButton("排程設定")
-        self.btn_schedule_settings.clicked.connect(self._open_schedule_settings_dialog)
-        schedule_row = QHBoxLayout()
-        schedule_row.setContentsMargins(0, 0, 0, 0)
-        schedule_row.setSpacing(8)
-        schedule_row.addWidget(self.lbl_schedule_summary, 1)
-        schedule_row.addWidget(self.btn_schedule_settings)
-        schedule_wrap = QWidget()
-        schedule_wrap.setLayout(schedule_row)
-        form.addRow("排程", schedule_wrap)
+        config_label = QLabel("設定檔路徑")
+        self.edt_config_path = QLineEdit("")
+        self.edt_config_path.setReadOnly(True)
+        self.edt_config_path.setPlaceholderText("scheduler_config.yaml 路徑")
+        self.btn_select_config = QPushButton("選擇檔案")
+        self.btn_select_config.setObjectName("compactButton")
+        self.btn_select_config.clicked.connect(self._select_config_file)
+        config_wrap = QWidget()
+        config_layout = QHBoxLayout(config_wrap)
+        config_layout.setContentsMargins(0, 0, 0, 0)
+        config_layout.setSpacing(10)
+        config_layout.addWidget(self.edt_config_path, 1)
+        config_layout.addWidget(self.btn_select_config, 0)
+        self.btn_select_config.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.btn_select_config.setMinimumWidth(160)
+        self.btn_select_config.setMaximumWidth(220)
+        self._config_wrap = config_wrap
+        form.addWidget(config_label, 0, 0, Qt.AlignRight | Qt.AlignTop)
+        form.addWidget(config_wrap, 0, 1)
 
+        keep_label = QLabel("保留最新備份數")
         self.spin_keep = QSpinBox()
         self.spin_keep.setRange(1, 500)
-        form.addRow("保留最新備份數", self.spin_keep)
+        form.addWidget(keep_label, 1, 0, Qt.AlignRight | Qt.AlignVCenter)
+        form.addWidget(self.spin_keep, 1, 1)
 
+        local_dir_label = QLabel("本機備份路徑")
         self.edt_local_dir = QLineEdit()
         self.edt_local_dir.setPlaceholderText("可留空，使用預設 app/database/backups")
-        form.addRow("本機備份路徑", self.edt_local_dir)
+        form.addWidget(local_dir_label, 2, 0, Qt.AlignRight | Qt.AlignVCenter)
+        form.addWidget(self.edt_local_dir, 2, 1)
 
+        target_label = QLabel("備份目的地")
         self.chk_enable_local = QCheckBox("本機備份")
         self.chk_enable_local.setChecked(True)
         self.chk_enable_drive = QCheckBox("Google Drive（OAuth）")
         target_row = QHBoxLayout()
+        target_row.setContentsMargins(0, 0, 0, 0)
+        target_row.setSpacing(18)
         target_row.addWidget(self.chk_enable_local)
         target_row.addWidget(self.chk_enable_drive)
         target_row.addStretch()
         target_wrap = QWidget()
         target_wrap.setLayout(target_row)
-        form.addRow("備份目的地", target_wrap)
+        target_wrap.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._target_wrap = target_wrap
+        form.addWidget(target_label, 3, 0, Qt.AlignRight | Qt.AlignTop)
+        form.addWidget(target_wrap, 3, 1)
 
+        google_label = QLabel("Google Drive 設定")
         self.lbl_google_summary = QLabel("")
         self.lbl_google_summary.setWordWrap(True)
         self.btn_google_settings = QPushButton("Google 設定")
+        self.btn_google_settings.setObjectName("compactButton")
         self.btn_rotate_cloud_key = QPushButton("更新雲端加密金鑰")
+        self.btn_rotate_cloud_key.setObjectName("compactButton")
         self.btn_google_settings.clicked.connect(self._open_google_settings_dialog)
         self.btn_rotate_cloud_key.clicked.connect(self._rotate_cloud_backup_key)
-        google_row = QHBoxLayout()
-        google_row.setContentsMargins(0, 0, 0, 0)
-        google_row.setSpacing(8)
-        google_row.addWidget(self.lbl_google_summary, 1)
-        google_row.addWidget(self.btn_google_settings)
-        google_row.addWidget(self.btn_rotate_cloud_key)
         google_wrap = QWidget()
-        google_wrap.setLayout(google_row)
-        form.addRow("Google", google_wrap)
+        google_layout = QHBoxLayout(google_wrap)
+        google_layout.setContentsMargins(0, 0, 0, 0)
+        google_layout.setSpacing(10)
+        google_layout.addWidget(self.lbl_google_summary, 1)
+        google_layout.addWidget(self.btn_google_settings, 0)
+        google_layout.addWidget(self.btn_rotate_cloud_key, 0)
+        self.btn_google_settings.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.btn_rotate_cloud_key.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.btn_google_settings.setMinimumWidth(150)
+        self.btn_google_settings.setMaximumWidth(220)
+        self.btn_rotate_cloud_key.setMinimumWidth(190)
+        self.btn_rotate_cloud_key.setMaximumWidth(260)
+        self._google_wrap = google_wrap
+        google_wrap.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        form.addWidget(google_label, 4, 0, Qt.AlignRight | Qt.AlignTop)
+        form.addWidget(google_wrap, 4, 1)
+
+        self._left_form_labels = [
+            config_label,
+            keep_label,
+            local_dir_label,
+            target_label,
+            google_label,
+        ]
+        for lbl in self._left_form_labels:
+            lbl.setProperty("ui_role", "form_label")
 
         root.addWidget(form_box)
+        root.addSpacing(8)
 
-        runner_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backup_runner.py"))
-        py_exec = sys.executable or "python"
-        cli_module_cmd = f"{py_exec} -m app.backup_runner --run-once"
-        cli_file_cmd = f"{py_exec} {runner_path} --run-once"
+        self.lbl_runtime_summary = QLabel("")
+        self.lbl_runtime_summary.setWordWrap(True)
+        self.lbl_runtime_summary.setProperty("ui_role", "support_label")
+        root.addWidget(self.lbl_runtime_summary)
+
         help_text = (
-            "詳細設定流程請按「說明文件」。\n"
-            "自動備份由背景排程服務執行。"
+            "備份排程規則由外部常駐 worker 依 scheduler_config.yaml 執行。\n"
+            "此頁只負責設定備份目的地、手動立即備份與通知 worker reload。"
         )
         self.lbl_cli_help = QLabel(help_text)
         self.lbl_cli_help.setWordWrap(True)
-        self.lbl_cli_help.setStyleSheet("QLabel { color:#6B7280; }")
+        self.lbl_cli_help.setProperty("ui_role", "support_label")
+        self._set_support_label_text(self.lbl_cli_help, help_text)
         root.addWidget(self.lbl_cli_help)
 
-        self.lbl_runtime_scheduler_status = QLabel("")
-        self.lbl_runtime_scheduler_status.setWordWrap(True)
-        self.lbl_runtime_scheduler_status.setStyleSheet("QLabel { color:#6B7280; }")
-        root.addWidget(self.lbl_runtime_scheduler_status)
+        self.lbl_google_summary.setProperty("ui_role", "support_label")
+        self._set_support_label_text(self.lbl_runtime_summary, "")
 
-        row_btn_primary = QHBoxLayout()
+        action_tertiary_wrap = QWidget()
+        action_tertiary = QHBoxLayout(action_tertiary_wrap)
+        action_tertiary.setContentsMargins(0, 0, 0, 0)
+        action_tertiary.setSpacing(10)
+        self.btn_toggle_backup_schedule = QPushButton("停用自動備份")
+        self.btn_reload_schedule = QPushButton("重新載入排程")
         self.btn_save = QPushButton("儲存設定")
         self.btn_backup_now = QPushButton("立即備份")
-        self.btn_refresh = QPushButton("重新整理紀錄")
         self.btn_restore_encrypted = QPushButton("從加密備份還原")
         self.btn_decrypt_help = QPushButton("解密備份說明")
         self.btn_help_doc = QPushButton("說明文件")
         self.btn_close = QPushButton("關閉")
+        self.btn_toggle_backup_schedule.clicked.connect(self._toggle_backup_schedule)
+        self.btn_reload_schedule.clicked.connect(self._reload_schedule)
         self.btn_save.clicked.connect(self._save_settings)
         self.btn_backup_now.clicked.connect(self._run_manual_backup)
-        self.btn_refresh.clicked.connect(lambda: self._reload_logs(auto_resize=True, limit=200))
         self.btn_restore_encrypted.clicked.connect(self._restore_from_encrypted_backup)
         self.btn_decrypt_help.clicked.connect(self._open_decrypt_help_document)
         self.btn_help_doc.clicked.connect(self._open_help_document)
         self.btn_close.clicked.connect(self.accept)
-        row_btn_primary.addWidget(self.btn_save)
-        row_btn_primary.addWidget(self.btn_backup_now)
-        row_btn_primary.addWidget(self.btn_refresh)
-        row_btn_primary.addWidget(self.btn_restore_encrypted)
-        row_btn_primary.addWidget(self.btn_decrypt_help)
-        row_btn_primary.addStretch()
-        root.addLayout(row_btn_primary)
-
-        row_btn_secondary = QHBoxLayout()
-        row_btn_secondary.addWidget(self.btn_help_doc)
-        row_btn_secondary.addStretch()
-        row_btn_secondary.addWidget(self.btn_close)
-        root.addLayout(row_btn_secondary)
+        action_tertiary.addWidget(self.btn_save)
+        action_tertiary.addWidget(self.btn_backup_now)
+        action_tertiary.addWidget(self.btn_reload_schedule)
+        action_tertiary.addWidget(self.btn_toggle_backup_schedule)
+        action_tertiary.addWidget(self.btn_restore_encrypted)
+        action_tertiary.addWidget(self.btn_decrypt_help)
+        action_tertiary.addWidget(self.btn_help_doc)
+        action_tertiary.addStretch()
+        action_tertiary.addWidget(self.btn_close)
+        self._action_bar = action_tertiary_wrap
+        root.addWidget(action_tertiary_wrap)
 
         self.lbl_backup_notice = QLabel("")
         self.lbl_backup_notice.setWordWrap(True)
-        self.lbl_backup_notice.setStyleSheet("QLabel { color:#6B7280; }")
+        self.lbl_backup_notice.setProperty("ui_role", "support_label")
+        self._set_support_label_text(self.lbl_backup_notice, "")
         root.addWidget(self.lbl_backup_notice)
 
-        root.addWidget(QLabel("備份紀錄"))
-        self.table_logs = QTableWidget(0, 6)
-        self.table_logs.setHorizontalHeaderLabels(["時間", "觸發", "狀態", "檔案", "大小", "錯誤訊息"])
-        self.table_logs.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table_logs.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table_logs.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table_logs.horizontalHeader().setStretchLastSection(False)
-        self.table_logs.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.table_logs.setTextElideMode(Qt.ElideNone)
-        self.table_logs.verticalHeader().setDefaultSectionSize(30)
-        self.table_logs.setMinimumHeight(260)
-        root.addWidget(self.table_logs, 1)
+        self.lbl_logs_title = QLabel("備份紀錄")
+        self.lbl_logs_title.hide()
+        self.table_logs = QTableWidget(0, 4)
+        self.table_logs.hide()
 
         self._apply_form_field_width_policy()
 
@@ -448,67 +482,45 @@ class BackupSettingsDialog(QDialog):
         expand_widgets = [
             self.spin_keep,
             self.btn_google_settings,
-            self.btn_schedule_settings,
         ]
         for w in expand_widgets:
             sp = w.sizePolicy()
             sp.setHorizontalPolicy(QSizePolicy.Expanding)
             w.setSizePolicy(sp)
 
-        # 下拉與數字欄給最小寬度，避免只顯示 1~2 個字
         self.spin_keep.setMinimumWidth(170)
+        self.edt_config_path.setMinimumWidth(520)
 
-    def _apply_font_safe_heights(self):
-        """
-        依目前字體大小動態撐高控制項，避免字體放大後輸入框吃字。
-        """
-        fm_h = max(18, self.fontMetrics().height())
-        line_h = fm_h + 16
-        btn_h = fm_h + 14
+    def _apply_dialog_styles(self):
+        self.setStyleSheet("""
+            QLineEdit, QSpinBox {
+                padding: 8px 10px;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 24px;
+            }
+            QCheckBox {
+                spacing: 8px;
+                padding: 6px 0;
+            }
+            QPushButton {
+                padding: 8px 14px;
+            }
+            QPushButton#compactButton {
+                padding: 6px 12px;
+            }
+            QLabel[ui_role="form_label"] {
+                padding: 6px 0;
+            }
+            QLabel[ui_role="support_label"] {
+                color: #6B7280;
+            }
+        """)
 
-        line_like = [
-            self.edt_local_dir,
-            self.spin_keep,
-        ]
-        for w in line_like:
-            w.setMinimumHeight(max(w.minimumHeight(), line_h))
-
-        controls = [
-            self.btn_google_settings,
-            self.btn_schedule_settings,
-            self.btn_rotate_cloud_key,
-            self.btn_save,
-            self.btn_backup_now,
-            self.btn_refresh,
-            self.btn_help_doc,
-            self.btn_close,
-            self.lbl_backup_notice,
-            self.lbl_runtime_scheduler_status,
-        ]
-        for b in controls:
-            if hasattr(b, "setMinimumHeight"):
-                b.setMinimumHeight(max(b.minimumHeight(), btn_h))
-        self.lbl_google_summary.setMinimumHeight(max(self.lbl_google_summary.minimumHeight(), line_h))
-        self.lbl_schedule_summary.setMinimumHeight(max(self.lbl_schedule_summary.minimumHeight(), line_h))
-
-        # 同步調整左側標籤欄，避免字體放大後重疊
-        max_label_w = 0
-        for row in range(self._form.rowCount()):
-            item = self._form.itemAt(row, QFormLayout.LabelRole)
-            if not item or not item.widget():
-                continue
-            lbl = item.widget()
-            lbl.setMinimumHeight(max(lbl.minimumHeight(), line_h))
-            try:
-                max_label_w = max(max_label_w, lbl.fontMetrics().horizontalAdvance(lbl.text()))
-            except Exception:
-                pass
-        if max_label_w > 0:
-            target_label_w = min(320, max(150, max_label_w + 20))
-            for row in range(self._form.rowCount()):
-                item = self._form.itemAt(row, QFormLayout.LabelRole)
-                if item and item.widget():
-                    item.widget().setMinimumWidth(target_label_w)
+    def _set_support_label_text(self, label: QLabel, text: str):
+        html = escape(text or "").replace("\n", "<br>")
+        label.setTextFormat(Qt.RichText)
+        label.setText(f"<div style='line-height:1.5; color:#6B7280;'>{html}</div>")
 
     def _resize_like_main_window(self, parent):
         """
@@ -548,13 +560,6 @@ class BackupSettingsDialog(QDialog):
 
     def _load_settings(self):
         s = self.controller.get_backup_settings()
-        self._schedule_enabled = bool(s.get("enabled"))
-        self._schedule_frequency = str(s.get("frequency", "daily"))
-        self._schedule_time = str(s.get("time", "23:00"))
-        self._schedule_weekday = int(s.get("weekday", 1))
-        self._schedule_monthday = int(s.get("monthday", 1))
-        self._schedule_use_cli = bool(s.get("use_cli_scheduler"))
-        self._last_run_at_text = str(s.get("last_scheduled_run_at", "") or "")
         feature_getter = getattr(self.controller, "get_scheduler_feature_settings", None)
         if callable(feature_getter):
             try:
@@ -569,9 +574,15 @@ class BackupSettingsDialog(QDialog):
         self.chk_enable_drive.setChecked(bool(s.get("enable_drive", False)))
         self._google_oauth_client_secret_path = str(s.get("drive_credentials_path", ""))
         self._google_drive_folder_id = str(s.get("drive_folder_id", ""))
+        cfg_getter = getattr(self.controller, "get_scheduler_config_path", None)
+        if callable(cfg_getter):
+            try:
+                self._saved_config_path = str(cfg_getter() or "")
+            except Exception:
+                self._saved_config_path = ""
+        self.edt_config_path.setText(self._saved_config_path)
         self._update_google_summary()
-        self._update_schedule_summary()
-        self._update_runtime_scheduler_status()
+        self._refresh_scheduler_status()
 
     def _set_combo_data(self, combo: QComboBox, value):
         for i in range(combo.count()):
@@ -581,67 +592,49 @@ class BackupSettingsDialog(QDialog):
         if combo.count() > 0:
             combo.setCurrentIndex(0)
 
-    def _weekday_label(self, weekday: int) -> str:
-        mapping = {1: "週一", 2: "週二", 3: "週三", 4: "週四", 5: "週五", 6: "週六", 7: "週日"}
-        return mapping.get(int(weekday or 1), "週一")
-
-    def _frequency_label(self, frequency: str) -> str:
-        mapping = {"daily": "每日", "weekly": "每週", "monthly": "每月"}
-        return mapping.get(frequency or "daily", "每日")
-
-    def _update_schedule_summary(self):
-        freq_label = self._frequency_label(self._schedule_frequency)
-        enabled_text = "已啟用" if self._schedule_enabled else "未啟用"
-        if self._schedule_frequency == "weekly":
-            detail = f"{freq_label} {self._weekday_label(self._schedule_weekday)} {self._schedule_time}"
-        elif self._schedule_frequency == "monthly":
-            detail = f"{freq_label} 每月 {self._schedule_monthday} 日 {self._schedule_time}"
-        else:
-            detail = f"{freq_label} {self._schedule_time}"
-        mode_text = "CLI/OS 排程" if self._schedule_use_cli else "程式內建排程"
-        self.lbl_schedule_summary.setText(f"{enabled_text}｜{detail}｜{mode_text}")
-
-    @staticmethod
-    def _build_runtime_scheduler_status_text(service_running: bool, backup_job_enabled: bool, schedule_enabled: bool, last_run_at_text: str) -> str:
-        service_text = "運行中" if service_running else "未運行"
-        backup_text = "已啟用" if backup_job_enabled else "未啟用"
-        enabled_text = "已啟用" if schedule_enabled else "未啟用"
-        last_text = (last_run_at_text or "").strip() or "無"
-        return f"排程服務：{service_text}｜備份排程：{backup_text}｜排程設定：{enabled_text}｜上次排程執行：{last_text}"
-
-    def _update_runtime_scheduler_status(self):
-        app = QApplication.instance()
-        svc = getattr(app, "scheduler_service", None) if app is not None else None
-        self._scheduler_service_running = bool(svc is not None and getattr(svc, "is_running", False))
-        text = self._build_runtime_scheduler_status_text(
-            service_running=bool(self._scheduler_service_running),
-            backup_job_enabled=bool(self._backup_job_enabled),
-            schedule_enabled=bool(self._schedule_enabled),
-            last_run_at_text=self._last_run_at_text,
+    def _refresh_scheduler_status(self):
+        enabled_text = "已啟用" if self._backup_job_enabled else "未啟用"
+        self.btn_toggle_backup_schedule.setText("停用自動備份" if self._backup_job_enabled else "啟用自動備份")
+        self.edt_config_path.setToolTip(self.edt_config_path.text() or "")
+        self._set_support_label_text(
+            self.lbl_runtime_summary, f"由外部常駐 worker 執行｜自動備份：{enabled_text}"
         )
-        self.lbl_runtime_scheduler_status.setText(text)
 
-    def _open_schedule_settings_dialog(self):
-        dialog = ScheduleSettingsDialog(
-            enabled=self._schedule_enabled,
-            frequency=self._schedule_frequency,
-            time_text=self._schedule_time,
-            weekday=self._schedule_weekday,
-            monthday=self._schedule_monthday,
-            use_cli_scheduler=self._schedule_use_cli,
-            parent=self,
+    def _select_config_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "選擇 scheduler_config.yaml",
+            self.edt_config_path.text() or "",
+            "YAML Files (*.yaml *.yml);;All Files (*)",
         )
-        if dialog.exec_() != QDialog.Accepted:
+        if not path:
             return
-        values = dialog.get_values()
-        self._schedule_enabled = bool(values.get("enabled"))
-        self._schedule_frequency = str(values.get("frequency", "daily"))
-        self._schedule_time = str(values.get("time", "23:00"))
-        self._schedule_weekday = int(values.get("weekday", 1))
-        self._schedule_monthday = int(values.get("monthday", 1))
-        self._schedule_use_cli = bool(values.get("use_cli_scheduler"))
-        self._update_schedule_summary()
-        self._update_runtime_scheduler_status()
+        self.edt_config_path.setText(os.path.abspath(path))
+
+    def _toggle_backup_schedule(self):
+        saver = getattr(self.controller, "save_scheduler_feature_settings", None)
+        if not callable(saver):
+            QMessageBox.warning(self, "操作失敗", "目前控制器不支援自動備份排程設定。")
+            return
+        try:
+            saver({"mail_enabled": True, "backup_enabled": not self._backup_job_enabled})
+        except Exception as e:
+            QMessageBox.warning(self, "操作失敗", str(e))
+            return
+        self._backup_job_enabled = not self._backup_job_enabled
+        self._refresh_scheduler_status()
+
+    def _reload_schedule(self):
+        requester = getattr(self.controller, "_request_worker_reload", None)
+        if not callable(requester):
+            QMessageBox.warning(self, "操作失敗", "目前控制器不支援重新載入排程。")
+            return
+        try:
+            requester()
+        except Exception as e:
+            QMessageBox.warning(self, "操作失敗", str(e))
+            return
+        QMessageBox.information(self, "完成", "已通知背景 worker 重新載入排程設定。")
 
     def _update_google_summary(self):
         cred_text = "已設定" if (self._google_oauth_client_secret_path or "").strip() else "未設定"
@@ -663,8 +656,12 @@ class BackupSettingsDialog(QDialog):
             except Exception:
                 key_text = "未設定"
         folder_text = self._google_drive_folder_id if (self._google_drive_folder_id or "").strip() else "未設定"
-        self.lbl_google_summary.setText(
-            f"憑證：{cred_text}｜Token：{token_text}｜雲端加密金鑰：{key_text}｜資料夾：{folder_text}"
+        self._set_support_label_text(
+            self.lbl_google_summary,
+            f"憑證：{cred_text}\n"
+            f"Token：{token_text}\n"
+            f"雲端加密金鑰：{key_text}\n"
+            f"資料夾：{folder_text}",
         )
 
     def _open_google_settings_dialog(self):
@@ -731,18 +728,12 @@ class BackupSettingsDialog(QDialog):
 
     def _build_settings_payload(self) -> dict:
         return {
-            "enabled": self._schedule_enabled,
-            "frequency": self._schedule_frequency,
-            "time": self._schedule_time,
-            "weekday": self._schedule_weekday,
-            "monthday": self._schedule_monthday,
             "keep_latest": int(self.spin_keep.value()),
             "local_dir": (self.edt_local_dir.text() or "").strip(),
             "enable_local": self.chk_enable_local.isChecked(),
             "enable_drive": self.chk_enable_drive.isChecked(),
             "drive_credentials_path": (self._google_oauth_client_secret_path or "").strip(),
             "drive_folder_id": (self._google_drive_folder_id or "").strip(),
-            "use_cli_scheduler": self._schedule_use_cli,
         }
 
     def _save_settings(self, show_success: bool = True) -> bool:
@@ -755,7 +746,14 @@ class BackupSettingsDialog(QDialog):
                 return False
 
             payload = self._build_settings_payload()
+            cfg_path = os.path.abspath(self.edt_config_path.text() or "")
+            path_saver = getattr(self.controller, "save_scheduler_config_path", None)
+            reload_requester = getattr(self.controller, "_request_worker_reload", None)
             self.controller.save_backup_settings(payload)
+            if callable(path_saver) and cfg_path:
+                path_saver(cfg_path, request_reload=False)
+            if callable(reload_requester):
+                reload_requester()
             if show_success:
                 QMessageBox.information(self, "成功", "備份設定已儲存")
             return True
@@ -794,15 +792,19 @@ class BackupSettingsDialog(QDialog):
     def _on_manual_backup_finished(self, result: dict):
         # 手動備份成功後，也標記本期已完成，避免同分鐘排程再跑一次
         mark_run = getattr(self.controller, "mark_backup_run", None)
+        mark_run_error = ""
         if callable(mark_run):
             try:
                 mark_run()
-            except Exception:
-                pass
+            except Exception as e:
+                mark_run_error = str(e)
         self._set_manual_backup_running(False)
         self._show_backup_notice(
-            f"備份完成：{result.get('backup_file','')}（{result.get('file_size_bytes',0)} bytes）",
-            is_error=False,
+            (
+                f"備份完成：{result.get('backup_file','')}（{result.get('file_size_bytes',0)} bytes）"
+                + (f"；更新執行時間失敗：{mark_run_error}" if mark_run_error else "")
+            ),
+            is_error=bool(mark_run_error),
         )
         self._schedule_log_reload()
 
@@ -813,23 +815,20 @@ class BackupSettingsDialog(QDialog):
         QMessageBox.warning(self, "備份失敗", error_text)
 
     def _show_backup_notice(self, text: str, is_error: bool = False):
-        self.lbl_backup_notice.setText(text or "")
         color = "#B91C1C" if is_error else "#065F46"
-        self.lbl_backup_notice.setStyleSheet(f"QLabel {{ color:{color}; }}")
+        self.lbl_backup_notice.setTextFormat(Qt.RichText)
+        self.lbl_backup_notice.setText(
+            f"<div style='line-height:1.5; color:{color};'>{escape(text or '')}</div>"
+        )
         if self._backup_notice_reset_timer is None:
             self._backup_notice_reset_timer = QTimer(self)
             self._backup_notice_reset_timer.setSingleShot(True)
             self._backup_notice_reset_timer.timeout.connect(self._clear_backup_notice)
         self._backup_notice_reset_timer.start(8000)
-        try:
-            self._last_run_at_text = str((self.controller.get_backup_settings() or {}).get("last_scheduled_run_at", "") or "")
-        except Exception:
-            pass
-        self._update_runtime_scheduler_status()
+        self._refresh_scheduler_status()
 
     def _clear_backup_notice(self):
-        self.lbl_backup_notice.setText("")
-        self.lbl_backup_notice.setStyleSheet("QLabel { color:#6B7280; }")
+        self._set_support_label_text(self.lbl_backup_notice, "")
 
     def _schedule_log_reload(self):
         if self._log_reload_pending:
@@ -843,15 +842,9 @@ class BackupSettingsDialog(QDialog):
 
     def _cleanup_manual_backup_thread(self):
         if self._backup_worker is not None:
-            try:
-                self._backup_worker.deleteLater()
-            except Exception:
-                pass
+            self._backup_worker.deleteLater()
         if self._backup_thread is not None:
-            try:
-                self._backup_thread.deleteLater()
-            except Exception:
-                pass
+            self._backup_thread.deleteLater()
         self._backup_worker = None
         self._backup_thread = None
 
@@ -859,23 +852,23 @@ class BackupSettingsDialog(QDialog):
         self._backup_running = bool(running)
         self.btn_backup_now.setEnabled(not running)
         self.btn_save.setEnabled(not running)
-        self.btn_refresh.setEnabled(not running)
         self.btn_decrypt_help.setEnabled(not running)
         self.btn_restore_encrypted.setEnabled(not running)
         self.btn_backup_now.setText("備份中..." if running else "立即備份")
 
     def _reload_logs(self, auto_resize: bool = True, limit: int = 200):
+        if not hasattr(self, "table_logs") or self.table_logs is None:
+            return
+        if self.table_logs.isHidden():
+            return
         rows = self.controller.list_backup_logs(limit=limit)
         self.table_logs.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            size_bytes = r.get("file_size_bytes")
             vals = [
                 str(r.get("created_at") or ""),
-                str(r.get("trigger_mode") or ""),
+                str(r.get("job_id") or ""),
                 str(r.get("status") or ""),
-                str(r.get("backup_file") or ""),
-                self._format_bytes_human(size_bytes),
-                str(r.get("error_message") or ""),
+                str(r.get("detail") or ""),
             ]
             for j, v in enumerate(vals):
                 self.table_logs.setItem(i, j, QTableWidgetItem(v))
@@ -909,10 +902,6 @@ class BackupSettingsDialog(QDialog):
         dialog.exec_()
 
     def _build_help_document_html(self) -> str:
-        runner_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backup_runner.py"))
-        py_exec = sys.executable or "python"
-        cli_module_cmd = f"{py_exec} -m app.backup_runner --run-once"
-        cli_file_cmd = f"{py_exec} {runner_path} --run-once"
         return f"""
 <style>
   body {{ line-height: 1.5; margin: 0; padding: 0 0 18px 0; }}
@@ -924,8 +913,7 @@ class BackupSettingsDialog(QDialog):
 <h2>資料備份說明文件</h2>
 <h3>1. 備份邏輯</h3>
 <ol>
-  <li><b>啟用自動備份</b>：代表允許排程判斷生效。</li>
-  <li><b>程式內建排程</b>：主程式開啟時，由系統依 UI 設定（每日/每週/每月、時間、週幾/幾號）判斷是否執行。</li>
+  <li><b>外部常駐 worker</b>：自動備份由 worker 依 <code>scheduler_config.yaml</code> 執行，不依賴主程式是否開啟。</li>
   <li><b>立即備份</b>：按下就執行，不看排程時間，依當下勾選目的地備份（本機 / Drive / 雙寫）。</li>
   <li><b>雲端加密</b>：若啟用 Google Drive，上傳前會先轉為 <code>.db.enc</code> 再上傳；本機仍保留 <code>.db</code>。</li>
   <li><b>還原</b>：可從 <code>.db.enc</code> 還原到目前資料庫（會覆蓋現有資料）。</li>
@@ -935,9 +923,10 @@ class BackupSettingsDialog(QDialog):
 <h3>2. 建議設定流程（先後順序）</h3>
 <ol>
   <li>步驟 1：先完成 Google OAuth 設定取得credentials.json</li>
-  <li>步驟 2：回到系統內填入 JSON 路徑、資料夾 ID、目的地與保留數量</li>
-  <li>步驟 3：按「Google 授權（首次）」</li>
-  <li>步驟 4：執行「立即備份」驗證一次</li>
+  <li>步驟 2：回到系統內設定 scheduler_config.yaml 路徑、JSON 路徑、資料夾 ID、目的地與保留數量</li>
+  <li>步驟 3：按「Google 授權（首次）」並儲存設定</li>
+  <li>步驟 4：通知 worker reload，或重新啟動 worker</li>
+  <li>步驟 5：執行「立即備份」驗證一次</li>
 </ol>
 
 <h3>3. Google Drive OAuth 設定</h3>
