@@ -341,6 +341,17 @@ def run_app():
             _safe_delete_qobject(login_dialog, "login dialog after app exit")
             _flush_qt_deletes()
             try:
+                if main_window is not None:
+                    main_window.deleteLater()
+            except Exception as e:
+                print(f"[WARN] failed to delete main window during shutdown: {e}", file=sys.stderr)
+            try:
+                if login_dialog is not None:
+                    login_dialog.deleteLater()
+            except Exception as e:
+                print(f"[WARN] failed to delete login dialog after app exit: {e}", file=sys.stderr)
+            _flush_qt_deletes()
+            try:
                 controller.conn.close()
             except Exception as e:
                 print(f"[WARN] failed to close controller connection: {e}", file=sys.stderr)
