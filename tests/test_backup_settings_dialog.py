@@ -187,7 +187,11 @@ def test_google_settings_dialog_authorize_button_state_restored(qtbot, monkeypat
     )
     qtbot.addWidget(dialog)
 
-    monkeypatch.setattr("app.dialogs.backup_settings_dialog.QMessageBox.information", lambda *a, **k: None)
+    info_calls = []
+    monkeypatch.setattr(
+        "app.dialogs.backup_settings_dialog.QMessageBox.information",
+        lambda *a, **k: info_calls.append((a, k)),
+    )
     monkeypatch.setattr("app.dialogs.backup_settings_dialog.QMessageBox.warning", lambda *a, **k: None)
 
     dialog.btn_google_auth.setText("Google 授權（首次）")
@@ -195,3 +199,4 @@ def test_google_settings_dialog_authorize_button_state_restored(qtbot, monkeypat
 
     assert dialog.btn_google_auth.isEnabled() is True
     assert dialog.btn_google_auth.text() == "Google 授權（首次）"
+    assert any("即將開啟預設瀏覽器" in str(args[2]) for args, _kwargs in info_calls)

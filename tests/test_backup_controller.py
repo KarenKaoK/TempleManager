@@ -36,11 +36,21 @@ def test_backup_defaults_and_save(tmp_path, monkeypatch):
     monkeypatch.setattr(app_controller_module.worker_log_db, "request_reload", lambda _conn: reload_calls.append("backup") or len(reload_calls))
     db = tmp_path / "backup_defaults.db"
     controller = _new_backup_controller(db)
+    cfg_path = tmp_path / "scheduler_config.yaml"
+    controller.save_scheduler_config_path(str(cfg_path), request_reload=False)
+    cfg_path.write_text(
+        "version: 1\n"
+        "jobs:\n"
+        "  - id: daily_backup\n"
+        "    enabled: false\n"
+        "    task: backup\n"
+        "    cron:\n"
+        "      hour: 23\n"
+        "      minute: 0\n",
+        encoding="utf-8",
+    )
     defaults = controller.get_backup_settings()
-    assert defaults["enabled"] is False
-    assert defaults["frequency"] == "daily"
     assert defaults["keep_latest"] == 20
-    assert defaults["use_cli_scheduler"] is False
     assert defaults["enable_local"] is True
     assert defaults["enable_drive"] is False
     assert defaults["drive_credentials_path"] == ""
@@ -48,28 +58,27 @@ def test_backup_defaults_and_save(tmp_path, monkeypatch):
 
     controller.save_backup_settings(
         {
-            "enabled": True,
-            "frequency": "weekly",
-            "time": "22:30",
-            "weekday": 5,
-            "monthday": 8,
             "keep_latest": 7,
             "local_dir": str(tmp_path / "bkp"),
             "drive_folder_id": "folder_x",
             "drive_credentials_path": "/tmp/credentials.json",
             "enable_local": True,
             "enable_drive": False,
-            "use_cli_scheduler": True,
         }
     )
+    cfg_text = cfg_path.read_text(encoding="utf-8")
+    backup_block = cfg_text.split("backup:\n", 1)[1]
+    assert "backup:" in cfg_text
+    assert "keep_latest: 7" in cfg_text
+    assert "drive_folder_id: folder_x" in cfg_text
+    assert "drive_credentials_path: /tmp/credentials.json" in cfg_text
+    assert "frequency:" not in backup_block
+    assert "weekday:" not in backup_block
+    assert "monthday:" not in backup_block
+    assert "use_cli_scheduler:" not in backup_block
     data = controller.get_backup_settings()
-    assert data["enabled"] is True
-    assert data["frequency"] == "weekly"
-    assert data["time"] == "22:30"
-    assert data["weekday"] == 5
     assert data["keep_latest"] == 7
     assert data["drive_folder_id"] == "folder_x"
-    assert data["use_cli_scheduler"] is True
     assert data["drive_credentials_path"] == "/tmp/credentials.json"
     assert data["enable_local"] is True
     assert data["enable_drive"] is False
@@ -79,12 +88,69 @@ def test_backup_defaults_and_save(tmp_path, monkeypatch):
     )
     assert reload_calls == ["backup"]
 
-def test_backup_settings_read_drive_credentials_path(tmp_path):
-    db = tmp_path / "backup_legacy_path.db"
+def test_backup_settings_read_drive_credentials_path_from_yaml(tmp_path):
+    db = tmp_path / "backup_yaml_path.db"
     controller = _new_backup_controller(db)
-    controller.set_setting("backup/drive_credentials_path", "/tmp/credentials.json")
+    cfg_path = tmp_path / "scheduler_config.yaml"
+    controller.save_scheduler_config_path(str(cfg_path), request_reload=False)
+    cfg_path.write_text(
+        "version: 1\nbackup:\n  drive_credentials_path: /tmp/credentials.json\n",
+        encoding="utf-8",
+    )
     data = controller.get_backup_settings()
     assert data["drive_credentials_path"] == "/tmp/credentials.json"
+
+
+def test_backup_settings_do_not_read_legacy_db_values(tmp_path):
+    db = tmp_path / "backup_ignore_legacy.db"
+    controller = _new_backup_controller(db)
+    cfg_path = tmp_path / "scheduler_config.yaml"
+    controller.save_scheduler_config_path(str(cfg_path), request_reload=False)
+    cfg_path.write_text("version: 1\n", encoding="utf-8")
+
+    controller.set_setting("backup/keep_latest", "99")
+    controller.set_setting("backup/local_dir", "/tmp/legacy-dir")
+    controller.set_setting("backup/enable_local", "0")
+    controller.set_setting("backup/enable_drive", "1")
+
+    data = controller.get_backup_settings()
+    assert data["keep_latest"] == 20
+    assert data["local_dir"] == ""
+    assert data["enable_local"] is True
+    assert data["enable_drive"] is False
+
+
+def test_backup_settings_save_does_not_write_legacy_db_values(tmp_path, monkeypatch):
+    logs = _mock_backup_logs(monkeypatch)
+    reload_calls = []
+    monkeypatch.setattr(app_controller_module.worker_log_db, "connect", lambda: object())
+    monkeypatch.setattr(app_controller_module.worker_log_db, "ensure_schema", lambda _conn: None)
+    monkeypatch.setattr(app_controller_module.worker_log_db, "request_reload", lambda _conn: reload_calls.append("backup") or len(reload_calls))
+    db = tmp_path / "backup_yaml_only.db"
+    controller = _new_backup_controller(db)
+    cfg_path = tmp_path / "scheduler_config.yaml"
+    controller.save_scheduler_config_path(str(cfg_path), request_reload=False)
+
+    controller.save_backup_settings(
+        {
+            "keep_latest": 3,
+            "local_dir": str(tmp_path / "yaml-backups"),
+            "drive_folder_id": "yaml-folder",
+            "drive_credentials_path": "/tmp/yaml-credentials.json",
+            "enable_local": False,
+            "enable_drive": True,
+        }
+    )
+
+    assert controller.get_setting("backup/keep_latest", "") == ""
+    assert controller.get_setting("backup/local_dir", "") == ""
+    assert controller.get_setting("backup/enable_local", "") == ""
+    assert controller.get_setting("backup/enable_drive", "") == ""
+    assert any(
+        call["kwargs"].get("action") == "BACKUP.SETTINGS.UPDATE"
+        for call in logs["data"]
+    )
+    assert reload_calls == ["backup"]
 
 
 def test_create_local_backup_and_retention(tmp_path, monkeypatch):
@@ -156,13 +222,21 @@ def test_create_local_backup_without_target_writes_system_log(tmp_path, monkeypa
 def test_should_run_scheduled_backup(tmp_path):
     db = tmp_path / "backup_schedule.db"
     controller = _new_backup_controller(db)
+    cfg_path = tmp_path / "scheduler_config.yaml"
+    controller.save_scheduler_config_path(str(cfg_path), request_reload=False)
+    cfg_path.write_text(
+        "version: 1\n"
+        "jobs:\n"
+        "  - id: daily_backup\n"
+        "    enabled: true\n"
+        "    task: backup\n"
+        "    cron:\n"
+        "      hour: 12\n"
+        "      minute: 0\n",
+        encoding="utf-8",
+    )
     controller.save_backup_settings(
         {
-            "enabled": True,
-            "frequency": "daily",
-            "time": "12:00",
-            "weekday": 1,
-            "monthday": 1,
             "keep_latest": 20,
             "local_dir": str(tmp_path / "backups"),
         }
@@ -177,6 +251,19 @@ def test_should_run_scheduled_backup(tmp_path):
 def test_run_scheduled_backup_once(tmp_path):
     db = tmp_path / "backup_schedule_run_once.db"
     controller = _new_backup_controller(db)
+    cfg_path = tmp_path / "scheduler_config.yaml"
+    controller.save_scheduler_config_path(str(cfg_path), request_reload=False)
+    cfg_path.write_text(
+        "version: 1\n"
+        "jobs:\n"
+        "  - id: daily_backup\n"
+        "    enabled: true\n"
+        "    task: backup\n"
+        "    cron:\n"
+        "      hour: 12\n"
+        "      minute: 0\n",
+        encoding="utf-8",
+    )
     mp = pytest.MonkeyPatch()
     secret_map = {}
     mp.setattr(app_controller_module.secret_store, "get_secret", lambda k: secret_map.get(k, ""))
@@ -185,11 +272,6 @@ def test_run_scheduled_backup_once(tmp_path):
     mp.setattr(app_controller_module.secret_store, "backend_label", lambda: "TestSecretStore")
     controller.save_backup_settings(
         {
-            "enabled": True,
-            "frequency": "daily",
-            "time": "12:00",
-            "weekday": 1,
-            "monthday": 1,
             "keep_latest": 20,
             "local_dir": str(tmp_path / "backups"),
         }
@@ -206,13 +288,21 @@ def test_run_scheduled_backup_once(tmp_path):
 def test_manual_backup_mark_does_not_block_scheduled_backup(tmp_path):
     db = tmp_path / "backup_schedule_manual_not_block.db"
     controller = _new_backup_controller(db)
+    cfg_path = tmp_path / "scheduler_config.yaml"
+    controller.save_scheduler_config_path(str(cfg_path), request_reload=False)
+    cfg_path.write_text(
+        "version: 1\n"
+        "jobs:\n"
+        "  - id: daily_backup\n"
+        "    enabled: true\n"
+        "    task: backup\n"
+        "    cron:\n"
+        "      hour: 18\n"
+        "      minute: 50\n",
+        encoding="utf-8",
+    )
     controller.save_backup_settings(
         {
-            "enabled": True,
-            "frequency": "daily",
-            "time": "18:50",
-            "weekday": 1,
-            "monthday": 1,
             "keep_latest": 20,
             "local_dir": str(tmp_path / "backups"),
         }
@@ -402,6 +492,25 @@ def test_authorize_google_drive_oauth_without_token_path_does_not_fallback(tmp_p
     result = controller.authorize_google_drive_oauth("/tmp/credentials.json")
     assert captured["interactive"] is True
     assert result == {"email": "drive@example.com"}
+
+
+def test_run_google_oauth_local_server_opens_browser_without_terminal_prompt(tmp_path):
+    db = tmp_path / "backup_oauth_browser.db"
+    controller = _new_backup_controller(db)
+    captured = {}
+
+    class _Flow:
+        def run_local_server(self, **kwargs):
+            captured.update(kwargs)
+            return "creds"
+
+    result = controller._run_google_oauth_local_server(_Flow())
+    assert result == "creds"
+    assert captured["open_browser"] is True
+    assert captured["authorization_prompt_message"] == ""
+    assert "Google 授權完成" in captured["success_message"]
+    assert captured["access_type"] == "offline"
+    assert captured["prompt"] == "consent"
 
 
 def test_create_local_backup_hardens_permissions_best_effort(tmp_path):

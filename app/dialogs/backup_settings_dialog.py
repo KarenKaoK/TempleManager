@@ -231,6 +231,11 @@ class GoogleSettingsDialog(QDialog):
             if not client_path:
                 QMessageBox.warning(self, "設定錯誤", "請先設定 OAuth 憑證 JSON")
                 return
+            QMessageBox.information(
+                self,
+                "Google 授權",
+                "即將開啟預設瀏覽器完成 Google 授權。\n完成後請回到 TempleManager。",
+            )
             self.btn_google_auth.setEnabled(False)
             self.btn_google_auth.setText("授權中...")
             QApplication.processEvents()

@@ -2,6 +2,16 @@ version: 1
 
 timezone: "Asia/Taipei"
 
+backup:
+  keep_latest: 20
+  local_dir: ""
+  last_run_at: ""
+  last_scheduled_run_at: ""
+  drive_folder_id: ""
+  drive_credentials_path: ""
+  enable_local: true
+  enable_drive: false
+
 db:
   path: "./app/database/temple.db" # 只在獨立跑 python -m app.scheduler.worker 時有效
 

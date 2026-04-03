@@ -7,6 +7,7 @@ import re
 import os
 import sys
 import shutil
+import yaml
 from typing import Tuple, Optional,  List, Dict, Any
 from pathlib import Path
 import app.utils.secret_store as secret_store
@@ -155,6 +156,153 @@ class AppController:
                     except Exception:
                         continue
         return str(target)
+
+    def _load_scheduler_config(self) -> Dict[str, Any]:
+        path = self.get_scheduler_config_path()
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_scheduler_config(self, data: Dict[str, Any]) -> None:
+        path = self.get_scheduler_config_path()
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+    @staticmethod
+    def _backup_config_defaults() -> Dict[str, Any]:
+        return {
+            "keep_latest": 20,
+            "local_dir": "",
+            "last_run_at": "",
+            "last_scheduled_run_at": "",
+            "drive_folder_id": "",
+            "drive_credentials_path": "",
+            "enable_local": True,
+            "enable_drive": False,
+        }
+
+    @staticmethod
+    def _backup_schedule_defaults() -> Dict[str, Any]:
+        return {
+            "enabled": False,
+            "frequency": "daily",
+            "time": "23:00",
+            "weekday": 1,
+            "monthday": 1,
+            "use_cli_scheduler": False,
+        }
+
+    @staticmethod
+    def _parse_backup_job_weekday(value: Any) -> int:
+        text = str(value or "").strip().lower()
+        mapping = {
+            "mon": 1,
+            "monday": 1,
+            "tue": 2,
+            "tuesday": 2,
+            "wed": 3,
+            "wednesday": 3,
+            "thu": 4,
+            "thursday": 4,
+            "fri": 5,
+            "friday": 5,
+            "sat": 6,
+            "saturday": 6,
+            "sun": 7,
+            "sunday": 7,
+        }
+        if text in mapping:
+            return mapping[text]
+        try:
+            num = int(text)
+        except Exception:
+            return 1
+        return max(1, min(7, num))
+
+    def _derive_backup_schedule_fields(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
+        schedule = self._backup_schedule_defaults()
+        jobs = cfg.get("jobs") if isinstance(cfg.get("jobs"), list) else []
+        job = next(
+            (
+                j for j in jobs
+                if isinstance(j, dict) and (
+                    str(j.get("task", "")).strip().lower() == "backup"
+                    or str(j.get("id", "")).strip() == "daily_backup"
+                )
+            ),
+            None,
+        )
+        if not isinstance(job, dict):
+            return schedule
+
+        cron = job.get("cron") if isinstance(job.get("cron"), dict) else {}
+        hh = max(0, min(23, int(cron.get("hour", 23) or 23)))
+        mm = max(0, min(59, int(cron.get("minute", 0) or 0)))
+
+        schedule["enabled"] = bool(job.get("enabled", False))
+        schedule["time"] = f"{hh:02d}:{mm:02d}"
+
+        if "day" in cron:
+            schedule["frequency"] = "monthly"
+            schedule["monthday"] = max(1, min(31, int(cron.get("day", 1) or 1)))
+        elif "day_of_week" in cron or "weekday" in cron:
+            schedule["frequency"] = "weekly"
+            schedule["weekday"] = self._parse_backup_job_weekday(
+                cron.get("day_of_week", cron.get("weekday", 1))
+            )
+        else:
+            schedule["frequency"] = "daily"
+
+        return schedule
+
+    def _load_backup_config(self) -> Dict[str, Any]:
+        cfg = self._load_scheduler_config()
+        raw = cfg.get("backup") if isinstance(cfg.get("backup"), dict) else {}
+        merged = self._backup_config_defaults()
+        merged.update(raw)
+        schedule = self._derive_backup_schedule_fields(cfg)
+
+        def _to_int(v: Any, fallback: int) -> int:
+            try:
+                return int(v)
+            except Exception:
+                return fallback
+
+        return {
+            "enabled": bool(schedule.get("enabled", False)),
+            "frequency": str(schedule.get("frequency", "daily") or "daily").strip().lower(),
+            "time": str(schedule.get("time", "23:00") or "23:00").strip(),
+            "weekday": max(1, min(7, _to_int(schedule.get("weekday", 1), 1))),
+            "monthday": max(1, min(31, _to_int(schedule.get("monthday", 1), 1))),
+            "keep_latest": max(1, _to_int(merged.get("keep_latest", 20), 20)),
+            "local_dir": str(merged.get("local_dir", "") or "").strip(),
+            "last_run_at": str(merged.get("last_run_at", "") or "").strip(),
+            "last_scheduled_run_at": str(merged.get("last_scheduled_run_at", "") or "").strip(),
+            "drive_folder_id": str(merged.get("drive_folder_id", "") or "").strip(),
+            "drive_credentials_path": str(merged.get("drive_credentials_path", "") or "").strip(),
+            "enable_local": bool(merged.get("enable_local", True)),
+            "enable_drive": bool(merged.get("enable_drive", False)),
+            "use_cli_scheduler": False,
+        }
+
+    def _save_backup_config(self, backup_cfg: Dict[str, Any]) -> None:
+        cfg = self._load_scheduler_config()
+        cfg["backup"] = {
+            "keep_latest": max(1, int(backup_cfg.get("keep_latest", 20))),
+            "local_dir": str(backup_cfg.get("local_dir", "") or "").strip(),
+            "last_run_at": str(backup_cfg.get("last_run_at", "") or "").strip(),
+            "last_scheduled_run_at": str(backup_cfg.get("last_scheduled_run_at", "") or "").strip(),
+            "drive_folder_id": str(backup_cfg.get("drive_folder_id", "") or "").strip(),
+            "drive_credentials_path": str(backup_cfg.get("drive_credentials_path", "") or "").strip(),
+            "enable_local": bool(backup_cfg.get("enable_local", True)),
+            "enable_drive": bool(backup_cfg.get("enable_drive", False)),
+        }
+        self._save_scheduler_config(cfg)
 
     def _log_finance_data_change(self, action: str, message: str) -> None:
         try:
@@ -468,20 +616,8 @@ class AppController:
     def _ensure_backup_schema(self):
         if not self._table_exists("app_settings"):
             return
-        self._ensure_setting("backup/enabled", "0")
-        self._ensure_setting("backup/frequency", "daily")     # daily / weekly / monthly
-        self._ensure_setting("backup/time", "23:00")          # HH:MM
-        self._ensure_setting("backup/weekday", "1")           # 1=Mon ... 7=Sun
-        self._ensure_setting("backup/monthday", "1")          # 1..31
-        self._ensure_setting("backup/keep_latest", "20")
-        self._ensure_setting("backup/local_dir", "")
-        self._ensure_setting("backup/last_run_at", "")
-        self._ensure_setting("backup/drive_folder_id", "")    # phase-2 用
-        self._ensure_setting("backup/drive_credentials_path", "")  # legacy key
-        self._ensure_setting("backup/use_cli_scheduler", "0")
-        self._ensure_setting("backup/enable_local", "1")
-        self._ensure_setting("backup/enable_drive", "0")
-        self.conn.commit()
+        # backup 設定已全面遷移到 scheduler_config.yaml
+        return
 
     def _ensure_lighting_schema(self):
         if not self._table_exists("lighting_items"):
@@ -1933,61 +2069,25 @@ class AppController:
     # Backup
     # -------------------------
     def get_backup_settings(self) -> Dict[str, Any]:
-        def _to_int(v: str, fallback: int) -> int:
-            try:
-                return int(str(v))
-            except Exception:
-                return fallback
-        drive_credentials_path = (self.get_setting("backup/drive_credentials_path", "") or "").strip()
-
-        return {
-            "enabled": self.get_setting("backup/enabled", "0") == "1",
-            "frequency": (self.get_setting("backup/frequency", "daily") or "daily").strip().lower(),
-            "time": (self.get_setting("backup/time", "23:00") or "23:00").strip(),
-            "weekday": max(1, min(7, _to_int(self.get_setting("backup/weekday", "1"), 1))),
-            "monthday": max(1, min(31, _to_int(self.get_setting("backup/monthday", "1"), 1))),
-            "keep_latest": max(1, _to_int(self.get_setting("backup/keep_latest", "20"), 20)),
-            "local_dir": (self.get_setting("backup/local_dir", "") or "").strip(),
-            "last_run_at": (self.get_setting("backup/last_run_at", "") or "").strip(),
-            "last_scheduled_run_at": (self.get_setting("backup/last_scheduled_run_at", "") or "").strip(),
-            "drive_folder_id": (self.get_setting("backup/drive_folder_id", "") or "").strip(),
-            "drive_credentials_path": drive_credentials_path,
-            "enable_local": self.get_setting("backup/enable_local", "1") == "1",
-            "enable_drive": self.get_setting("backup/enable_drive", "0") == "1",
-            "use_cli_scheduler": self.get_setting("backup/use_cli_scheduler", "0") == "1",
-        }
+        return self._load_backup_config()
 
     def save_backup_settings(self, settings: Dict[str, Any]):
         if not isinstance(settings, dict):
             self._log_backup_system_event("儲存備份設定失敗（原因：settings 非 dict）", level="WARN")
             raise ValueError("settings must be a dict")
         before = self.get_backup_settings()
-        self.set_setting("backup/enabled", "1" if bool(settings.get("enabled")) else "0")
-        self.set_setting("backup/frequency", str(settings.get("frequency", "daily")).strip().lower())
-        self.set_setting("backup/time", str(settings.get("time", "23:00")).strip())
-        self.set_setting("backup/weekday", str(max(1, min(7, int(settings.get("weekday", 1))))))
-        self.set_setting("backup/monthday", str(max(1, min(31, int(settings.get("monthday", 1))))))
-        self.set_setting("backup/keep_latest", str(max(1, int(settings.get("keep_latest", 20)))))
-        self.set_setting("backup/local_dir", str(settings.get("local_dir", "")).strip())
-        self.set_setting("backup/drive_folder_id", str(settings.get("drive_folder_id", "")).strip())
-        cred_path = str(settings.get("drive_credentials_path", "")).strip()
-        self.set_setting("backup/drive_credentials_path", cred_path)
-        self.set_setting("backup/enable_local", "1" if bool(settings.get("enable_local", True)) else "0")
-        self.set_setting("backup/enable_drive", "1" if bool(settings.get("enable_drive", False)) else "0")
-        self.set_setting("backup/use_cli_scheduler", "1" if bool(settings.get("use_cli_scheduler")) else "0")
+        merged = before.copy()
+        merged.update(settings)
+        self._save_backup_config(merged)
         after = self.get_backup_settings()
         self._log_backup_data_change(
             "BACKUP.SETTINGS.UPDATE",
             (
                 "更新備份設定（"
-                f"啟用：{int(bool(before.get('enabled')))} -> {int(bool(after.get('enabled')))}；"
-                f"頻率：{self._fmt_log_val(before.get('frequency'))} -> {self._fmt_log_val(after.get('frequency'))}；"
-                f"時間：{self._fmt_log_val(before.get('time'))} -> {self._fmt_log_val(after.get('time'))}；"
                 f"保留數：{self._fmt_log_val(before.get('keep_latest'))} -> {self._fmt_log_val(after.get('keep_latest'))}；"
                 f"本機路徑：{self._fmt_log_val(before.get('local_dir'))} -> {self._fmt_log_val(after.get('local_dir'))}；"
                 f"啟用本機：{int(bool(before.get('enable_local')))} -> {int(bool(after.get('enable_local')))}；"
-                f"啟用Drive：{int(bool(before.get('enable_drive')))} -> {int(bool(after.get('enable_drive')))}；"
-                f"CLI排程：{int(bool(before.get('use_cli_scheduler')))} -> {int(bool(after.get('use_cli_scheduler')))}"
+                f"啟用Drive：{int(bool(before.get('enable_drive')))} -> {int(bool(after.get('enable_drive')))}"
                 "）"
             ),
         )
@@ -2460,6 +2560,17 @@ class AppController:
             )
             raise
 
+    def _run_google_oauth_local_server(self, flow):
+        return flow.run_local_server(
+            port=0,
+            open_browser=True,
+            authorization_prompt_message="",
+            success_message="Google 授權完成，您可以回到 TempleManager。",
+            access_type="offline",
+            prompt="consent",
+            timeout_seconds=180,
+        )
+
     def _build_drive_service_oauth(
         self,
         oauth_client_secret_path: str,
@@ -2497,12 +2608,7 @@ class AppController:
             elif interactive:
                 flow = InstalledAppFlow.from_client_secrets_file(oauth_client_secret_path, self._drive_scopes())
                 try:
-                    creds = flow.run_local_server(
-                        port=0,
-                        access_type="offline",
-                        prompt="consent",
-                        timeout_seconds=180,
-                    )
+                    creds = self._run_google_oauth_local_server(flow)
                 except Exception as e:
                     raise RuntimeError(f"Google 授權逾時或失敗：{e}")
             else:
@@ -2603,9 +2709,11 @@ class AppController:
     def mark_backup_run(self, now: Optional[datetime] = None, scheduled: bool = False):
         dt = now or datetime.now()
         ts = dt.strftime("%Y-%m-%d %H:%M:%S")
-        self.set_setting("backup/last_run_at", ts)
+        backup_cfg = self.get_backup_settings()
+        backup_cfg["last_run_at"] = ts
         if bool(scheduled):
-            self.set_setting("backup/last_scheduled_run_at", ts)
+            backup_cfg["last_scheduled_run_at"] = ts
+        self._save_backup_config(backup_cfg)
 
     def run_scheduled_backup_once(self, now: Optional[datetime] = None) -> bool:
         """
