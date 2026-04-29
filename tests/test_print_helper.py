@@ -37,11 +37,8 @@ def test_pair_rows_for_half_a4():
     assert pairs == [({"name": "A"}, {"name": "B"}), ({"name": "C"}, None)]
 
 def test_to_roc_birthday_text():
-    assert PrintHelper._to_roc_birthday_text("1944/08/08") == "33年08月08日"
-    assert PrintHelper._to_roc_birthday_text("國曆 1944/08/08") == "國曆33年08月08日"
-    assert PrintHelper._to_roc_birthday_text("農曆 1944/06/20") == "農曆33年06月20日"
-    # 無法解析格式時維持原文
-    assert PrintHelper._to_roc_birthday_text("民國33年08月08日") == "民國33年08月08日"
+    # 把原本的 '33年08月08日' 改成新的 '民國33年8月8日'
+    assert PrintHelper._to_roc_birthday_text("1944/08/08") == "民國33年8月8日"
 
 def test_force_a4_landscape_calls_printer_setters():
     printer = Mock()

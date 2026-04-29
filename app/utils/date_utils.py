@@ -61,3 +61,33 @@ def to_ui_ymd_text(value: str) -> str:
 
 def qdate_to_db_ymd(qd: QDate) -> str:
     return qd.toString("yyyy-MM-dd")
+
+
+def ad_to_roc_string(ad_str: str, separator: str = "/") -> str:
+    """
+    西元日期字串轉換為民國日期字串
+    (例如: '2024-03-15' -> '113/03/15')
+    """
+    if not ad_str:
+        return ""
+    m = re.search(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})", str(ad_str).strip())
+    if not m:
+        return str(ad_str)
+    y, mo, d = m.groups()
+    roc_year = int(y) - 1911
+    return f"{roc_year}{separator}{int(mo):02d}{separator}{int(d):02d}"
+
+
+def roc_to_ad_string(roc_str: str, separator: str = "-") -> str:
+    """
+    民國日期字串轉換為西元日期字串
+    (例如: '113/03/15' -> '2024-03-15' 或 '99-1-1' -> '2010-01-01')
+    """
+    if not roc_str:
+        return ""
+    m = re.search(r"(\d{1,3})[/-](\d{1,2})[/-](\d{1,2})", str(roc_str).strip())
+    if not m:
+        return str(roc_str)
+    y, mo, d = m.groups()
+    ad_year = int(y) + 1911
+    return f"{ad_year}{separator}{int(mo):02d}{separator}{int(d):02d}"

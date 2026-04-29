@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QIntValidator
 
-from app.utils.date_utils import is_valid_ymd_text, make_ymd_validator
+from app.utils.date_utils import is_valid_ymd_text, make_ymd_validator, ad_to_roc_string, roc_to_ad_string
 from app.utils.lunar_solar_converter import solar_to_lunar, lunar_to_solar
 from datetime import datetime, date
 
@@ -35,8 +35,8 @@ class BasePersonDialog(QDialog):
         ymd_validator = make_ymd_validator(self)
         self.birthday_ad_input.setValidator(ymd_validator)
         self.birthday_lunar_input.setValidator(ymd_validator)
-        self.birthday_ad_input.setPlaceholderText("YYYY/MM/DD")
-        self.birthday_lunar_input.setPlaceholderText("YYYY/MM/DD")
+        self.birthday_ad_input.setPlaceholderText("YYY/MM/DD (民國)")
+        self.birthday_lunar_input.setPlaceholderText("YYY/MM/DD (民國)")
         self.lunar_leap_checkbox = QCheckBox("農曆生日為閏月")
 
         # ✅ 新增兩顆按鈕
@@ -128,7 +128,9 @@ class BasePersonDialog(QDialog):
 
     @staticmethod
     def _parse_ymd(text: str):
-        s = (text or "").strip().replace("-", "/")
+        s = roc_to_ad_string((text or "").strip(), separator="/").replace("-", "/")
+        if not s:
+            return None
         try:
             return datetime.strptime(s, "%Y/%m/%d").date()
         except Exception:
@@ -142,12 +144,13 @@ class BasePersonDialog(QDialog):
     def _on_birthday_input_changed(self):
         ad_date = self._parse_ymd(self.birthday_ad_input.text())
         if ad_date is None:
-            lunar_text = self.birthday_lunar_input.text().strip()
-            if lunar_text and is_valid_ymd_text(lunar_text):
+            lunar_roc = self.birthday_lunar_input.text().strip()
+            lunar_ad = roc_to_ad_string(lunar_roc, separator="/")
+            if lunar_ad and is_valid_ymd_text(lunar_ad):
                 try:
-                    ad_text = lunar_to_solar(lunar_text, is_leap=1 if self.lunar_leap_checkbox.isChecked() else 0)
-                    self.birthday_ad_input.setText(ad_text)
-                    ad_date = self._parse_ymd(ad_text)
+                    solar_ad = lunar_to_solar(lunar_ad, is_leap=1 if self.lunar_leap_checkbox.isChecked() else 0)
+                    self.birthday_ad_input.setText(ad_to_roc_string(solar_ad, separator="/"))
+                    ad_date = self._parse_ymd(self.birthday_ad_input.text())
                 except Exception:
                     ad_date = None
         if ad_date is None:
@@ -166,16 +169,17 @@ class BasePersonDialog(QDialog):
         return ret == QMessageBox.Yes
 
     def on_convert_to_lunar_clicked(self):
-        solar = self.birthday_ad_input.text().strip()
-        if not solar:
-            QMessageBox.warning(self, "提示", "請先填寫國曆生日（YYYY/MM/DD）")
+        solar_roc = self.birthday_ad_input.text().strip()
+        if not solar_roc:
+            QMessageBox.warning(self, "提示", "請先填寫國曆生日（YYY/MM/DD）")
             return
-        if not is_valid_ymd_text(solar):
-            QMessageBox.warning(self, "提示", "國曆生日格式錯誤，請使用 YYYY/MM/DD")
+        solar_ad = roc_to_ad_string(solar_roc, separator="/")
+        if not is_valid_ymd_text(solar_ad):
+            QMessageBox.warning(self, "提示", "國曆生日格式錯誤，請使用 YYY/MM/DD")
             return
 
         try:
-            lunar_str, is_leap = solar_to_lunar(solar)
+            lunar_str, is_leap = solar_to_lunar(solar_ad)
         except Exception as e:
             QMessageBox.warning(self, "錯誤", f"換算失敗：{e}")
             return
@@ -184,24 +188,25 @@ class BasePersonDialog(QDialog):
             if not self._confirm_overwrite("農曆生日"):
                 return
 
-        self.birthday_lunar_input.setText(lunar_str)
+        self.birthday_lunar_input.setText(ad_to_roc_string(lunar_str, separator="/"))
         self.lunar_leap_checkbox.setChecked(bool(is_leap))
         self._on_birthday_input_changed()
         QMessageBox.information(self, "完成", "已換算並填入農曆生日")
 
     def on_convert_to_ad_clicked(self):
-        lunar = self.birthday_lunar_input.text().strip()
-        if not lunar:
-            QMessageBox.warning(self, "提示", "請先填寫農曆生日（YYYY/MM/DD）")
+        lunar_roc = self.birthday_lunar_input.text().strip()
+        if not lunar_roc:
+            QMessageBox.warning(self, "提示", "請先填寫農曆生日（YYY/MM/DD）")
             return
-        if not is_valid_ymd_text(lunar):
-            QMessageBox.warning(self, "提示", "農曆生日格式錯誤，請使用 YYYY/MM/DD")
+        lunar_ad = roc_to_ad_string(lunar_roc, separator="/")
+        if not is_valid_ymd_text(lunar_ad):
+            QMessageBox.warning(self, "提示", "農曆生日格式錯誤，請使用 YYY/MM/DD")
             return
 
         is_leap = 1 if self.lunar_leap_checkbox.isChecked() else 0
 
         try:
-            solar_str = lunar_to_solar(lunar, is_leap=is_leap)
+            solar_str = lunar_to_solar(lunar_ad, is_leap=is_leap)
         except Exception as e:
             QMessageBox.warning(self, "錯誤", f"換算失敗：{e}")
             return
@@ -210,7 +215,7 @@ class BasePersonDialog(QDialog):
             if not self._confirm_overwrite("國曆生日"):
                 return
 
-        self.birthday_ad_input.setText(solar_str)
+        self.birthday_ad_input.setText(ad_to_roc_string(solar_str, separator="/"))
         self._on_birthday_input_changed()
         QMessageBox.information(self, "完成", "已換算並填入國曆生日")
 
@@ -218,20 +223,22 @@ class BasePersonDialog(QDialog):
         """
         兩邊都有填時，若不一致：提醒但不阻擋（回傳 True 表示繼續）
         """
-        solar = self.birthday_ad_input.text().strip()
-        lunar = self.birthday_lunar_input.text().strip()
-        if not solar or not lunar:
+        solar_roc = self.birthday_ad_input.text().strip()
+        lunar_roc = self.birthday_lunar_input.text().strip()
+        if not solar_roc or not lunar_roc:
             return True
 
+        solar_ad = roc_to_ad_string(solar_roc, separator="/")
+        lunar_ad = roc_to_ad_string(lunar_roc, separator="/")
         try:
-            calc_lunar, calc_is_leap = solar_to_lunar(solar)
+            calc_lunar_ad, calc_is_leap = solar_to_lunar(solar_ad)
         except Exception:
             # 算不出來就不要擋
             return True
 
         cur_is_leap = 1 if self.lunar_leap_checkbox.isChecked() else 0
 
-        if calc_lunar != lunar or int(calc_is_leap) != int(cur_is_leap):
+        if calc_lunar_ad != lunar_ad or int(calc_is_leap) != int(cur_is_leap):
             QMessageBox.information(
                 self,
                 "提醒",
@@ -247,8 +254,8 @@ class BasePersonDialog(QDialog):
         return {
             "name": self.name_input.text().strip(),
             "gender": self.gender_input.currentText(),
-            "birthday_ad": self.birthday_ad_input.text().strip(),
-            "birthday_lunar": self.birthday_lunar_input.text().strip(),
+            "birthday_ad": roc_to_ad_string(self.birthday_ad_input.text().strip(), separator="/"),
+            "birthday_lunar": roc_to_ad_string(self.birthday_lunar_input.text().strip(), separator="/"),
             "lunar_is_leap": 1 if self.lunar_leap_checkbox.isChecked() else 0,
             "birth_time": self.birth_time_input.currentText(),
             "phone_home": self.phone_home_input.text().strip(),
