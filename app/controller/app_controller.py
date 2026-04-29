@@ -22,6 +22,7 @@ from app.utils.id_utils import generate_activity_id_safe, new_plan_id
 from app.config import DB_NAME
 from app.logging import log_data_change, log_system
 from app.scheduler import worker_log_db
+from app.utils.date_utils import ad_to_roc_string
 
 
 
@@ -1573,7 +1574,7 @@ class AppController:
                 signup_kind = str(row.get("signup_kind") or "INITIAL").strip().upper()
                 adjustment_kind = "SUPPLEMENT" if signup_kind == "APPEND" else "PRIMARY"
                 receipt = self.generate_receipt_number(today)
-                note = f"[{signup_year}安燈] {str(row.get('lighting_summary') or '').strip()}".strip()
+                note = f"[{signup_year - 1911}年安燈] {str(row.get('lighting_summary') or '').strip()}".strip()
                 cur.execute(
                     """
                     INSERT INTO transactions (
@@ -1752,7 +1753,7 @@ class AppController:
                         person_name,
                         handler_text,
                         receipt_number,
-                        f"[{int(signup_year)}安燈差額補繳]",
+                        f"[{int(signup_year) - 1911}年安燈差額補繳]",
                         "LIGHTING_SIGNUP",
                         signup_id,
                         "SUPPLEMENT",
@@ -1786,7 +1787,7 @@ class AppController:
                         person_name,
                         handler_text,
                         None,
-                        f"[{int(signup_year)}安燈差額退費]",
+                        f"[{int(signup_year) - 1911}年安燈差額退費]",
                         "LIGHTING_SIGNUP",
                         signup_id,
                         "REFUND",
@@ -5157,7 +5158,7 @@ class AppController:
                 receipt = self.generate_receipt_number(today)
                 plan_summary = str(row.get("plan_summary") or "").strip()
                 activity_name = str(row.get("activity_name") or "").strip()
-                activity_end_date = str(row.get("activity_end_date") or "").strip()
+                activity_end_date = ad_to_roc_string(str(row.get("activity_end_date") or "").strip(), separator="/")
                 activity_label = f"{activity_end_date} {activity_name}".strip() if activity_end_date else activity_name
                 note = f"[{activity_label}] {plan_summary}".strip() if plan_summary else f"[{activity_label}]"
                 cur.execute(
@@ -5297,7 +5298,7 @@ class AppController:
         person_id = str(existing["person_id"] or "")
         person_name = str(existing["person_name"] or "")
         activity_name = str(existing["activity_name"] or "")
-        activity_end_date = str(existing["activity_end_date"] or "")
+        activity_end_date = ad_to_roc_string(str(existing["activity_end_date"] or ""), separator="/")
         activity_label = f"{activity_end_date} {activity_name}".strip() if activity_end_date else activity_name
 
         ok = self.update_activity_signup_items(sid, qty_by_plan_id or {}, free_amount_by_plan_id or {})
@@ -5995,7 +5996,7 @@ class AppController:
         - 進行中：可報名 (True)
         - 已結束：不可報名 (False)
         """
-        now = datetime.now()
+        today = date.today()
         start_dt = self._parse_dt(start_s)
         end_dt = self._parse_dt(end_s)
 
@@ -6003,9 +6004,9 @@ class AppController:
         if not start_dt or not end_dt:
             return ("可報名", True)
 
-        if now < start_dt:
+        if today < start_dt.date():
             return ("未開始", True)
-        if now > end_dt:
+        if today > end_dt.date():
             return ("已結束", False)
         return ("可報名", True)
 
@@ -6031,9 +6032,11 @@ class AppController:
                 "code": a.get("id"),  # 目前你活動編號就用 id 顯示
                 "name": a.get("name") or "",
                 "title": a.get("name") or "",
-                "date_range": self._format_date_range(start_s, end_s),
+                "date_range": self._format_date_range(ad_to_roc_string(start_s), ad_to_roc_string(end_s)),
                 "status_text": status_text,
                 "is_open": bool(is_open),
+                "activity_start_date": start_s,
+                "activity_end_date": end_s,
             })
 
         return results
@@ -6179,14 +6182,14 @@ class AppController:
 
     def generate_receipt_number(self, date_str):
         """
-        產生收據號碼：民國年 + 4碼流水號
-        例如：1130001 (113年第1張)
+        產生收據號碼：民國年 + A + 4碼流水號
+        例如：113A0001 (113年第1張)
         """
         # date_str 格式預期為 "YYYY-MM-DD"
         try:
             dt = datetime.strptime(date_str, "%Y-%m-%d")
             roc_year = dt.year - 1911
-            prefix = f"{roc_year}"
+            prefix = f"{roc_year}A"
         except ValueError:
             # Fallback
             self._log_finance_system_event(
@@ -6195,34 +6198,32 @@ class AppController:
             )
             dt = datetime.now()
             roc_year = dt.year - 1911
-            prefix = f"{roc_year}"
+            prefix = f"{roc_year}A"
         
         cursor = self.conn.cursor()
-        # 查詢該民國年開頭的最後一筆收據號碼
-        # 注意：要確保只抓到符合 "prefix + 數字" 格式的
+        # 查詢該民國年開頭的所有收據號碼，兼容新舊格式以「持續累積」
         cursor.execute("""
             SELECT receipt_number FROM transactions 
             WHERE receipt_number LIKE ? 
-            ORDER BY receipt_number DESC LIMIT 1
-        """, (f"{prefix}%",))
+        """, (f"{roc_year}%",))
         
-        row = cursor.fetchone()
-        new_seq = 1
+        max_seq = 0
         
-        if row and row[0]:
-            last_no = row[0]
-            # 嘗試解析後面的流水號
-            # 假設格式: [ROC_YEAR][0000] (len(prefix) + 4 or more)
-            if len(last_no) > len(prefix):
-                try:
-                    # 取出後面的數字部分
-                    seq_str = last_no[len(prefix):]
-                    if seq_str.isdigit():
-                        new_seq = int(seq_str) + 1
-                except:
-                    pass
+        for row in cursor.fetchall():
+            rn = row[0]
+            if not rn:
+                continue
+            # 取出民國年之後的字串
+            suffix = rn[len(str(roc_year)):]
+            # 兼容舊版沒有 A 的格式與新版有 A 的格式
+            if suffix.startswith('A'):
+                suffix = suffix[1:]
+            if suffix.isdigit():
+                max_seq = max(max_seq, int(suffix))
+                
+        new_seq = max_seq + 1
         
-        # 格式化: 1130001 (4碼流水號)
+        # 格式化: 113A0001 (4碼流水號)
         return f"{prefix}{new_seq:04d}"
 
     def add_transaction(self, data):

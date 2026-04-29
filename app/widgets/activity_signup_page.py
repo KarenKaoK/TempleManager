@@ -38,25 +38,12 @@ class _ActivityCard(QFrame):
         - not_started: 未開始（但仍可報名/可點）
         - expired: 已過期（不可點）
         """
-        start_s = self.activity.get("activity_start_date")
-        end_s = self.activity.get("activity_end_date")
+        status_text = self.activity.get("status_text", "可報名")
+        is_open = self.activity.get("is_open", True)
 
-        if not start_s or not end_s:
-            dr = self.activity.get("date_range", "")
-            if "~" in dr:
-                start_s, end_s = [x.strip() for x in dr.split("~", 1)]
-
-        start_q = parse_date_str_to_qdate(start_s)
-        end_q = parse_date_str_to_qdate(end_s)
-
-        if not start_q or not end_q:
-            return "可報名", True, "open"
-
-        status = compute_display_status(start_q, end_q)  # 未開始 / 進行中 / 已結束
-
-        if status == "未開始":
+        if status_text == "未開始":
             return "未開始", True, "not_started"   # ✅ 仍可點、仍是橘色系
-        if status == "已結束":
+        if status_text == "已結束" or not is_open:
             return "已過期", False, "expired"
         return "可報名", True, "open"
 
@@ -923,7 +910,10 @@ class ActivitySignupPage(QWidget):
     def _load_activities(self):
         try:
             activities = self.controller.list_activities_for_signup()
-        except Exception:
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"載入活動清單失敗：{e}")
             activities = []
 
         self._activity_list = activities or []

@@ -17,6 +17,7 @@ from app.utils.date_utils import (
     make_ymd_validator,
     normalize_ymd_text,
     ad_to_roc_string,
+    roc_to_ad_string,
 )
 from app.utils.print_helper import PrintHelper
 from app.dialogs.activity_edit_dialog import ActivityEditDialog
@@ -124,8 +125,8 @@ class WenshuPrintDialog(QDialog):
             chk.setCheckState(Qt.Unchecked)
             self.tbl.setItem(row, 0, chk)
             self.tbl.setItem(row, 1, QTableWidgetItem(str(r.get("person_name", ""))))
-            lunar = normalize_ymd_text(str(r.get("person_birthday_lunar", "") or ""))
-            ad = normalize_ymd_text(str(r.get("person_birthday_ad", "") or ""))
+            lunar = ad_to_roc_string(normalize_ymd_text(str(r.get("person_birthday_lunar", "") or "")))
+            ad = ad_to_roc_string(normalize_ymd_text(str(r.get("person_birthday_ad", "") or "")))
             is_leap = int(r.get("person_lunar_is_leap") or 0) == 1
             if lunar:
                 if is_leap:
@@ -354,8 +355,8 @@ class ActivityDetailPanel(QWidget):
         ymd_validator = make_ymd_validator(self)
         self.f_start.setValidator(ymd_validator)
         self.f_end.setValidator(ymd_validator)
-        self.f_start.setPlaceholderText("YYYY/MM/DD")
-        self.f_end.setPlaceholderText("YYYY/MM/DD")
+        self.f_start.setPlaceholderText("YYY/MM/DD(民國)")
+        self.f_end.setPlaceholderText("YYY/MM/DD(民國)")
         self.f_note = QTextEdit()
         self.f_note.setMinimumHeight(120)
         self.f_note.setMaximumHeight(180)
@@ -1171,27 +1172,29 @@ class ActivityDetailPanel(QWidget):
 
     def _collect_activity_form(self) -> Optional[dict]:
         name = self.f_name.text().strip()
-        start = normalize_ymd_text(self.f_start.text().strip())
-        end = normalize_ymd_text(self.f_end.text().strip())
+        start_roc = self.f_start.text().strip()
+        end_roc = self.f_end.text().strip()
+        start = roc_to_ad_string(start_roc, separator="-")
+        end = roc_to_ad_string(end_roc, separator="-")
         note = self.f_note.toPlainText().strip()
-        self.f_start.setText(start)
-        self.f_end.setText(end)
+        self.f_start.setText(start_roc)
+        self.f_end.setText(end_roc)
 
         # 必填檢查
         if not name:
             QMessageBox.warning(self, "欄位不足", "請輸入活動名稱")
             return None
-        if not start:
-            QMessageBox.warning(self, "欄位不足", "請輸入活動開始日期國曆（activity_start_date）")
+        if not start_roc:
+            QMessageBox.warning(self, "欄位不足", "請輸入活動開始日期國曆")
             return None
-        if not end:
-            QMessageBox.warning(self, "欄位不足", "請輸入活動結束日期國曆（activity_end_date）")
+        if not end_roc:
+            QMessageBox.warning(self, "欄位不足", "請輸入活動結束日期國曆")
             return None
         if not is_valid_ymd_text(start):
-            QMessageBox.warning(self, "格式錯誤", "活動開始日期請使用 YYYY/MM/DD")
+            QMessageBox.warning(self, "格式錯誤", "活動開始日期請使用 YYY/MM/DD(民國)")
             return None
         if not is_valid_ymd_text(end):
-            QMessageBox.warning(self, "格式錯誤", "活動結束日期請使用 YYYY/MM/DD")
+            QMessageBox.warning(self, "格式錯誤", "活動結束日期請使用 YYY/MM/DD(民國)")
             return None
 
         return {

@@ -545,15 +545,18 @@ class PrintHelper:
         if not text:
             return ""
 
-        m = re.match(r"^(?:(農曆|國曆)\s*)?(\d{4})[/-](\d{1,2})[/-](\d{1,2})$", text)
+        # 支援西元(4碼)或民國(2~4碼)，並容許尾部帶有(閏)的標記
+        m = re.match(r"^(?:(農曆|國曆)\s*)?(\d{2,4})[/-](\d{1,2})[/-](\d{1,2})(?:\s*[\(（]閏[\)）])?$", text)
         if not m:
             return text
 
         calendar_type, y, mth, d = m.groups()
-        ad_year = int(y)
-        roc_year = ad_year - 1911
+        year_num = int(y)
+        roc_year = year_num - 1911 if year_num > 1911 else year_num
         cal_str = calendar_type if calendar_type else ""
-        return f"民國{roc_year}年{cal_str}{int(mth)}月{int(d)}日"
+        is_leap = "閏" in text
+        leap_str = "閏" if is_leap and cal_str == "農曆" else ""
+        return f"民國{roc_year}年{cal_str}{leap_str}{int(mth)}月{int(d)}日"
 
     @staticmethod
     def _draw_wenshu_half_vertical(painter, area: QRectF, row: dict, template: str):
@@ -963,12 +966,12 @@ class PrintHelper:
         draw_v_text("感謝狀", 10, Y_TITLE, FONT_TITLE, spacing=1.1, bold=True)
         
         # --- 感謝狀右上角備註 ---
-        category_name = data.get('category_name', '')
-        if category_name:
+        note_text = data.get('note', '').strip()
+        if note_text:
             painter.save()
             set_font(12, bold=True)
             rect_remark = QRectF(content_rect.right() - (80 * unit), content_rect.top() + (2 * unit), 75 * unit, 6 * unit)
-            painter.drawText(rect_remark, Qt.AlignRight | Qt.AlignTop, f"備註：{category_name}")
+            painter.drawText(rect_remark, Qt.AlignRight | Qt.AlignTop, f"{note_text}")
             painter.restore()
 
         # 2. 補登字號 (19%)
