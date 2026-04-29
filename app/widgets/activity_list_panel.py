@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFrame, QCheckBox, QMessageBox
 )
 from datetime import datetime, date
-from app.utils.date_utils import make_ymd_validator, is_valid_ymd_text
+from app.utils.date_utils import make_ymd_validator, is_valid_ymd_text, roc_to_ad_string, ad_to_roc_string
 
 @dataclass
 class ActivityListItem:
@@ -222,8 +222,8 @@ class ActivityListPanel(QWidget):
         ymd_validator = make_ymd_validator(self)
         self.range_start.setValidator(ymd_validator)
         self.range_end.setValidator(ymd_validator)
-        self.range_start.setPlaceholderText("起日 YYYY/MM/DD")
-        self.range_end.setPlaceholderText("迄日 YYYY/MM/DD")
+        self.range_start.setPlaceholderText("起日 YYY/MM/DD(民國)")
+        self.range_end.setPlaceholderText("迄日 YYY/MM/DD(民國)")
 
         self.btn_apply_range = QPushButton("查詢")
         self.btn_apply_range.clicked.connect(self._on_apply_range)
@@ -328,8 +328,8 @@ class ActivityListPanel(QWidget):
         activity_id = row.get("id", "")
         title = row.get("name", "") or ""
 
-        start_date = row.get("activity_start_date", "") or ""
-        end_date = row.get("activity_end_date", "") or ""
+        start_date = ad_to_roc_string(row.get("activity_start_date", "") or "")
+        end_date = ad_to_roc_string(row.get("activity_end_date", "") or "")
 
         # 卡片上顯示日期區間
         if start_date and end_date and end_date != start_date:
@@ -408,28 +408,31 @@ class ActivityListPanel(QWidget):
         t = (text or "").strip()
         if not t:
             return None
-        if not is_valid_ymd_text(t):
+        t_ad = roc_to_ad_string(t, separator="-")
+        if not is_valid_ymd_text(t_ad):
             return None
-        return t.replace("/", "-")
+        return t_ad
 
     def _validate_range_inputs(self) -> bool:
         s = self.range_start.text().strip()
         e = self.range_end.text().strip()
-        if s and not is_valid_ymd_text(s):
-            QMessageBox.warning(self, "格式錯誤", "起日請使用 YYYY/MM/DD")
+        s_ad = roc_to_ad_string(s, separator="/") if s else ""
+        e_ad = roc_to_ad_string(e, separator="/") if e else ""
+        if s and not is_valid_ymd_text(s_ad):
+            QMessageBox.warning(self, "格式錯誤", "起日請使用 YYY/MM/DD(民國)")
             return False
-        if e and not is_valid_ymd_text(e):
-            QMessageBox.warning(self, "格式錯誤", "迄日請使用 YYYY/MM/DD")
+        if e and not is_valid_ymd_text(e_ad):
+            QMessageBox.warning(self, "格式錯誤", "迄日請使用 YYY/MM/DD(民國)")
             return False
-        if s and e:
+        if s_ad and e_ad:
             try:
-                ds = datetime.strptime(s.replace("-", "/"), "%Y/%m/%d").date()
-                de = datetime.strptime(e.replace("-", "/"), "%Y/%m/%d").date()
+                ds = datetime.strptime(s_ad.replace("-", "/"), "%Y/%m/%d").date()
+                de = datetime.strptime(e_ad.replace("-", "/"), "%Y/%m/%d").date()
                 if ds > de:
                     QMessageBox.warning(self, "區間錯誤", "起日不可大於迄日")
                     return False
             except Exception:
-                QMessageBox.warning(self, "格式錯誤", "日期請使用 YYYY/MM/DD")
+                QMessageBox.warning(self, "格式錯誤", "日期請使用 YYY/MM/DD(民國)")
                 return False
         return True
 

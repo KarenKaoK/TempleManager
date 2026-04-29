@@ -462,9 +462,9 @@ class PrintHelper:
             )
 
         now = datetime.now()
-        created = now.strftime("%Y年%m月%d日")
         roc_year = now.year - 1911
         roc_date = f"{roc_year}年{now.month:02d}月{now.day:02d}日"
+        created = f"{roc_year}年{now.month:02d}月{now.day:02d}日"
 
         name = esc((row or {}).get("name", ""))
         birthday = esc((row or {}).get("birthday", ""))
@@ -545,17 +545,15 @@ class PrintHelper:
         if not text:
             return ""
 
-        m = re.match(r"^(?:(農曆|國曆)\s*)?(\d{4})/(\d{1,2})/(\d{1,2})$", text)
+        m = re.match(r"^(?:(農曆|國曆)\s*)?(\d{4})[/-](\d{1,2})[/-](\d{1,2})$", text)
         if not m:
             return text
 
         calendar_type, y, mth, d = m.groups()
         ad_year = int(y)
         roc_year = ad_year - 1911
-        core = f"{roc_year}年{int(mth):02d}月{int(d):02d}日"
-        if calendar_type:
-            return f"{calendar_type}{core}"
-        return core
+        cal_str = calendar_type if calendar_type else ""
+        return f"民國{roc_year}年{cal_str}{int(mth)}月{int(d)}日"
 
     @staticmethod
     def _draw_wenshu_half_vertical(painter, area: QRectF, row: dict, template: str):
@@ -621,18 +619,37 @@ class PrintHelper:
                 if x_pos < content_rect.left() + box * 0.5:
                     break
                 cursor_y = y_pos_start + (col * max(0, int(column_start_shift_rows)) * step_y)
+                
+                # 把連續的數字抓出來當作一塊
+                tokens = re.split(r'(\d+)', text)
+                char_list = []
+                for t in tokens:
+                    if t.isdigit() and len(t) > 1:
+                        char_list.append(t)
+                    else:
+                        char_list.extend(list(t))
+                
                 for _ in range(max_rows_per_col):
-                    if idx >= len(text):
+                    if idx >= len(char_list):
                         return
-                    ch = text[idx]
+                    ch = char_list[idx]
                     r = QRectF(x_pos - box / 2.0, cursor_y, box, box)
-                    painter.drawText(r, Qt.AlignCenter | Qt.TextDontClip, ch)
+                    if len(ch) > 1:
+                        painter.save()
+                        curr_font = painter.font()
+                        curr_font.setPointSize(int(font_size * 0.8))
+                        painter.setFont(curr_font)
+                        painter.drawText(r, Qt.AlignCenter | Qt.TextDontClip, ch)
+                        painter.restore()
+                    else:
+                        painter.drawText(r, Qt.AlignCenter | Qt.TextDontClip, ch)
                     cursor_y += step_y
                     idx += 1
 
         name = str((row or {}).get("name", "") or "")
         birthday = str((row or {}).get("birthday", "") or "")
         birthday_roc = PrintHelper._to_roc_birthday_text(birthday)
+            
         address = str((row or {}).get("address", "") or "")
         prayer = str((row or {}).get("prayer", "") or "")
 
@@ -945,6 +962,15 @@ class PrintHelper:
         # 1. 標題: 感謝狀 (10%)
         draw_v_text("感謝狀", 10, Y_TITLE, FONT_TITLE, spacing=1.1, bold=True)
         
+        # --- 感謝狀右上角備註 ---
+        category_name = data.get('category_name', '')
+        if category_name:
+            painter.save()
+            set_font(12, bold=True)
+            rect_remark = QRectF(content_rect.right() - (80 * unit), content_rect.top() + (2 * unit), 75 * unit, 6 * unit)
+            painter.drawText(rect_remark, Qt.AlignRight | Qt.AlignTop, f"備註：{category_name}")
+            painter.restore()
+
         # 2. 補登字號 (19%)
         draw_v_text("新北市補登字第二七四號", 19, 25, FONT_SERIAL, spacing=1.1)
         

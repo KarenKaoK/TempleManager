@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint
 from PyQt5.QtGui import QFontMetrics
-from app.utils.date_utils import make_ymd_validator
+from app.utils.date_utils import make_ymd_validator, ad_to_roc_string, roc_to_ad_string
 
 
 class ActivityPersonPanel(QWidget):
@@ -118,12 +118,12 @@ class ActivityPersonPanel(QWidget):
 
         ad_validator = make_ymd_validator(self)
         self.edit_birth_ad = QLineEdit()
-        self.edit_birth_ad.setPlaceholderText("YYYY/MM/DD")
+        self.edit_birth_ad.setPlaceholderText("YYY/MM/DD (民國)")
         self.edit_birth_ad.setValidator(ad_validator)
 
     
         self.edit_birth_lunar = QLineEdit()
-        self.edit_birth_lunar.setPlaceholderText("YYYY/MM/DD")
+        self.edit_birth_lunar.setPlaceholderText("YYY/MM/DD (民國)")
         lunar_validator = make_ymd_validator(self)
         self.edit_birth_lunar.setValidator(lunar_validator)
 
@@ -282,9 +282,9 @@ class ActivityPersonPanel(QWidget):
         for p in people:
             name = p.get("name", "")
             phone = p.get("phone_mobile") or p.get("phone_home") or ""
-            birthday = p.get("birthday_ad") or p.get("birthday_lunar") or ""
+            birthday_roc = ad_to_roc_string(p.get("birthday_ad") or "") or ad_to_roc_string(p.get("birthday_lunar") or "") or ""
             role = "戶長" if p.get("role_in_household") == "HEAD" else ("戶員" if p.get("role_in_household") == "MEMBER" else "")
-            label = f"{name}｜{phone}｜{birthday}"
+            label = f"{name}｜{phone}｜{birthday_roc}"
             if role:
                 label = f"{label}｜{role}"
             item = QListWidgetItem(label)
@@ -362,8 +362,8 @@ class ActivityPersonPanel(QWidget):
         self.edit_phone.setText(data.get("phone_mobile", ""))
         self.combo_gender.setCurrentText(data.get("gender", "") or self.combo_gender.currentText())
 
-        self.edit_birth_lunar.setText(data.get("birthday_lunar") or "")
-        self.edit_birth_ad.setText((data.get("birthday_ad") or "").strip())
+        self.edit_birth_lunar.setText(ad_to_roc_string(data.get("birthday_lunar") or ""))
+        self.edit_birth_ad.setText(ad_to_roc_string((data.get("birthday_ad") or "").strip()))
 
 
         self.edit_address.setText(data.get("address", ""))
@@ -376,15 +376,16 @@ class ActivityPersonPanel(QWidget):
 
 
     def get_person_payload(self) -> dict:
-        birthday_ad = self.edit_birth_ad.text().strip()
+        birthday_ad = roc_to_ad_string(self.edit_birth_ad.text().strip(), separator="/")
+        birthday_lunar = roc_to_ad_string(self.edit_birth_lunar.text().strip(), separator="/")
 
         return {
             "id": self._person_id,
             "name": self.edit_name.text().strip(),
             "gender": self.combo_gender.currentText(),
             "phone_mobile": self.edit_phone.text().strip(),
-            "birthday_ad": birthday_ad,             
-            "birthday_lunar": self.edit_birth_lunar.text().strip(),
+            "birthday_ad": birthday_ad,
+            "birthday_lunar": birthday_lunar,
             "birth_time": self.combo_birth_time.currentText(),
             "zodiac": self.combo_zodiac.currentText(),
             "address": self.edit_address.text().strip(),

@@ -9,7 +9,8 @@ from datetime import date
 
 from app.utils.print_helper import PrintHelper
 from app.dialogs.new_household_dialog import NewHouseholdDialog
-from app.utils.date_utils import parse_qdate_flexible, qdate_to_db_ymd, to_ui_ymd_text
+from app.utils.date_utils import parse_qdate_flexible, qdate_to_db_ymd, to_ui_ymd_text, ad_to_roc_string
+from app.widgets.roc_date_edit import ROCDateEdit
 from app.auth.permissions import (
     can_edit_any_date,
     can_edit_handler,
@@ -281,8 +282,8 @@ class TransactionTab(QWidget):
         style_combo_with_dividers(self.year_combo)
         current_year = QDate.currentDate().year()
         for y in range(2000, current_year + 6):
-            self.year_combo.addItem(f"{y}年", y)
-        self.year_combo.setCurrentText(f"{current_year}年")
+            self.year_combo.addItem(f"{y - 1911}年", y)
+        self.year_combo.setCurrentText(f"{current_year - 1911}年")
         self.year_combo.currentIndexChanged.connect(self.on_period_changed)
         
         # 月份
@@ -352,7 +353,7 @@ class TransactionTab(QWidget):
         form_layout.setSpacing(10)
         
         # 日期
-        self.date_input = QDateEdit()
+        self.date_input = ROCDateEdit()
         self.date_input.setDate(QDate.currentDate())
         self.date_input.setCalendarPopup(False)
         self.date_input.setDisplayFormat("yyyy/MM/dd")
@@ -714,7 +715,7 @@ class TransactionTab(QWidget):
     def set_current_month(self):
         self.show_all_mode = False
         today = QDate.currentDate()
-        self.year_combo.setCurrentText(f"{today.year()}年")
+        self.year_combo.setCurrentText(f"{today.year() - 1911}年")
         self.month_combo.setCurrentIndex(today.month() - 1)
         # 若原本就已是本月，上面兩行可能不觸發 currentIndexChanged；
         # 仍需強制刷新，確保新交易能即時顯示
@@ -1431,4 +1432,5 @@ class TransactionTab(QWidget):
 
     @classmethod
     def _format_ui_date(cls, raw):
-        return to_ui_ymd_text(raw)
+        ad_str = to_ui_ymd_text(raw)
+        return ad_to_roc_string(ad_str, separator="/")
