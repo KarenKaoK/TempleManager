@@ -12,7 +12,7 @@ from app.widgets.auto_resizing_table import AutoResizingTableWidget
 from app.dialogs.new_member_dialog import NewMemberDialog
 from app.dialogs.edit_member_dialog import EditMemberDialog
 from app.dialogs.transfer_household_dialog import TransferHouseholdDialog
-from app.utils.date_utils import normalize_ymd_text
+from app.utils.date_utils import normalize_ymd_text, ad_to_roc_string
 from app.auth.permissions import (
     can_delete_household_head,
     can_edit_member,
@@ -431,7 +431,9 @@ class MainPageWidget(QWidget):
         show_type = bool(table.property("show_type_col"))
         table.setRowCount(len(rows))
         for r, tx in enumerate(rows):
-            table.setItem(r, 0, QTableWidgetItem(self._fmt_date_text(tx.get("date", "") or "")))
+            ad_date_str = self._fmt_date_text(tx.get("date", "") or "")
+            roc_date_str = ad_to_roc_string(ad_date_str)
+            table.setItem(r, 0, QTableWidgetItem(roc_date_str))
             table.setItem(r, 1, QTableWidgetItem(tx.get("receipt_number", "") or ""))
             table.setItem(r, 2, QTableWidgetItem(tx.get("category_name", "") or ""))
             if show_type:
@@ -692,9 +694,11 @@ class MainPageWidget(QWidget):
         self.household_table.setItem(row, 1, item1)
 
         self.household_table.setItem(row, 2, QTableWidgetItem(person.get("gender", "") or ""))
-        self.household_table.setItem(row, 3, QTableWidgetItem(self._fmt_date_text(person.get("birthday_ad", "") or "")))
+        ad_str = self._fmt_date_text(person.get("birthday_ad", "") or "")
+        self.household_table.setItem(row, 3, QTableWidgetItem(ad_to_roc_string(ad_str)))
 
-        lunar = self._fmt_date_text(person.get("birthday_lunar", "") or "")
+        lunar_ad = self._fmt_date_text(person.get("birthday_lunar", "") or "")
+        lunar = ad_to_roc_string(lunar_ad)
         if str(person.get("lunar_is_leap", "0")) == "1" and lunar:
             lunar = f"{lunar}(閏)"
         self.household_table.setItem(row, 4, QTableWidgetItem(lunar))
@@ -774,10 +778,12 @@ class MainPageWidget(QWidget):
             self.household_table.setItem(r, 2, QTableWidgetItem(person.get("gender", "") or ""))
 
             # 3 國曆生日
-            self.household_table.setItem(r, 3, QTableWidgetItem(self._fmt_date_text(person.get("birthday_ad", "") or "")))
+            ad_str = self._fmt_date_text(person.get("birthday_ad", "") or "")
+            self.household_table.setItem(r, 3, QTableWidgetItem(ad_to_roc_string(ad_str)))
 
             # 4 農曆生日
-            lunar = self._fmt_date_text(person.get("birthday_lunar", "") or "")
+            lunar_ad = self._fmt_date_text(person.get("birthday_lunar", "") or "")
+            lunar = ad_to_roc_string(lunar_ad)
             if str(person.get("lunar_is_leap", "0")) == "1" and lunar:
                 lunar = f"{lunar}(閏)"
             self.household_table.setItem(r, 4, QTableWidgetItem(lunar))
@@ -866,10 +872,12 @@ class MainPageWidget(QWidget):
             self.member_table.setItem(r, 1, QTableWidgetItem(p.get("gender", "") or ""))
 
             # 2 國曆生日
-            self.member_table.setItem(r, 2, QTableWidgetItem(self._fmt_date_text(p.get("birthday_ad", "") or "")))
+            ad_str = self._fmt_date_text(p.get("birthday_ad", "") or "")
+            self.member_table.setItem(r, 2, QTableWidgetItem(ad_to_roc_string(ad_str)))
 
             # 3 農曆生日（含閏月可自行決定要不要顯示）
-            lunar = self._fmt_date_text(p.get("birthday_lunar", "") or "")
+            lunar_ad = self._fmt_date_text(p.get("birthday_lunar", "") or "")
+            lunar = ad_to_roc_string(lunar_ad)
             if int(p.get("lunar_is_leap") or 0) == 1 and lunar:
                 lunar = f"{lunar}(閏)"
             self.member_table.setItem(r, 3, QTableWidgetItem(lunar))
@@ -935,9 +943,12 @@ class MainPageWidget(QWidget):
         # 基本欄位
         set_text("姓名：", p.get("name", "") or "")
         set_text("性別：", p.get("gender", "") or "")
-        set_text("國曆生日：", self._fmt_date_text(p.get("birthday_ad", "") or ""))
+        
+        ad_str = self._fmt_date_text(p.get("birthday_ad", "") or "")
+        set_text("國曆生日：", ad_to_roc_string(ad_str))
 
-        lunar = self._fmt_date_text(p.get("birthday_lunar", "") or "")
+        lunar_ad = self._fmt_date_text(p.get("birthday_lunar", "") or "")
+        lunar = ad_to_roc_string(lunar_ad)
         if int(p.get("lunar_is_leap") or 0) == 1 and lunar:
             lunar = f"{lunar}(閏)"
         set_text("農曆生日：", lunar)

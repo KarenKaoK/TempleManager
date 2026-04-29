@@ -10,6 +10,15 @@ from app.dialogs.lighting_household_signup_dialog import LightingHouseholdSignup
 from app.utils.print_helper import PrintHelper
 
 
+class ROCYearSpinBox(QSpinBox):
+    def textFromValue(self, val):
+        return f"{val - 1911}"
+    def valueFromText(self, text):
+        try:
+            return int(text) + 1911
+        except ValueError:
+            return date.today().year
+
 class LightingSignupPage(QWidget):
     request_close = pyqtSignal()
 
@@ -40,7 +49,7 @@ class LightingSignupPage(QWidget):
 
         top_row = QHBoxLayout()
         top_row.addWidget(QLabel("年度"))
-        self.year_spin = QSpinBox()
+        self.year_spin = ROCYearSpinBox()
         self.year_spin.setRange(2000, 2100)
         self.year_spin.setButtonSymbols(QSpinBox.NoButtons)
         self.year_spin.setValue(date.today().year)

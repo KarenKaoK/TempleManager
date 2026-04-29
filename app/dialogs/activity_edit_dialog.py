@@ -12,6 +12,8 @@ from app.utils.date_utils import (
     is_valid_ymd_text,
     make_ymd_validator,
     normalize_ymd_text,
+    roc_to_ad_string,
+    ad_to_roc_string,
 )
 
 
@@ -103,8 +105,8 @@ class ActivityEditDialog(QDialog):
         for label, val in self.STATUS_OPTIONS:
             self.f_status.addItem(label, val)
 
-        self.f_start.setPlaceholderText("YYYY/MM/DD")
-        self.f_end.setPlaceholderText("YYYY/MM/DD")
+        self.f_start.setPlaceholderText("YYY/MM/DD(民國)")
+        self.f_end.setPlaceholderText("YYY/MM/DD(民國)")
 
         form.addRow("活動名稱", self.f_name)
 
@@ -156,8 +158,8 @@ class ActivityEditDialog(QDialog):
             return
 
         self.f_name.setText(str(activity_data.get("name", "") or ""))
-        self.f_start.setText(normalize_ymd_text(str(activity_data.get("activity_start_date", "") or "")))
-        self.f_end.setText(normalize_ymd_text(str(activity_data.get("activity_end_date", "") or "")))
+        self.f_start.setText(ad_to_roc_string(normalize_ymd_text(str(activity_data.get("activity_start_date", "") or ""))))
+        self.f_end.setText(ad_to_roc_string(normalize_ymd_text(str(activity_data.get("activity_end_date", "") or ""))))
         self.f_note.setPlainText(str(activity_data.get("note", "") or ""))
 
         # 只在 edit 設定一次 status
@@ -228,7 +230,7 @@ class ActivityEditDialog(QDialog):
                 self._result_activity_id = new_id
 
                 # 成功提示（你原本在 panel 內做，移到 dialog 很合理）
-                date_range = self._format_date_range(payload["activity_start_date"], payload["activity_end_date"])
+                date_range = self._format_date_range(ad_to_roc_string(payload["activity_start_date"]), ad_to_roc_string(payload["activity_end_date"]))
                 msg = (
                     "活動已新增完成\n\n"
                     f"活動名稱：{payload['name']}\n"

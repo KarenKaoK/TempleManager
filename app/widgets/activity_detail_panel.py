@@ -16,6 +16,7 @@ from app.utils.date_utils import (
     is_valid_ymd_text,
     make_ymd_validator,
     normalize_ymd_text,
+    ad_to_roc_string,
 )
 from app.utils.print_helper import PrintHelper
 from app.dialogs.activity_edit_dialog import ActivityEditDialog
@@ -1046,8 +1047,8 @@ class ActivityDetailPanel(QWidget):
         activity_id = self._current_activity_id
         data = self.controller.get_activity_by_id(activity_id) or {}
         name = data.get("name", "")
-        start = data.get("activity_start_date", "")
-        end = data.get("activity_end_date", "")
+        start = ad_to_roc_string(data.get("activity_start_date", ""))
+        end = ad_to_roc_string(data.get("activity_end_date", ""))
 
         # 方案/報名數提示（如果 controller 有這個方法）
         plan_cnt = None
@@ -1153,8 +1154,8 @@ class ActivityDetailPanel(QWidget):
 
         # 下面這些欄位名稱請用你面板上的實際 widget 名稱替換
         self.f_name.setText(data.get("name", ""))
-        self.f_start.setText(normalize_ymd_text(data.get("activity_start_date", "")))
-        self.f_end.setText(normalize_ymd_text(data.get("activity_end_date", "")))
+        self.f_start.setText(ad_to_roc_string(normalize_ymd_text(data.get("activity_start_date", ""))))
+        self.f_end.setText(ad_to_roc_string(normalize_ymd_text(data.get("activity_end_date", ""))))
         self.f_note.setPlainText(data.get("note", ""))
         self.reload_plans()
         self._reload_signup_tab()

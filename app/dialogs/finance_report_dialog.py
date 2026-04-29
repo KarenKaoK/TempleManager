@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from app.utils.date_utils import ad_to_roc_string
+from app.widgets.roc_date_edit import ROCDateEdit
 
 
 class FinanceReportPage(QWidget):
@@ -48,12 +50,12 @@ class FinanceReportPage(QWidget):
         self.include_category_checkbox.setChecked(False)
 
         today = QDate.currentDate()
-        self.start_date = QDateEdit()
+        self.start_date = ROCDateEdit()
         self.start_date.setCalendarPopup(True)
         self.start_date.setDisplayFormat("yyyy/MM/dd")
         self.start_date.setDate(QDate(today.year(), today.month(), 1))
 
-        self.end_date = QDateEdit()
+        self.end_date = ROCDateEdit()
         self.end_date.setCalendarPopup(True)
         self.end_date.setDisplayFormat("yyyy/MM/dd")
         self.end_date.setDate(today)
@@ -227,6 +229,8 @@ class FinanceReportPage(QWidget):
                         str(row.get("period_start") or ""),
                         str(row.get("period_end") or ""),
                     )
+                elif self.granularity_combo.currentData() == "day":
+                    period_display = ad_to_roc_string(period_display)
                 values = [
                     period_display,
                     str(row.get("income_count") or 0),
@@ -246,11 +250,9 @@ class FinanceReportPage(QWidget):
 
     def _format_week_range(self, start_date: str, end_date: str) -> str:
         try:
-            ys, ms, ds = [int(x) for x in start_date.split("-")]
-            ye, me, de = [int(x) for x in end_date.split("-")]
-            if ys == ye:
-                return f"{ys}/{ms}/{ds}-{me}/{de}"
-            return f"{ys}/{ms}/{ds}-{ye}/{me}/{de}"
+            roc_start = ad_to_roc_string(start_date, separator="/")
+            roc_end = ad_to_roc_string(end_date, separator="/")
+            return f"{roc_start} ~ {roc_end}"
         except Exception:
             return f"{start_date}-{end_date}"
 
@@ -274,7 +276,7 @@ class FinanceReportPage(QWidget):
         for r, row in enumerate(rows):
             tx_type_text = "收入" if row.get("type") == "income" else "支出"
             values = [
-                str(row.get("date") or "").replace("-", "/"),
+                ad_to_roc_string(str(row.get("date") or "")),
                 tx_type_text,
                 str(row.get("receipt_number") or ""),
                 str(row.get("category_id") or ""),
@@ -346,7 +348,7 @@ class FinanceReportPage(QWidget):
                     tx_type_text = "收入" if row_data.get("type") == "income" else "支出"
                     w.writerow(
                         [
-                            str(row_data.get("date") or "").replace("-", "/"),
+                            ad_to_roc_string(str(row_data.get("date") or "")),
                             tx_type_text,
                             str(row_data.get("receipt_number") or ""),
                             str(row_data.get("category_id") or ""),
