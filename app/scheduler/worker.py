@@ -612,6 +612,22 @@ def create_scheduler(
             else:
                 attachments = resolve_paths(project_root, job.get("attachments") or [])
 
+            # 報表產生完成後，若有開啟 Drive 備份設定，則同步上傳報表
+            if report_type and attachments:
+                upload_ctrl = None
+                try:
+                    upload_ctrl = AppController(db_path=snapshot_db_path)
+                    for att in attachments:
+                        upload_ctrl.upload_report_to_drive(att)
+                except Exception as e:
+                    print(f"[WARN] job={job_id} report drive upload failed: {e}")
+                finally:
+                    if upload_ctrl is not None and getattr(upload_ctrl, "conn", None) is not None:
+                        try:
+                            upload_ctrl.conn.close()
+                        except Exception:
+                            pass
+
             if not to_emails:
                 print(f"[WARN] job={job_id} Job.to is empty, skipped")
                 _log_worker_db(level="WARN", action="SCHEDULER.JOB.SKIP", message="recipient empty", job_id=job_id)

@@ -2310,6 +2310,29 @@ class AppController:
         h = max(0, min(23, int(m.group(1))))
         mm = max(0, min(59, int(m.group(2))))
         return (h, mm)
+        
+    def _export_keys_to_file(self, filepath: str):
+        keys_to_export = [
+            self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY,
+            self.BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY,
+            self.BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT,
+            self.BACKUP_CLOUD_ENCRYPTION_KEY_PREVIOUS,
+            self.BACKUP_CLOUD_ENCRYPTION_KEY_LEGACY,
+            "local/data_encryption_key/current",
+            "local/data_encryption_key/previous",
+            "local/data_encryption_key"
+        ]
+        export_data = {}
+        for k in keys_to_export:
+            try:
+                val = secret_store.get_secret(k)
+                if val:
+                    export_data[k] = val
+            except Exception:
+                pass
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(export_data, f, indent=4)
+        self._harden_backup_artifact_permissions(backup_dir=os.path.dirname(filepath), backup_file=filepath)
 
     def _insert_backup_log(
         self,
@@ -2406,6 +2429,11 @@ class AppController:
                 pass
             self._harden_backup_artifact_permissions(backup_dir=backup_dir, backup_file=backup_file)
 
+            # 建立金鑰備份檔
+            keys_filename = f"temple_keys_{now.strftime('%Y%m%d_%H%M%S')}.json"
+            keys_file = os.path.join(backup_dir, keys_filename)
+            self._export_keys_to_file(keys_file)
+
             size = os.path.getsize(backup_file) if os.path.exists(backup_file) else 0
 
             drive_file_id = ""
@@ -2413,11 +2441,23 @@ class AppController:
             if enable_drive:
                 drive_upload_file = backup_file
                 drive_display_name = os.path.basename(drive_upload_file)
+                # 上傳資料庫備份
                 drive_file_id, drive_folder_name = self._upload_backup_to_drive(
                     drive_upload_file,
                     folder_id=settings.get("drive_folder_id", ""),
                     oauth_client_secret_path=settings.get("drive_credentials_path", ""),
                     keep_latest=int(settings.get("keep_latest", 20)),
+                    prefix="temple_backup_",
+                    mimetype="application/octet-stream"
+                )
+                # 上傳金鑰備份
+                self._upload_backup_to_drive(
+                    keys_file,
+                    folder_id=settings.get("drive_folder_id", ""),
+                    oauth_client_secret_path=settings.get("drive_credentials_path", ""),
+                    keep_latest=int(settings.get("keep_latest", 20)),
+                    prefix="temple_keys_",
+                    mimetype="application/json"
                 )
 
             if enable_local:
@@ -2425,6 +2465,10 @@ class AppController:
             else:
                 try:
                     os.remove(backup_file)
+                except Exception:
+                    pass
+                try:
+                    os.remove(keys_file)
                 except Exception:
                     pass
 
@@ -2506,6 +2550,8 @@ class AppController:
         folder_id: str,
         oauth_client_secret_path: str,
         keep_latest: int,
+        prefix: str = "temple_backup_",
+        mimetype: str = "application/octet-stream"
     ) -> Tuple[str, str]:
         service = self._build_drive_service_oauth(
             oauth_client_secret_path=oauth_client_secret_path,
@@ -2516,7 +2562,7 @@ class AppController:
             body["parents"] = [folder_id]
         from googleapiclient.http import MediaFileUpload
 
-        media = MediaFileUpload(local_file, mimetype="application/octet-stream", resumable=False)
+        media = MediaFileUpload(local_file, mimetype=mimetype, resumable=False)
         res = service.files().create(
             body=body,
             media_body=media,
@@ -2538,7 +2584,7 @@ class AppController:
         else:
             folder_name = "(root)"
 
-        self._prune_drive_backups(service, folder_id=folder_id, keep_latest=keep_latest)
+        self._prune_drive_backups(service, folder_id=folder_id, keep_latest=keep_latest, prefix=prefix)
         return str(res.get("id") or ""), folder_name
 
     def authorize_google_drive_oauth(self, oauth_client_secret_path: str) -> Dict[str, str]:
@@ -2605,15 +2651,21 @@ class AppController:
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            elif interactive:
-                flow = InstalledAppFlow.from_client_secrets_file(oauth_client_secret_path, self._drive_scopes())
                 try:
-                    creds = self._run_google_oauth_local_server(flow)
-                except Exception as e:
-                    raise RuntimeError(f"Google 授權逾時或失敗：{e}")
-            else:
-                raise ValueError("尚未完成 Google OAuth 授權，請先在資料備份頁按「Google 授權」")
+                    creds.refresh(Request())
+                except Exception:
+                    # 如果 Refresh Token 失效 (例如 invalid_grant)，就清空憑證強制重新授權
+                    creds = None
+            
+            if not creds or not creds.valid:
+                if interactive:
+                    flow = InstalledAppFlow.from_client_secrets_file(oauth_client_secret_path, self._drive_scopes())
+                    try:
+                        creds = self._run_google_oauth_local_server(flow)
+                    except Exception as e:
+                        raise RuntimeError(f"Google 授權逾時或失敗：{e}")
+                else:
+                    raise ValueError("尚未完成 Google OAuth 授權或授權已失效，請先在資料備份頁按「Google 授權」")
 
         try:
             secret_store.set_secret(self.BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY, creds.to_json())
@@ -2622,9 +2674,9 @@ class AppController:
 
         return build("drive", "v3", credentials=creds, cache_discovery=False)
 
-    def _prune_drive_backups(self, service, folder_id: str, keep_latest: int):
+    def _prune_drive_backups(self, service, folder_id: str, keep_latest: int, prefix: str = "temple_backup_"):
         keep = max(1, int(keep_latest or 1))
-        q = "name contains 'temple_backup_' and (name contains '.db.enc' or name contains '.db') and trashed = false"
+        q = f"name contains '{prefix}' and trashed = false"
         if folder_id:
             q += f" and '{folder_id}' in parents"
         files = []
@@ -2649,13 +2701,22 @@ class AppController:
 
     def _prune_local_backups(self, backup_dir: str, keep_latest: int):
         keep = max(1, int(keep_latest or 1))
-        files: List[str] = []
+        db_files: List[str] = []
+        key_files: List[str] = []
         for name in os.listdir(backup_dir):
-            if not name.startswith("temple_backup_") or not name.endswith(".db.enc"):
-                continue
-            files.append(os.path.join(backup_dir, name))
-        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-        for p in files[keep:]:
+            p = os.path.join(backup_dir, name)
+            if name.startswith("temple_backup_") and name.endswith(".db.enc"):
+                db_files.append(p)
+            elif name.startswith("temple_keys_") and name.endswith(".json"):
+                key_files.append(p)
+        db_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        key_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        for p in db_files[keep:]:
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+        for p in key_files[keep:]:
             try:
                 os.remove(p)
             except Exception:
