@@ -569,11 +569,17 @@ def test_drive_backup_uploads_encrypted_file_and_cleans_temp_enc(tmp_path, monke
 
     captured = {}
 
-    def _fake_upload(local_file: str, folder_id: str, oauth_client_secret_path: str, keep_latest: int):
-        captured["local_file"] = local_file
-        captured["folder_id"] = folder_id
-        with open(local_file, "rb") as f:
-            captured["head"] = f.read(16)
+    def _fake_upload(*args, **kwargs):
+        local_file = kwargs.get("local_file")
+        if not local_file:
+            if args and isinstance(args[0], str):
+                local_file = args[0]
+        
+        # 只有遇到加密資料庫檔案時，才捕捉內容來做斷言測試
+        if local_file and local_file.endswith(".enc"):
+            captured["local_file"] = local_file
+            with open(local_file, "rb") as f:
+                captured["head"] = f.read(16)
         return ("drive-file-1", "backup-folder")
 
     monkeypatch.setattr(controller, "_upload_backup_to_drive", _fake_upload)

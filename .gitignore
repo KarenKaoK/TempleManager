@@ -15,4 +15,5 @@ secrets/
 reports/
 
 log.log
-*.log
+*.logtests/test_lunar_import.py
+lunar.py

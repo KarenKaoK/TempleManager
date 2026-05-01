@@ -39,7 +39,7 @@ def test_generate_first_receipt_number(controller):
     
     # 資料庫為空，應產生 1130001
     receipt_num = controller.generate_receipt_number(date_str)
-    assert receipt_num == "1130001"
+    assert receipt_num == "113A0001"
 
 def test_generate_next_receipt_number(controller):
     """測試流水號遞增"""
@@ -48,19 +48,19 @@ def test_generate_next_receipt_number(controller):
     # 模擬資料庫已有一筆 1130005
     cur = controller.conn.cursor()
     cur.execute("INSERT INTO transactions (id, receipt_number) VALUES (?, ?)", 
-                ("T1", "1130005"))
+                ("T1", "113A0005"))
     controller.conn.commit()
     
     # 應產生 1130006
     receipt_num = controller.generate_receipt_number(date_str)
-    assert receipt_num == "1130006"
+    assert receipt_num == "113A0006"
 
 def test_generate_receipt_number_year_change(controller):
     """測試跨年號碼重置"""
     # 模擬資料庫有 113 年的資料
     cur = controller.conn.cursor()
     cur.execute("INSERT INTO transactions (id, receipt_number) VALUES (?, ?)", 
-                ("T1", "1139999"))
+                ("T1", "113A9999"))
     controller.conn.commit()
     
     # 產生 2025 年 (114年) 的收據
@@ -68,19 +68,20 @@ def test_generate_receipt_number_year_change(controller):
     
     # 應產生 1140001 (不應延續 113 的號碼)
     receipt_num = controller.generate_receipt_number(date_str)
-    assert receipt_num == "1140001"
+    assert receipt_num == "114A0001"
 
 def test_generate_receipt_number_fallback(controller):
     """測試日期格式錯誤時的 Fallback (使用當下日期)"""
     # 給一個錯誤的日期格式
     invalid_date = "invalid-date"
-    
+
     receipt_num = controller.generate_receipt_number(invalid_date)
-    
+
     # 預期會用當下年份
     now = datetime.now()
     roc_year = now.year - 1911
-    expected_prefix = f"{roc_year}"
+    expected_prefix = f"{roc_year}A"  # 加上 A
     
     assert receipt_num.startswith(expected_prefix)
-    assert len(receipt_num) == len(expected_prefix) + 4
+    # 年份長度(通常3) + 'A'(1) + 序號(4) = 5
+    assert len(receipt_num) == len(str(roc_year)) + 5 
