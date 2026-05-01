@@ -2429,11 +2429,6 @@ class AppController:
                 pass
             self._harden_backup_artifact_permissions(backup_dir=backup_dir, backup_file=backup_file)
 
-            # 建立金鑰備份檔
-            keys_filename = f"temple_keys_{now.strftime('%Y%m%d_%H%M%S')}.json"
-            keys_file = os.path.join(backup_dir, keys_filename)
-            self._export_keys_to_file(keys_file)
-
             size = os.path.getsize(backup_file) if os.path.exists(backup_file) else 0
 
             drive_file_id = ""
@@ -2450,25 +2445,12 @@ class AppController:
                     prefix="temple_backup_",
                     mimetype="application/octet-stream"
                 )
-                # 上傳金鑰備份
-                self._upload_backup_to_drive(
-                    keys_file,
-                    folder_id=settings.get("drive_folder_id", ""),
-                    oauth_client_secret_path=settings.get("drive_credentials_path", ""),
-                    keep_latest=int(settings.get("keep_latest", 20)),
-                    prefix="temple_keys_",
-                    mimetype="application/json"
-                )
 
             if enable_local:
                 self._prune_local_backups(backup_dir, settings["keep_latest"])
             else:
                 try:
                     os.remove(backup_file)
-                except Exception:
-                    pass
-                try:
-                    os.remove(keys_file)
                 except Exception:
                     pass
 
@@ -2723,21 +2705,18 @@ class AppController:
     def _prune_local_backups(self, backup_dir: str, keep_latest: int):
         keep = max(1, int(keep_latest or 1))
         db_files: List[str] = []
-        key_files: List[str] = []
         for name in os.listdir(backup_dir):
             p = os.path.join(backup_dir, name)
             if name.startswith("temple_backup_") and name.endswith(".db.enc"):
                 db_files.append(p)
             elif name.startswith("temple_keys_") and name.endswith(".json"):
-                key_files.append(p)
+                # 發現任何舊版殘留的明文金鑰檔，直接強制刪除（不再保留）
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
         db_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-        key_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
         for p in db_files[keep:]:
-            try:
-                os.remove(p)
-            except Exception:
-                pass
-        for p in key_files[keep:]:
             try:
                 os.remove(p)
             except Exception:
