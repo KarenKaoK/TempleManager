@@ -17,7 +17,6 @@ from app.utils.date_utils import (
     make_ymd_validator,
     normalize_ymd_text,
     ad_to_roc_string,
-    roc_to_ad_string,
 )
 from app.utils.print_helper import PrintHelper
 from app.dialogs.activity_edit_dialog import ActivityEditDialog
