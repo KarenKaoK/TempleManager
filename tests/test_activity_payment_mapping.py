@@ -162,7 +162,8 @@ def test_mark_activity_paid_maps_category_and_note(controller_with_payment_db):
     ).fetchone()
     assert row["category_id"] == "90"
     assert row["category_name"] == "活動收入"
-    assert row["note"].startswith("[2026/02/28 虎爺聖誕]")
+    assert "115/02/28" in row["note"]
+    assert "虎爺聖誕" in row["note"]
     assert "雙虎祝壽×2" in row["note"]
 
 

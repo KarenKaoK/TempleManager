@@ -2652,11 +2652,20 @@ class AppController:
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
-                    creds = self._run_google_oauth_local_server(flow)
-                except Exception as e:
-                    raise RuntimeError(f"Google 授權逾時或失敗：{e}")
-            else:
-                raise ValueError("尚未完成 Google OAuth 授權，請先在資料備份頁按「Google 授權」")
+                    creds.refresh(Request())
+                except Exception:
+                    # 如果 Refresh Token 失效 (例如 invalid_grant)，就清空憑證強制重新授權
+                    creds = None
+            
+            if not creds or not creds.valid:
+                if interactive:
+                    flow = InstalledAppFlow.from_client_secrets_file(oauth_client_secret_path, self._drive_scopes())
+                    try:
+                        creds = self._run_google_oauth_local_server(flow)
+                    except Exception as e:
+                        raise RuntimeError(f"Google 授權逾時或失敗：{e}")
+                else:
+                    raise ValueError("尚未完成 Google OAuth 授權或授權已失效，請先在資料備份頁按「Google 授權」")
 
         try:
             secret_store.set_secret(self.BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY, creds.to_json())
