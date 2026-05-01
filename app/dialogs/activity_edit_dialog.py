@@ -183,29 +183,31 @@ class ActivityEditDialog(QDialog):
     # -----------------------------
     def _collect_payload(self) -> Optional[Dict]:
         name = self.f_name.text().strip()
-        start = normalize_ymd_text(self.f_start.text().strip())
-        end = normalize_ymd_text(self.f_end.text().strip())
+        start_roc = self.f_start.text().strip()
+        end_roc = self.f_end.text().strip()
+        start = roc_to_ad_string(start_roc, separator="-")
+        end = roc_to_ad_string(end_roc, separator="-")
         note = self.f_note.toPlainText().strip()
         status = 1 if self.mode == "new" else int(self.f_status.currentData())
 
-        self.f_start.setText(start)
-        self.f_end.setText(end)
+        self.f_start.setText(start_roc)
+        self.f_end.setText(end_roc)
 
 
         if not name:
             QMessageBox.warning(self, "欄位不足", "請輸入活動名稱")
             return None
-        if not start:
+        if not start_roc:
             QMessageBox.warning(self, "欄位不足", "請輸入活動開始日期")
             return None
-        if not end:
+        if not end_roc:
             QMessageBox.warning(self, "欄位不足", "請輸入活動結束日期")
             return None
         if not is_valid_ymd_text(start):
-            QMessageBox.warning(self, "格式錯誤", "活動開始日期請使用 YYYY/MM/DD")
+            QMessageBox.warning(self, "格式錯誤", "活動開始日期請使用 YYY/MM/DD(民國)")
             return None
         if not is_valid_ymd_text(end):
-            QMessageBox.warning(self, "格式錯誤", "活動結束日期請使用 YYYY/MM/DD")
+            QMessageBox.warning(self, "格式錯誤", "活動結束日期請使用 YYY/MM/DD(民國)")
             return None
 
         return {
