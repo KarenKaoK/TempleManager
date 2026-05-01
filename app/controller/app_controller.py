@@ -22,6 +22,7 @@ from app.utils.id_utils import generate_activity_id_safe, new_plan_id
 from app.config import DB_NAME
 from app.logging import log_data_change, log_system
 from app.scheduler import worker_log_db
+from app.utils.date_utils import ad_to_roc_string
 
 
 
@@ -1573,7 +1574,7 @@ class AppController:
                 signup_kind = str(row.get("signup_kind") or "INITIAL").strip().upper()
                 adjustment_kind = "SUPPLEMENT" if signup_kind == "APPEND" else "PRIMARY"
                 receipt = self.generate_receipt_number(today)
-                note = f"[{signup_year}安燈] {str(row.get('lighting_summary') or '').strip()}".strip()
+                note = f"[{signup_year - 1911}年安燈] {str(row.get('lighting_summary') or '').strip()}".strip()
                 cur.execute(
                     """
                     INSERT INTO transactions (
@@ -1752,7 +1753,7 @@ class AppController:
                         person_name,
                         handler_text,
                         receipt_number,
-                        f"[{int(signup_year)}安燈差額補繳]",
+                        f"[{int(signup_year) - 1911}年安燈差額補繳]",
                         "LIGHTING_SIGNUP",
                         signup_id,
                         "SUPPLEMENT",
@@ -1786,7 +1787,7 @@ class AppController:
                         person_name,
                         handler_text,
                         None,
-                        f"[{int(signup_year)}安燈差額退費]",
+                        f"[{int(signup_year) - 1911}年安燈差額退費]",
                         "LIGHTING_SIGNUP",
                         signup_id,
                         "REFUND",
@@ -2309,6 +2310,29 @@ class AppController:
         h = max(0, min(23, int(m.group(1))))
         mm = max(0, min(59, int(m.group(2))))
         return (h, mm)
+        
+    def _export_keys_to_file(self, filepath: str):
+        keys_to_export = [
+            self.SCHEDULER_SMTP_PASSWORD_SECRET_KEY,
+            self.BACKUP_DRIVE_OAUTH_TOKEN_SECRET_KEY,
+            self.BACKUP_CLOUD_ENCRYPTION_KEY_CURRENT,
+            self.BACKUP_CLOUD_ENCRYPTION_KEY_PREVIOUS,
+            self.BACKUP_CLOUD_ENCRYPTION_KEY_LEGACY,
+            "local/data_encryption_key/current",
+            "local/data_encryption_key/previous",
+            "local/data_encryption_key"
+        ]
+        export_data = {}
+        for k in keys_to_export:
+            try:
+                val = secret_store.get_secret(k)
+                if val:
+                    export_data[k] = val
+            except Exception:
+                pass
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(export_data, f, indent=4)
+        self._harden_backup_artifact_permissions(backup_dir=os.path.dirname(filepath), backup_file=filepath)
 
     def _insert_backup_log(
         self,
@@ -2405,6 +2429,11 @@ class AppController:
                 pass
             self._harden_backup_artifact_permissions(backup_dir=backup_dir, backup_file=backup_file)
 
+            # 建立金鑰備份檔
+            keys_filename = f"temple_keys_{now.strftime('%Y%m%d_%H%M%S')}.json"
+            keys_file = os.path.join(backup_dir, keys_filename)
+            self._export_keys_to_file(keys_file)
+
             size = os.path.getsize(backup_file) if os.path.exists(backup_file) else 0
 
             drive_file_id = ""
@@ -2412,11 +2441,23 @@ class AppController:
             if enable_drive:
                 drive_upload_file = backup_file
                 drive_display_name = os.path.basename(drive_upload_file)
+                # 上傳資料庫備份
                 drive_file_id, drive_folder_name = self._upload_backup_to_drive(
                     drive_upload_file,
                     folder_id=settings.get("drive_folder_id", ""),
                     oauth_client_secret_path=settings.get("drive_credentials_path", ""),
                     keep_latest=int(settings.get("keep_latest", 20)),
+                    prefix="temple_backup_",
+                    mimetype="application/octet-stream"
+                )
+                # 上傳金鑰備份
+                self._upload_backup_to_drive(
+                    keys_file,
+                    folder_id=settings.get("drive_folder_id", ""),
+                    oauth_client_secret_path=settings.get("drive_credentials_path", ""),
+                    keep_latest=int(settings.get("keep_latest", 20)),
+                    prefix="temple_keys_",
+                    mimetype="application/json"
                 )
 
             if enable_local:
@@ -2424,6 +2465,10 @@ class AppController:
             else:
                 try:
                     os.remove(backup_file)
+                except Exception:
+                    pass
+                try:
+                    os.remove(keys_file)
                 except Exception:
                     pass
 
@@ -2505,6 +2550,8 @@ class AppController:
         folder_id: str,
         oauth_client_secret_path: str,
         keep_latest: int,
+        prefix: str = "temple_backup_",
+        mimetype: str = "application/octet-stream"
     ) -> Tuple[str, str]:
         service = self._build_drive_service_oauth(
             oauth_client_secret_path=oauth_client_secret_path,
@@ -2515,7 +2562,7 @@ class AppController:
             body["parents"] = [folder_id]
         from googleapiclient.http import MediaFileUpload
 
-        media = MediaFileUpload(local_file, mimetype="application/octet-stream", resumable=False)
+        media = MediaFileUpload(local_file, mimetype=mimetype, resumable=False)
         res = service.files().create(
             body=body,
             media_body=media,
@@ -2537,7 +2584,7 @@ class AppController:
         else:
             folder_name = "(root)"
 
-        self._prune_drive_backups(service, folder_id=folder_id, keep_latest=keep_latest)
+        self._prune_drive_backups(service, folder_id=folder_id, keep_latest=keep_latest, prefix=prefix)
         return str(res.get("id") or ""), folder_name
 
     def authorize_google_drive_oauth(self, oauth_client_secret_path: str) -> Dict[str, str]:
@@ -2604,9 +2651,6 @@ class AppController:
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            elif interactive:
-                flow = InstalledAppFlow.from_client_secrets_file(oauth_client_secret_path, self._drive_scopes())
                 try:
                     creds = self._run_google_oauth_local_server(flow)
                 except Exception as e:
@@ -2621,9 +2665,9 @@ class AppController:
 
         return build("drive", "v3", credentials=creds, cache_discovery=False)
 
-    def _prune_drive_backups(self, service, folder_id: str, keep_latest: int):
+    def _prune_drive_backups(self, service, folder_id: str, keep_latest: int, prefix: str = "temple_backup_"):
         keep = max(1, int(keep_latest or 1))
-        q = "name contains 'temple_backup_' and (name contains '.db.enc' or name contains '.db') and trashed = false"
+        q = f"name contains '{prefix}' and trashed = false"
         if folder_id:
             q += f" and '{folder_id}' in parents"
         files = []
@@ -2648,13 +2692,22 @@ class AppController:
 
     def _prune_local_backups(self, backup_dir: str, keep_latest: int):
         keep = max(1, int(keep_latest or 1))
-        files: List[str] = []
+        db_files: List[str] = []
+        key_files: List[str] = []
         for name in os.listdir(backup_dir):
-            if not name.startswith("temple_backup_") or not name.endswith(".db.enc"):
-                continue
-            files.append(os.path.join(backup_dir, name))
-        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-        for p in files[keep:]:
+            p = os.path.join(backup_dir, name)
+            if name.startswith("temple_backup_") and name.endswith(".db.enc"):
+                db_files.append(p)
+            elif name.startswith("temple_keys_") and name.endswith(".json"):
+                key_files.append(p)
+        db_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        key_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        for p in db_files[keep:]:
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+        for p in key_files[keep:]:
             try:
                 os.remove(p)
             except Exception:
@@ -5157,7 +5210,7 @@ class AppController:
                 receipt = self.generate_receipt_number(today)
                 plan_summary = str(row.get("plan_summary") or "").strip()
                 activity_name = str(row.get("activity_name") or "").strip()
-                activity_end_date = str(row.get("activity_end_date") or "").strip()
+                activity_end_date = ad_to_roc_string(str(row.get("activity_end_date") or "").strip(), separator="/")
                 activity_label = f"{activity_end_date} {activity_name}".strip() if activity_end_date else activity_name
                 note = f"[{activity_label}] {plan_summary}".strip() if plan_summary else f"[{activity_label}]"
                 cur.execute(
@@ -5297,7 +5350,7 @@ class AppController:
         person_id = str(existing["person_id"] or "")
         person_name = str(existing["person_name"] or "")
         activity_name = str(existing["activity_name"] or "")
-        activity_end_date = str(existing["activity_end_date"] or "")
+        activity_end_date = ad_to_roc_string(str(existing["activity_end_date"] or ""), separator="/")
         activity_label = f"{activity_end_date} {activity_name}".strip() if activity_end_date else activity_name
 
         ok = self.update_activity_signup_items(sid, qty_by_plan_id or {}, free_amount_by_plan_id or {})
@@ -5995,7 +6048,7 @@ class AppController:
         - 進行中：可報名 (True)
         - 已結束：不可報名 (False)
         """
-        now = datetime.now()
+        today = date.today()
         start_dt = self._parse_dt(start_s)
         end_dt = self._parse_dt(end_s)
 
@@ -6003,9 +6056,9 @@ class AppController:
         if not start_dt or not end_dt:
             return ("可報名", True)
 
-        if now < start_dt:
+        if today < start_dt.date():
             return ("未開始", True)
-        if now > end_dt:
+        if today > end_dt.date():
             return ("已結束", False)
         return ("可報名", True)
 
@@ -6031,9 +6084,11 @@ class AppController:
                 "code": a.get("id"),  # 目前你活動編號就用 id 顯示
                 "name": a.get("name") or "",
                 "title": a.get("name") or "",
-                "date_range": self._format_date_range(start_s, end_s),
+                "date_range": self._format_date_range(ad_to_roc_string(start_s), ad_to_roc_string(end_s)),
                 "status_text": status_text,
                 "is_open": bool(is_open),
+                "activity_start_date": start_s,
+                "activity_end_date": end_s,
             })
 
         return results
@@ -6179,14 +6234,14 @@ class AppController:
 
     def generate_receipt_number(self, date_str):
         """
-        產生收據號碼：民國年 + 4碼流水號
-        例如：1130001 (113年第1張)
+        產生收據號碼：民國年 + A + 4碼流水號
+        例如：113A0001 (113年第1張)
         """
         # date_str 格式預期為 "YYYY-MM-DD"
         try:
             dt = datetime.strptime(date_str, "%Y-%m-%d")
             roc_year = dt.year - 1911
-            prefix = f"{roc_year}"
+            prefix = f"{roc_year}A"
         except ValueError:
             # Fallback
             self._log_finance_system_event(
@@ -6195,34 +6250,32 @@ class AppController:
             )
             dt = datetime.now()
             roc_year = dt.year - 1911
-            prefix = f"{roc_year}"
+            prefix = f"{roc_year}A"
         
         cursor = self.conn.cursor()
-        # 查詢該民國年開頭的最後一筆收據號碼
-        # 注意：要確保只抓到符合 "prefix + 數字" 格式的
+        # 查詢該民國年開頭的所有收據號碼，兼容新舊格式以「持續累積」
         cursor.execute("""
             SELECT receipt_number FROM transactions 
             WHERE receipt_number LIKE ? 
-            ORDER BY receipt_number DESC LIMIT 1
-        """, (f"{prefix}%",))
+        """, (f"{roc_year}%",))
         
-        row = cursor.fetchone()
-        new_seq = 1
+        max_seq = 0
         
-        if row and row[0]:
-            last_no = row[0]
-            # 嘗試解析後面的流水號
-            # 假設格式: [ROC_YEAR][0000] (len(prefix) + 4 or more)
-            if len(last_no) > len(prefix):
-                try:
-                    # 取出後面的數字部分
-                    seq_str = last_no[len(prefix):]
-                    if seq_str.isdigit():
-                        new_seq = int(seq_str) + 1
-                except:
-                    pass
+        for row in cursor.fetchall():
+            rn = row[0]
+            if not rn:
+                continue
+            # 取出民國年之後的字串
+            suffix = rn[len(str(roc_year)):]
+            # 兼容舊版沒有 A 的格式與新版有 A 的格式
+            if suffix.startswith('A'):
+                suffix = suffix[1:]
+            if suffix.isdigit():
+                max_seq = max(max_seq, int(suffix))
+                
+        new_seq = max_seq + 1
         
-        # 格式化: 1130001 (4碼流水號)
+        # 格式化: 113A0001 (4碼流水號)
         return f"{prefix}{new_seq:04d}"
 
     def add_transaction(self, data):

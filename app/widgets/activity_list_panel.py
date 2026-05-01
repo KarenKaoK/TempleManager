@@ -338,8 +338,8 @@ class ActivityListPanel(QWidget):
             date_range = start_date or end_date or ""
 
         status_text = self.compute_display_status(
-            start_date,
-            end_date,
+            row.get("activity_start_date", ""),
+            row.get("activity_end_date", ""),
             row.get("status", 1),
         )
 

@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QLabel, QLineEdit, QFormLayout, QSpinBox, QComboBox, QHeaderView, QTextEdit, QGroupBox
 )
 
+from app.widgets.lighting_signup_page import ROCYearSpinBox
 
 class LightingSetupDialog(QDialog):
     KIND_OPTIONS = [
@@ -34,7 +35,7 @@ class LightingSetupDialog(QDialog):
         hint_row = QHBoxLayout()
         hint_row.setSpacing(8)
         hint_row.addWidget(QLabel("年度"))
-        self.hint_year_spin = QSpinBox()
+        self.hint_year_spin = ROCYearSpinBox()
         self.hint_year_spin.setRange(2000, 2100)
         self.hint_year_spin.setButtonSymbols(QSpinBox.NoButtons)
         hint_row.addWidget(self.hint_year_spin)

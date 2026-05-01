@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
 
 from app.dialogs.lighting_household_signup_dialog import LightingHouseholdSignupDialog
 from app.utils.print_helper import PrintHelper
+from app.utils.date_utils import ad_to_roc_string
 
 
 class ROCYearSpinBox(QSpinBox):
@@ -351,7 +352,7 @@ class LightingSignupPage(QWidget):
             show_ji_gai = str(defaults.get("ji_gai_text") or "")
             show_peaceful = str(defaults.get("peaceful_text") or "")
         self.lbl_hint_meta.setText(
-            f"年度（本次報名）：{selected_year} 年"
+            f"年度（本次報名）：{selected_year - 1911} 年"
         )
         self.txt_tai_sui_hint.setPlainText(self._normalize_hint_text(show_tai_sui))
         self.txt_ji_gai_hint.setPlainText(self._normalize_hint_text(show_ji_gai))
@@ -381,8 +382,8 @@ class LightingSignupPage(QWidget):
         for i, row in enumerate(rows):
             self.tbl_people_search.setItem(i, 0, QTableWidgetItem(str(row.get("name") or "")))
             self.tbl_people_search.setItem(i, 1, QTableWidgetItem(str(row.get("phone_mobile") or "")))
-            self.tbl_people_search.setItem(i, 2, QTableWidgetItem(str(row.get("birthday_ad") or "")))
-            self.tbl_people_search.setItem(i, 3, QTableWidgetItem(str(row.get("birthday_lunar") or "")))
+            self.tbl_people_search.setItem(i, 2, QTableWidgetItem(ad_to_roc_string(str(row.get("birthday_ad") or ""))))
+            self.tbl_people_search.setItem(i, 3, QTableWidgetItem(ad_to_roc_string(str(row.get("birthday_lunar") or ""))))
             self.tbl_people_search.setItem(i, 4, QTableWidgetItem(str(row.get("zodiac") or "")))
             self.tbl_people_search.setItem(i, 5, QTableWidgetItem(str(row.get("address") or "")))
             self.tbl_people_search.setItem(i, 6, QTableWidgetItem("戶長" if str(row.get("role_in_household") or "") == "HEAD" else "戶員"))
@@ -775,7 +776,7 @@ class LightingSignupPage(QWidget):
             ])
 
         PrintHelper.print_table_report_with_item_filter(
-            f"{year_value}安燈報名名單",
+            f"{year_value - 1911}年安燈報名名單",
             headers,
             report_rows,
             item_names=item_names,
