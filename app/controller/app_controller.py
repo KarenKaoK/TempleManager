@@ -2650,13 +2650,34 @@ class AppController:
                 creds = None
 
         if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
+            if creds and getattr(creds, "refresh_token", None):
+                # 補齊 Client 資訊以確保 refresh 有效
+                if not getattr(creds, "client_id", None) or not getattr(creds, "client_secret", None):
+                    try:
+                        with open(oauth_client_secret_path, 'r', encoding='utf-8') as f:
+                            client_data = json.load(f)
+                        # 讀取 credentials.json 的內容 (installed 或 web)
+                        config = client_data.get('installed') or client_data.get('web')
+                        if config:
+                            creds.client_id = config.get('client_id')
+                            creds.client_secret = config.get('client_secret')
+                    except Exception as e:
+                        self._log_backup_system_event(f"補齊 Google Client 資訊失敗（原因：{e}）", level="WARN")
+
                 try:
                     creds.refresh(Request())
-                except Exception:
-                    # 如果 Refresh Token 失效 (例如 invalid_grant)，就清空憑證強制重新授權
+                except Exception as e:
+                    msg = f"Google OAuth Token 自動更新失敗（原因：{e}）"
+                    self._log_backup_system_event(msg, level="ERROR")
+                    # 記錄到 worker 專用 log 以便從 UI 檢視
+                    self._append_worker_backup_log(
+                        job_id="backup_refresh",
+                        status="FAILED",
+                        detail=msg
+                    )
+                    # 如果更新失敗（例如 Token 已被撤銷），清空憑證以便後續觸發重新授權或報錯
                     creds = None
-            
+
             if not creds or not creds.valid:
                 if interactive:
                     flow = InstalledAppFlow.from_client_secrets_file(oauth_client_secret_path, self._drive_scopes())
