@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from PyQt5.QtCore import Qt
 
@@ -15,7 +15,8 @@ def test_wenshu_dialog_print_uses_activity_birthday_template(qtbot):
             "person_address": "台北市",
         }
     ]
-    dlg = WenshuPrintDialog(rows)
+    mock_controller = MagicMock()
+    dlg = WenshuPrintDialog(mock_controller, rows)
     qtbot.addWidget(dlg)
 
     dlg.chk_activity_birthday_format.setChecked(True)
@@ -45,7 +46,8 @@ def test_wenshu_dialog_apply_default_prayer_checkbox(qtbot):
             "person_address": "台北市",
         }
     ]
-    dlg = WenshuPrintDialog(rows)
+    mock_controller = MagicMock()
+    dlg = WenshuPrintDialog(mock_controller, rows)
     qtbot.addWidget(dlg)
 
     # 未勾選：payload prayer 應為空
@@ -70,3 +72,27 @@ def test_wenshu_dialog_apply_default_prayer_checkbox(qtbot):
         dlg._on_print()
         payload_rows = m.call_args.args[0]
         assert payload_rows[0]["prayer"] == "改為手動祈求"
+
+def test_wenshu_dialog_save_prayer(qtbot):
+    mock_controller = MagicMock()
+    mock_controller.update_signup_prayer.return_value = True
+    rows = [
+        {
+            "signup_id": "S123",
+            "person_name": "王小明",
+            "prayer": "原本的祈求"
+        }
+    ]
+    dlg = WenshuPrintDialog(mock_controller, rows)
+    qtbot.addWidget(dlg)
+    
+    # 勾選並修改祈求內容
+    dlg.tbl.item(0, 4).setText("更新後的祈求")
+    dlg.tbl.item(0, 0).setCheckState(Qt.Checked)
+    
+    with patch("app.widgets.activity_detail_panel.QMessageBox.information") as mock_msg:
+        dlg._on_save_prayer()
+        
+    mock_controller.update_signup_prayer.assert_called_once_with("S123", "更新後的祈求")
+    assert rows[0]["prayer"] == "更新後的祈求"
+    assert mock_msg.called

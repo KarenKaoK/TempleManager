@@ -55,10 +55,11 @@ class SignupRow:
 
 
 class WenshuPrintDialog(QDialog):
-    def __init__(self, rows: List[Dict], parent=None):
+    def __init__(self, controller, rows: List[Dict], parent=None):
         super().__init__(parent)
         self.setWindowTitle("文疏列印")
         self.resize(980, 620)
+        self.controller = controller
         self._rows = list(rows or [])
         self._build_ui()
 
@@ -93,7 +94,7 @@ class WenshuPrintDialog(QDialog):
         root.addLayout(top)
 
         self.tbl = QTableWidget(0, 5)
-        self.tbl.setHorizontalHeaderLabels(["列印", "姓名", "生日", "地址", "祈求"])
+        self.tbl.setHorizontalHeaderLabels(["選取", "姓名", "生日", "地址", "祈求"])
         self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -104,10 +105,13 @@ class WenshuPrintDialog(QDialog):
 
         bottom = QHBoxLayout()
         bottom.addStretch(1)
+        btn_save = QPushButton("💾 儲存祈求")
         btn_print = QPushButton("列印文疏（單筆/批次）")
         btn_close = QPushButton("關閉")
+        btn_save.clicked.connect(self._on_save_prayer)
         btn_print.clicked.connect(self._on_print)
         btn_close.clicked.connect(self.reject)
+        bottom.addWidget(btn_save)
         bottom.addWidget(btn_print)
         bottom.addWidget(btn_close)
         root.addLayout(bottom)
@@ -141,7 +145,7 @@ class WenshuPrintDialog(QDialog):
             birthday_item = self.tbl.item(row, 2)
             address_item = QTableWidgetItem(str(r.get("person_address", "")))
             self.tbl.setItem(row, 3, address_item)
-            prayer_item = QTableWidgetItem("")
+            prayer_item = QTableWidgetItem(str(r.get("prayer", "")))
             self.tbl.setItem(row, 4, prayer_item)
 
             # 姓名/生日/地址為唯讀；祈求欄可手動編輯
@@ -194,6 +198,30 @@ class WenshuPrintDialog(QDialog):
         template = "activity_birthday" if self.chk_activity_birthday_format.isChecked() else "blessing"
         PrintHelper.print_wenshu_report(rows, template=template)
 
+    def _on_save_prayer(self):
+        saved_count = 0
+        for r in range(self.tbl.rowCount()):
+            chk = self.tbl.item(r, 0)
+            if not chk or chk.checkState() != Qt.Checked:
+                continue
+            signup_id = self._rows[r].get("signup_id")
+            if not signup_id:
+                continue
+            prayer_item = self.tbl.item(r, 4)
+            prayer_text = prayer_item.text().strip() if prayer_item else ""
+            
+            try:
+                if self.controller.update_signup_prayer(signup_id, prayer_text):
+                    self._rows[r]["prayer"] = prayer_text  # 存回 in-memory 讓連續列印讀得到
+                    saved_count += 1
+            except Exception as e:
+                QMessageBox.warning(self, "儲存失敗", f"儲存發生錯誤：{e}")
+                return
+                
+        if saved_count > 0:
+            QMessageBox.information(self, "儲存成功", f"已成功儲存 {saved_count} 筆祈求文！")
+        else:
+            QMessageBox.information(self, "未儲存", "請先勾選要儲存的報名者。")
 
 class ItemStatsDialog(QDialog):
     def __init__(self, rows: List[Tuple[str, int]], parent=None):
@@ -877,7 +905,7 @@ class ActivityDetailPanel(QWidget):
         QMessageBox.information(self, "繳費完成", "\n".join(msg))
 
     def _open_wenshu_dialog(self):
-        dlg = WenshuPrintDialog(self._signup_rows or [], self)
+        dlg = WenshuPrintDialog(self.controller, self._signup_rows or [], self)
         dlg.exec_()
 
     def _open_item_stats_dialog(self):
