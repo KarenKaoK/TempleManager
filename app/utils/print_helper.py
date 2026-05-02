@@ -467,7 +467,8 @@ class PrintHelper:
         created = f"{roc_year}年{now.month:02d}月{now.day:02d}日"
 
         name = esc((row or {}).get("name", ""))
-        birthday = esc((row or {}).get("birthday", ""))
+        birthday_raw = str((row or {}).get("birthday", ""))
+        birthday = esc(PrintHelper._to_roc_birthday_text(birthday_raw))
         address = esc((row or {}).get("address", ""))
         prayer = esc((row or {}).get("prayer", ""))
 
@@ -536,24 +537,29 @@ class PrintHelper:
     def _to_roc_birthday_text(birthday_text: str) -> str:
         """
         將生日字串轉為民國格式：
-        - 國曆 1944/08/08 -> 國曆33年08月08日
-        - 農曆 1944/06/20 -> 農曆33年06月20日
-        - 未含前綴時：1944/08/08 -> 33年08月08日
+        - 國曆 1944/08/08 -> 民國33年國曆08月08日
+        - 農曆 1944/06/20 -> 民國33年農曆06月20日
+        - 113/02/04 -> 民國113年農曆02月04日 (支援傳入已轉換的民國年)
         無法解析則回傳原字串。
         """
         text = str(birthday_text or "").strip()
         if not text:
             return ""
 
-        m = re.match(r"^(?:(農曆|國曆)\s*)?(\d{4})[/-](\d{1,2})[/-](\d{1,2})$", text)
+        # 支援 4碼(西元) 或 2~3碼(民國)，容錯處理後方夾帶的空白等符號
+        m = re.search(r"(?:(農曆|國曆)\s*)?(\d{2,4})[/-](\d{1,2})[/-](\d{1,2})", text)
         if not m:
             return text
 
         calendar_type, y, mth, d = m.groups()
-        ad_year = int(y)
-        roc_year = ad_year - 1911
-        cal_str = calendar_type if calendar_type else ""
-        return f"民國{roc_year}年{cal_str}{int(mth)}月{int(d)}日"
+        year_val = int(y)
+        if year_val > 1911:
+            roc_year = year_val - 1911
+        else:
+            roc_year = year_val
+            
+        cal_str = calendar_type if calendar_type else "農曆"
+        return f"民國{roc_year}年{cal_str}{int(mth):02d}月{int(d):02d}日"
 
     @staticmethod
     def _draw_wenshu_half_vertical(painter, area: QRectF, row: dict, template: str):
@@ -962,13 +968,13 @@ class PrintHelper:
         # 1. 標題: 感謝狀 (10%)
         draw_v_text("感謝狀", 10, Y_TITLE, FONT_TITLE, spacing=1.1, bold=True)
         
-        # --- 感謝狀右上角備註 ---
-        category_name = data.get('category_name', '')
-        if category_name:
+        # --- 感謝狀右上角摘要 ---
+        summary_text = data.get('note', '') or data.get('category_name', '')
+        if summary_text:
             painter.save()
             set_font(12, bold=True)
             rect_remark = QRectF(content_rect.right() - (80 * unit), content_rect.top() + (2 * unit), 75 * unit, 6 * unit)
-            painter.drawText(rect_remark, Qt.AlignRight | Qt.AlignTop, f"備註：{category_name}")
+            painter.drawText(rect_remark, Qt.AlignRight | Qt.AlignTop, f"{summary_text}")
             painter.restore()
 
         # 2. 補登字號 (19%)

@@ -66,6 +66,7 @@ def controller_with_payment_db(tmp_path):
             signup_kind TEXT DEFAULT 'INITIAL',
             signup_time TEXT NOT NULL,
             note TEXT,
+            prayer TEXT,
             total_amount INTEGER NOT NULL DEFAULT 0,
             is_paid INTEGER DEFAULT 0,
             paid_at TEXT,

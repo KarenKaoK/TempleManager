@@ -311,6 +311,7 @@ def create_activity_signups_table(db_name=DB_NAME):
 
     signup_time TEXT NOT NULL,           -- YYYY-MM-DD HH:MM:SS
     note TEXT,
+    prayer TEXT,
 
     total_amount INTEGER NOT NULL DEFAULT 0,  -- 報名總金額快照
     is_paid INTEGER DEFAULT 0,
