@@ -5056,6 +5056,7 @@ class AppController:
             s.person_id AS person_id,
             COALESCE(s.group_id, s.id) AS group_id,
             COALESCE(s.signup_kind, 'INITIAL') AS signup_kind,
+            s.prayer AS prayer,
             p.name AS person_name,
             p.phone_mobile AS person_phone,
             p.address AS person_address,
@@ -5105,6 +5106,24 @@ class AppController:
             result.append(dict(zip(col_names, r)))
 
         return result
+
+    def update_signup_prayer(self, signup_id: str, prayer_text: str) -> bool:
+        """更新活動報名的祈願文"""
+        cur = self.conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE activity_signups SET prayer = ?, updated_at = ? WHERE id = ?",
+                ((prayer_text or "").strip(), self._now(), signup_id)
+            )
+            self.conn.commit()
+            ok = cur.rowcount > 0
+            if ok:
+                self._log_activity_data_change("ACTIVITY.SIGNUP.UPDATE_PRAYER", f"更新祈願文（signup_id {signup_id}）")
+            return ok
+        except Exception as e:
+            self.conn.rollback()
+            self._log_activity_system_event(f"更新祈願文失敗（signup_id {signup_id}，原因：{e}）", level="WARN")
+            raise
 
     def _resolve_activity_income_item(self) -> Optional[Dict[str, Any]]:
         if not self._table_exists("income_items"):
