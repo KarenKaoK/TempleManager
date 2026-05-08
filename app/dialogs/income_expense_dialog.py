@@ -1,3 +1,4 @@
+import calendar
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
     QComboBox, QDateEdit, QTabWidget, QWidget, QMessageBox, QFormLayout,
@@ -9,7 +10,13 @@ from datetime import date
 
 from app.utils.print_helper import PrintHelper
 from app.dialogs.new_household_dialog import NewHouseholdDialog
-from app.utils.date_utils import parse_qdate_flexible, qdate_to_db_ymd, to_ui_ymd_text, ad_to_roc_string
+from app.utils.date_utils import (
+    parse_qdate_flexible,
+    qdate_to_db_ymd,
+    to_ui_ymd_text,
+    ad_to_roc_string,
+    roc_to_ad_string,
+)
 from app.widgets.roc_date_edit import ROCDateEdit
 from app.auth.permissions import (
     can_edit_any_date,
@@ -719,11 +726,32 @@ class TransactionTab(QWidget):
         self.month_combo.setCurrentIndex(today.month() - 1)
         # 若原本就已是本月，上面兩行可能不觸發 currentIndexChanged；
         # 仍需強制刷新，確保新交易能即時顯示
+        self._sync_form_date_to_selected_period()
         self.refresh_list()
 
     def on_period_changed(self):
         self.show_all_mode = False
+        self._sync_form_date_to_selected_period()
         self.refresh_list()
+
+    def _sync_form_date_to_selected_period(self):
+        if not hasattr(self, "date_input") or not hasattr(self, "year_combo") or not hasattr(self, "month_combo"):
+            return
+        if getattr(self, "editing_transaction_id", None):
+            return
+
+        year = self.year_combo.currentData()
+        month = self.month_combo.currentData()
+        if not year or not month:
+            return
+
+        current_qd = self._get_form_qdate()
+        if current_qd is None or not current_qd.isValid():
+            current_qd = QDate.currentDate()
+
+        last_day = calendar.monthrange(int(year), int(month))[1]
+        day = min(current_qd.day(), last_day)
+        self.date_input.setDate(QDate(int(year), int(month), day))
 
     def show_all_records(self):
         if self._is_income_limited_scope():
@@ -1307,7 +1335,11 @@ class TransactionTab(QWidget):
 
     def save_data(self, print_receipt):
         # 1. 蒐集資料
-        date_str = qdate_to_db_ymd(self.date_input.date())
+        qd = self._get_form_qdate()
+        if qd is None:
+            QMessageBox.warning(self, "錯誤", "日期格式不正確")
+            return
+        date_str = qdate_to_db_ymd(qd)
         handler = self.handler_input.text()
         amount_str = self.amount_input.text()
         note = self.note_input.text()
@@ -1434,3 +1466,27 @@ class TransactionTab(QWidget):
     def _format_ui_date(cls, raw):
         ad_str = to_ui_ymd_text(raw)
         return ad_to_roc_string(ad_str, separator="/")
+
+    def _get_form_qdate(self):
+        """
+        優先解析使用者目前在日期欄手打的文字。
+        原本直接讀 QDateEdit.date()，在 ROCDateEdit 手動輸入民國日期後，
+        可能仍拿到尚未提交的舊值。
+        """
+        line_edit = self.date_input.lineEdit() if hasattr(self.date_input, "lineEdit") else None
+        raw_text = line_edit.text().strip() if line_edit is not None else ""
+
+        candidates = [
+            raw_text,
+            roc_to_ad_string(raw_text, separator="/"),
+            roc_to_ad_string(raw_text, separator="-"),
+        ]
+        for value in candidates:
+            qd = parse_qdate_flexible(value)
+            if qd is not None and qd.isValid():
+                return qd
+
+        qd = self.date_input.date()
+        if qd is not None and qd.isValid():
+            return qd
+        return None
