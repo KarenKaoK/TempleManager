@@ -93,6 +93,25 @@ def dialog(qtbot, temp_db):
     qtbot.addWidget(dlg)
     return dlg
 
+def test_period_change_syncs_entry_date(qtbot, dialog):
+    tab = dialog.income_tab
+    tab.editing_transaction_id = None
+    tab.date_input.setDate(QDate(2026, 3, 31))
+
+    year_idx = tab.year_combo.findData(2024)
+    month_idx = tab.month_combo.findData(2)
+
+    assert year_idx >= 0
+    assert month_idx >= 0
+
+    tab.year_combo.setCurrentIndex(year_idx)
+    tab.month_combo.setCurrentIndex(month_idx)
+
+    synced = tab.date_input.date()
+    assert synced.year() == 2024
+    assert synced.month() == 2
+    assert synced.day() == 29
+
 def test_save_and_print_includes_address(qtbot, dialog):
     """
     整合測試：
@@ -373,6 +392,38 @@ def test_admin_update_non_today_is_allowed(qtbot, temp_db):
         tab.save_data(print_receipt=False)
         mock_update.assert_called_once()
         mock_warn.assert_not_called()
+
+
+def test_admin_edit_typed_roc_date_is_saved(qtbot, temp_db):
+    controller = AppController(db_path=str(temp_db))
+    dlg = IncomeExpenseDialog(controller, parent=None, user_role="管理員")
+    qtbot.addWidget(dlg)
+    tab = dlg.income_tab
+
+    _insert_income_tx(controller, "T-ADMIN-DATE", date.today().isoformat())
+    rows = controller.get_transactions("income")
+    row_data = next(r for r in rows if r["id"] == "T-ADMIN-DATE")
+    tab.load_transaction_to_form(row_data)
+
+    tab.date_input.lineEdit().selectAll()
+    tab.date_input.lineEdit().setText("115/05/01")
+    tab.set_person({
+        "id": "P001",
+        "name": "王小明",
+        "phone_mobile": "0912345678",
+        "phone_home": "",
+        "address": "台北市信義區測試路100號",
+    })
+    tab.amount_input.setText("500")
+    tab.category_combo.setCurrentIndex(0)
+
+    with patch.object(tab.controller, "update_transaction") as mock_update, \
+         patch("app.dialogs.income_expense_dialog.QMessageBox.information"):
+        tab.save_data(print_receipt=False)
+
+    mock_update.assert_called_once()
+    payload = mock_update.call_args[0][1]
+    assert payload["date"] == "2026-05-01"
 
 
 def test_staff_update_is_blocked_when_editing_source_date_not_today(qtbot, temp_db):

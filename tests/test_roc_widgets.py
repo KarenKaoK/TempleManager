@@ -23,6 +23,19 @@ def test_roc_date_edit_text_conversion(qtbot):
     assert widget.dateTimeFromText("1/01/01").date() == QDate(1912, 1, 1)
 
 
+def test_roc_date_edit_interprets_typed_roc_date(qtbot):
+    widget = ROCDateEdit()
+    qtbot.addWidget(widget)
+    widget.setDate(QDate(2026, 5, 8))
+
+    widget.lineEdit().selectAll()
+    widget.lineEdit().setText("115/05/01")
+    widget.interpretText()
+
+    assert widget.date() == QDate(2026, 5, 1)
+    assert widget.text() == "115/05/01"
+
+
 def test_roc_year_spinbox_conversion(qtbot):
     """測試 ROCYearSpinBox 隱藏西元並顯示民國的邏輯"""
     widget = ROCYearSpinBox()

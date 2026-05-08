@@ -1,5 +1,7 @@
+import re
 from PyQt5.QtWidgets import QDateEdit
 from PyQt5.QtCore import QDateTime, QDate
+from PyQt5.QtGui import QValidator
 
 from app.utils.date_utils import ad_to_roc_string, roc_to_ad_string
 
@@ -15,6 +17,17 @@ class ROCDateEdit(QDateEdit):
             return ""
         ad_str = dt.toString("yyyy-MM-dd")
         return ad_to_roc_string(ad_str, separator="/")
+
+    def validate(self, text: str, pos: int):
+        ad_str = roc_to_ad_string(text, separator="-")
+        qd = QDate.fromString(ad_str, "yyyy-MM-dd")
+        if qd.isValid():
+            return (QValidator.Acceptable, text, pos)
+
+        if re.match(r"^\d{0,3}([/-]\d{0,2}([/-]\d{0,2})?)?$", str(text or "")):
+            return (QValidator.Intermediate, text, pos)
+
+        return super().validate(text, pos)
 
     def dateTimeFromText(self, text: str) -> QDateTime:
         ad_str = roc_to_ad_string(text, separator="-")
