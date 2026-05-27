@@ -476,10 +476,14 @@ class ActivityDetailPanel(QWidget):
         self.stat_signup_cnt = self._make_stat_card("報名人數", "0")
         self.stat_total = self._make_stat_card("預估總收入", "0")
         self.stat_donation = self._make_stat_card("其中隨喜", "0")
+        self.stat_paid_amount = self._make_stat_card("已繳費金額", "0")
+        self.stat_unpaid_amount = self._make_stat_card("未繳費金額", "0")
 
         stats.addWidget(self.stat_signup_cnt, 0, 0)
         stats.addWidget(self.stat_total, 0, 1)
         stats.addWidget(self.stat_donation, 0, 2)
+        stats.addWidget(self.stat_paid_amount, 0, 3)
+        stats.addWidget(self.stat_unpaid_amount, 0, 4)
 
         layout.addLayout(stats)
 
@@ -730,6 +734,8 @@ class ActivityDetailPanel(QWidget):
         self._set_stat_value(self.stat_signup_cnt, "0")
         self._set_stat_value(self.stat_total, "0")
         self._set_stat_value(self.stat_donation, "0")
+        self._set_stat_value(self.stat_paid_amount, "0")
+        self._set_stat_value(self.stat_unpaid_amount, "0")
 
         self.tbl_signups.setRowCount(0)
 
@@ -1155,10 +1161,14 @@ class ActivityDetailPanel(QWidget):
         signup_cnt = len(self._signup_rows)
         total = sum(int(r.get("total_amount", 0) or 0) for r in self._signup_rows)
         donation_total = sum(int(r.get("donation_amount", 0) or 0) for r in self._signup_rows)
+        paid_total = sum(int(r.get("total_amount", 0) or 0) for r in self._signup_rows if int(r.get("is_paid", 0) or 0) == 1)
+        unpaid_total = sum(int(r.get("total_amount", 0) or 0) for r in self._signup_rows if int(r.get("is_paid", 0) or 0) != 1)
 
         self._set_stat_value(self.stat_signup_cnt, str(signup_cnt))
         self._set_stat_value(self.stat_total, str(total))
         self._set_stat_value(self.stat_donation, str(donation_total))
+        self._set_stat_value(self.stat_paid_amount, str(paid_total))
+        self._set_stat_value(self.stat_unpaid_amount, str(unpaid_total))
 
         self._apply_signup_filter()
         self._sync_mark_paid_enabled()
