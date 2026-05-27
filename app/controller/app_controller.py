@@ -5083,15 +5083,9 @@ class AppController:
         WHERE s.activity_id = ?
         GROUP BY s.id
         ORDER BY
-            COALESCE(s.group_id, s.id) ASC,
-            CASE COALESCE(s.signup_kind, 'INITIAL')
-              WHEN 'INITIAL' THEN 0
-              WHEN 'APPEND' THEN 1
-              ELSE 9
-            END ASC,
             datetime(replace(COALESCE(s.signup_time, s.created_at), '/', '-')) ASC,
             datetime(replace(s.created_at, '/', '-')) ASC,
-            s.id ASC
+            s.rowid ASC
         """
 
         cur = self.conn.cursor()

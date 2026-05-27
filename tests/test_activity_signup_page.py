@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QItemSelectionModel
 from PyQt5.QtWidgets import QWidget, QPushButton
 from PyQt5.QtWidgets import QAbstractItemView, QHeaderView
 
@@ -68,3 +68,62 @@ def test_signup_detail_table_enables_horizontal_scroll(qtbot, monkeypatch):
     assert page.tbl_signup_detail.horizontalScrollMode() == QAbstractItemView.ScrollPerPixel
     assert page.tbl_signup_detail.horizontalScrollBarPolicy() == Qt.ScrollBarAsNeeded
     assert page.tbl_signup_detail.horizontalHeader().sectionResizeMode(4) == QHeaderView.Interactive
+
+
+def test_signup_detail_first_header_is_paid_text(qtbot, monkeypatch):
+    monkeypatch.setattr(activity_signup_page_module, "ActivityPersonPanel", FakePersonPanel)
+    monkeypatch.setattr(activity_signup_page_module, "ActivityPlanPanel", FakePlanPanel)
+
+    mock_controller = MagicMock()
+    mock_controller.list_activities_for_signup.return_value = []
+
+    page = ActivitySignupPage(controller=mock_controller)
+    qtbot.addWidget(page)
+
+    assert page.tbl_signup_detail.horizontalHeaderItem(0).text() == "已繳費"
+
+
+def test_mark_paid_enabled_by_selected_unpaid_rows(qtbot, monkeypatch):
+    monkeypatch.setattr(activity_signup_page_module, "ActivityPersonPanel", FakePersonPanel)
+    monkeypatch.setattr(activity_signup_page_module, "ActivityPlanPanel", FakePlanPanel)
+
+    mock_controller = MagicMock()
+    mock_controller.list_activities_for_signup.return_value = []
+
+    page = ActivitySignupPage(controller=mock_controller)
+    qtbot.addWidget(page)
+
+    page.activity_data = {"id": "A001"}
+    page._signup_rows_all = [
+        {
+            "signup_id": "S1", "person_id": "P1", "is_paid": 0, "signup_kind": "INITIAL",
+            "person_name": "王小明", "person_phone": "0912", "plan_summary": "方案A", "total_amount": 100
+        },
+        {
+            "signup_id": "S2", "person_id": "P2", "is_paid": 1, "signup_kind": "INITIAL",
+            "person_name": "王小華", "person_phone": "0922", "plan_summary": "方案B", "total_amount": 200
+        },
+    ]
+    page._apply_signup_detail_filter()
+    page.edt_signup_payment_handler.setText("經手人A")
+    assert (page.edt_signup_payment_handler.text() or "").strip() == "經手人A"
+    assert page._can_edit_signup_payment_handler() is False or page.edt_signup_payment_handler.isReadOnly() is False
+
+    sel = page.tbl_signup_detail.selectionModel()
+    idx_paid = page.tbl_signup_detail.model().index(1, 0)
+    idx_unpaid = page.tbl_signup_detail.model().index(0, 0)
+
+    # 先選未繳費列 -> 可繳費
+    sel.select(idx_unpaid, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+    page._sync_mark_paid_enabled()
+    assert bool((page.edt_signup_payment_handler.text() or "").strip()) is True
+    assert "S1" in page._get_selected_unpaid_signup_ids()
+    assert bool(page._get_selected_unpaid_signup_ids()) is True
+
+    # 模擬 Ctrl 多選再加選已繳費列 -> 仍可繳費（已繳費列會被過濾）
+    sel.select(idx_paid, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    page._sync_mark_paid_enabled()
+    selected_unpaid = page._get_selected_unpaid_signup_ids()
+    assert "S1" in selected_unpaid
+    assert "S2" not in selected_unpaid
+    assert bool(selected_unpaid) is True

@@ -509,7 +509,7 @@ class ActivityDetailPanel(QWidget):
         g1.addLayout(search_row)
 
         self.tbl_signups = QTableWidget(0, 6)
-        self.tbl_signups.setHorizontalHeaderLabels(["繳費", "收據號", "姓名", "電話", "方案", "金額"])
+        self.tbl_signups.setHorizontalHeaderLabels(["已繳費", "收據號", "姓名", "電話", "方案", "金額"])
         self.tbl_signups.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_signups.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_signups.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -824,7 +824,7 @@ class ActivityDetailPanel(QWidget):
         if not rows:
             QMessageBox.information(self, "列印名單", "沒有可列印內容")
             return
-        PrintHelper.print_table_report("報名名單（明細）", ["繳費", "姓名", "電話", "方案", "金額"], rows, landscape=True)
+        PrintHelper.print_table_report("報名名單（明細）", ["已繳費", "姓名", "電話", "方案", "金額"], rows, landscape=True)
 
     def _on_show_all_signups(self):
         self._signup_filter_mode = "all"
