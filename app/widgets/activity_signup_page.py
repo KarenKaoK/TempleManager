@@ -523,12 +523,12 @@ class ActivitySignupPage(QWidget):
         right_layout.addLayout(search_row)
 
         self.tbl_signup_detail = _SignupDetailTableWidget(0, 7)
-        self.tbl_signup_detail.setHorizontalHeaderLabels(["已繳費", "類型", "姓名", "電話", "方案摘要", "金額", "收據號"])
+        self.tbl_signup_detail.setHorizontalHeaderLabels(["已繳費", "類型", "姓名", "電話", "報名摘要", "金額", "收據號"])
         self.tbl_signup_detail.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_signup_detail.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl_signup_detail.setSelectionMode(QTableWidget.ExtendedSelection)
         self.tbl_signup_detail.setWordWrap(False)
-        self.tbl_signup_detail.setTextElideMode(Qt.ElideNone)
+        self.tbl_signup_detail.setTextElideMode(Qt.ElideRight)
         self.tbl_signup_detail.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.tbl_signup_detail.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.tbl_signup_detail.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -540,17 +540,17 @@ class ActivitySignupPage(QWidget):
         self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(3, QHeaderView.Interactive)
         self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(4, QHeaderView.Interactive)
-        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(5, QHeaderView.Interactive)
+        self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(6, QHeaderView.Interactive)
         self.tbl_signup_detail.setColumnWidth(0, 72)
         self.tbl_signup_detail.setColumnWidth(1, 84)
         self.tbl_signup_detail.setColumnWidth(2, 140)
-        self.tbl_signup_detail.setColumnWidth(3, 160)
-        self.tbl_signup_detail.setColumnWidth(4, 420)
-        self.tbl_signup_detail.setColumnWidth(5, 90)
-        self.tbl_signup_detail.setColumnWidth(6, 120)
+        self.tbl_signup_detail.setColumnWidth(3, 180)
+        self.tbl_signup_detail.setColumnWidth(4, 260)
+        self.tbl_signup_detail.setColumnWidth(5, 110)
+        self.tbl_signup_detail.setColumnWidth(6, 150)
         self.tbl_signup_detail.setStyleSheet(
             """
             QHeaderView::section {
@@ -712,7 +712,9 @@ class ActivitySignupPage(QWidget):
             })
             self.tbl_signup_detail.setItem(row, 2, name_item)
             self.tbl_signup_detail.setItem(row, 3, QTableWidgetItem(str((r or {}).get("person_phone", "") or "")))
-            self.tbl_signup_detail.setItem(row, 4, QTableWidgetItem(str((r or {}).get("plan_summary", "") or "")))
+            summary_item = QTableWidgetItem(str((r or {}).get("plan_summary", "") or ""))
+            summary_item.setToolTip(summary_item.text())
+            self.tbl_signup_detail.setItem(row, 4, summary_item)
             self.tbl_signup_detail.setItem(row, 5, QTableWidgetItem(str((r or {}).get("total_amount", 0) or 0)))
             self.tbl_signup_detail.setItem(row, 6, QTableWidgetItem(str((r or {}).get("payment_receipt_number", "") or "")))
             sid = str((r or {}).get("signup_id", "") or "")
@@ -820,6 +822,23 @@ class ActivitySignupPage(QWidget):
                 total += int((row or {}).get("total_amount") or 0)
         return total
 
+    def _selected_unpaid_signup_names(self, signup_ids):
+        selected = {str(x) for x in (signup_ids or [])}
+        names = []
+        for row in self._signup_rows_all or []:
+            sid = str((row or {}).get("signup_id") or "")
+            if sid in selected:
+                name = str((row or {}).get("person_name") or "").strip()
+                names.append(name or sid)
+        return names
+
+    def _payment_success_message(self, signup_names, paid_count, skipped_count):
+        paid_names_text = "、".join((signup_names or [])[:paid_count] or (signup_names or []))
+        message = f"姓名 {paid_names_text} 繳費成功。" if paid_names_text else f"完成繳費：{paid_count} 筆"
+        if skipped_count > 0:
+            message += f"\n略過已繳費：{skipped_count} 筆"
+        return message
+
     def _on_mark_signup_paid(self):
         if not self.activity_data or not self.activity_data.get("id"):
             QMessageBox.information(self, "請先選擇活動", "請先選擇活動再進行繳費。")
@@ -828,6 +847,7 @@ class ActivitySignupPage(QWidget):
         if not signup_ids:
             QMessageBox.information(self, "請先選擇", "請先選擇要繳費的未繳費報名明細。")
             return
+        signup_names = self._selected_unpaid_signup_names(signup_ids)
         dlg = PaymentMethodDialog(
             self,
             title="活動繳費",
@@ -853,13 +873,8 @@ class ActivitySignupPage(QWidget):
         self._refresh_signup_stats()
         paid_count = int((result or {}).get("paid_count", 0) or 0)
         skipped_count = int((result or {}).get("skipped_count", 0) or 0)
-        msg = [f"完成繳費：{paid_count} 筆"]
-        if skipped_count > 0:
-            msg.append(f"略過已繳費：{skipped_count} 筆")
-        receipts = (result or {}).get("receipt_numbers") or []
-        if receipts:
-            msg.append("收據號碼：" + "、".join(str(x) for x in receipts[:10]))
-        QMessageBox.information(self, "繳費完成", "\n".join(msg))
+        message = self._payment_success_message(signup_names, paid_count, skipped_count)
+        QMessageBox.information(self, "繳費完成", message)
 
     def _on_edit_signup_clicked(self):
         sid = self._get_selected_signup_id()

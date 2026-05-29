@@ -903,6 +903,18 @@ class ActivityDetailPanel(QWidget):
                 ids.add(sid)
         return sorted(ids)
 
+    def _checked_signup_names(self, signup_ids):
+        selected = {str(x) for x in (signup_ids or [])}
+        names = []
+        for row in range(self.tbl_signups.rowCount()):
+            id_item = self.tbl_signups.item(row, 0)
+            name_item = self.tbl_signups.item(row, 2)
+            sid = str(id_item.data(Qt.UserRole) if id_item else "").strip()
+            if sid in selected:
+                name = str(name_item.text() if name_item else "").strip()
+                names.append(name or sid)
+        return names
+
     def _on_mark_signup_paid(self):
         if not self._current_activity_id:
             QMessageBox.information(self, "請先選擇活動", "請先選擇活動再進行繳費。")
@@ -911,6 +923,7 @@ class ActivityDetailPanel(QWidget):
         if not signup_ids:
             QMessageBox.information(self, "請先選擇", "請先勾選未繳費名單，再執行繳費。")
             return
+        signup_names = self._checked_signup_names(signup_ids)
         dlg = PaymentMethodDialog(
             self,
             title="活動繳費",
@@ -936,12 +949,10 @@ class ActivityDetailPanel(QWidget):
         self._reload_signup_tab()
         paid_count = int(result.get("paid_count", 0) or 0)
         skipped_count = int(result.get("skipped_count", 0) or 0)
-        msg = [f"完成繳費：{paid_count} 筆"]
+        paid_names_text = "、".join(signup_names[:paid_count] or signup_names)
+        msg = [f"姓名 {paid_names_text} 繳費成功。" if paid_names_text else f"完成繳費：{paid_count} 筆"]
         if skipped_count > 0:
             msg.append(f"略過已繳費：{skipped_count} 筆")
-        receipts = result.get("receipt_numbers") or []
-        if receipts:
-            msg.append("收據號碼：" + "、".join(str(x) for x in receipts[:10]))
         QMessageBox.information(self, "繳費完成", "\n".join(msg))
 
     def _open_wenshu_dialog(self):

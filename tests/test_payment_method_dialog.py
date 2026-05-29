@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from PyQt5.QtWidgets import QDialog
+from PyQt5.QtWidgets import QDialog, QDialogButtonBox
 
 from app.dialogs.payment_method_dialog import PaymentMethodDialog
 
@@ -13,6 +13,8 @@ def test_payment_dialog_handler_is_readonly_when_not_editable(qtbot):
     assert dlg.handler_input.isReadOnly() is True
     assert dlg.method_combo.minimumWidth() >= 180
     assert dlg.minimumWidth() >= 360
+    assert dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.Ok).text() == "確認"
+    assert dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.Cancel).text() == "取消"
 
 
 def test_payment_dialog_accepts_cash_payload(qtbot):

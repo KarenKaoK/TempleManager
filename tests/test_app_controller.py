@@ -356,6 +356,49 @@ def test_upsert_lighting_signup_and_item_totals(tmp_path):
     finally:
         controller.conn.close()
 
+
+def test_list_lighting_signups_orders_by_created_at_ascending(tmp_path):
+    controller = _new_lighting_controller(tmp_path / "lighting_signup_order.db")
+    try:
+        cur = controller.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS people (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                phone_mobile TEXT
+            )
+            """
+        )
+        cur.executemany(
+            "INSERT OR REPLACE INTO people (id, name, phone_mobile) VALUES (?, ?, ?)",
+            [
+                ("P1", "第一筆", "0911"),
+                ("P2", "第二筆", "0922"),
+                ("P3", "第三筆", "0933"),
+            ],
+        )
+        cur.executemany(
+            """
+            INSERT INTO lighting_signups
+                (id, signup_year, person_id, group_id, signup_kind, total_amount, created_at, updated_at)
+            VALUES (?, 2026, ?, ?, ?, 0, ?, ?)
+            """,
+            [
+                ("LS_NEW_APPEND", "P3", "G1", "APPEND", "2026-03-03 09:00:00", "2026-03-03 09:00:00"),
+                ("LS_OLD_APPEND", "P1", "G9", "APPEND", "2026-03-01 09:00:00", "2026-03-01 09:00:00"),
+                ("LS_MID_INITIAL", "P2", "G1", "INITIAL", "2026-03-02 09:00:00", "2026-03-02 09:00:00"),
+            ],
+        )
+        controller.conn.commit()
+
+        assert [row["signup_id"] for row in controller.list_lighting_signups(2026)] == [
+            "LS_OLD_APPEND", "LS_MID_INITIAL", "LS_NEW_APPEND"
+        ]
+    finally:
+        controller.conn.close()
+
+
 def test_list_lighting_signup_rows_by_item_for_print(tmp_path):
     controller = _new_lighting_controller(tmp_path / "lighting_signup_print_rows.db")
     try:
