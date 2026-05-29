@@ -514,17 +514,38 @@ class ActivityDetailPanel(QWidget):
         g1.addLayout(search_row)
 
         self.tbl_signups = QTableWidget(0, 6)
-        self.tbl_signups.setHorizontalHeaderLabels(["已繳費", "收據號", "姓名", "電話", "方案", "金額"])
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.tbl_signups.setObjectName("activitySignupDetailTable")
+        self.tbl_signups.setHorizontalHeaderLabels(["勾選", "收據號", "姓名", "電話", "報名項目", "金額"])
+        signup_header = self.tbl_signups.horizontalHeader()
+        signup_header.setVisible(True)
+        signup_header.setFixedHeight(34)
+        signup_header.setMinimumSectionSize(64)
+        signup_header.setStretchLastSection(False)
+        signup_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        signup_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        signup_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        signup_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        signup_header.setSectionResizeMode(4, QHeaderView.Stretch)
+        signup_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.tbl_signups.verticalHeader().setVisible(False)
+        self.tbl_signups.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tbl_signups.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tbl_signups.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.tbl_signups.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl_signups.setSelectionMode(QTableWidget.MultiSelection)
         self.tbl_signups.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_signups.setAlternatingRowColors(True)
+        self.tbl_signups.setStyleSheet("""
+            QTableWidget#activitySignupDetailTable QHeaderView::section {
+                background: #F7EFE6;
+                color: #2B2B2B;
+                font-weight: 700;
+                padding: 6px 8px;
+                border: 0;
+                border-right: 1px solid #E1D5C8;
+                border-bottom: 1px solid #D6C8BA;
+            }
+        """)
         g1.addWidget(self.tbl_signups, 1)
 
         row_btn_1 = QHBoxLayout()

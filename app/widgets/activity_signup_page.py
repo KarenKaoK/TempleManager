@@ -35,7 +35,21 @@ class _SignupDetailTableWidget(QTableWidget):
         self._apply_bottom_gutter()
 
     def _apply_bottom_gutter(self):
-        self.setViewportMargins(0, 0, 0, self._bottom_gutter_px)
+        margins = self.viewportMargins()
+
+        top_margin = margins.top()
+        header = self.horizontalHeader()
+        if header is not None and not header.isHidden():
+            top_margin = max(top_margin, header.height(), header.minimumHeight())
+
+        left_margin = margins.left()
+        vertical_header = self.verticalHeader()
+        if vertical_header is not None and not vertical_header.isHidden():
+            left_margin = max(left_margin, vertical_header.width(), vertical_header.minimumWidth())
+
+        self.setViewportMargins(
+            left_margin, top_margin, margins.right(), self._bottom_gutter_px
+        )
 
     def updateGeometries(self):
         super().updateGeometries()
@@ -519,6 +533,10 @@ class ActivitySignupPage(QWidget):
         self.tbl_signup_detail.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.tbl_signup_detail.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.tbl_signup_detail.verticalHeader().setVisible(False)
+        self.tbl_signup_detail.horizontalHeader().setVisible(True)
+        self.tbl_signup_detail.horizontalHeader().setMinimumHeight(30)
+        self.tbl_signup_detail.horizontalHeader().setDefaultSectionSize(96)
+        self.tbl_signup_detail.horizontalHeader().setStretchLastSection(False)
         self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_signup_detail.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -535,6 +553,15 @@ class ActivitySignupPage(QWidget):
         self.tbl_signup_detail.setColumnWidth(6, 120)
         self.tbl_signup_detail.setStyleSheet(
             """
+            QHeaderView::section {
+                background: #F7EFE6;
+                color: #2B2B2B;
+                font-weight: 700;
+                padding: 6px 8px;
+                border: 0;
+                border-right: 1px solid #E1D5C8;
+                border-bottom: 1px solid #D6C8BA;
+            }
             QTableWidget::item:selected {
                 background: #D9ECFF;
                 color: #1F2937;
@@ -624,7 +651,8 @@ class ActivitySignupPage(QWidget):
         if isinstance(self.tbl_signup_detail, _SignupDetailTableWidget):
             self.tbl_signup_detail.set_bottom_gutter(reserve)
         else:
-            self.tbl_signup_detail.setViewportMargins(0, 0, 0, reserve)
+            margins = self.tbl_signup_detail.viewportMargins()
+            self.tbl_signup_detail.setViewportMargins(margins.left(), margins.top(), margins.right(), reserve)
 
     def _refresh_signup_stats(self):
         if not self.activity_data or not self.activity_data.get("id"):

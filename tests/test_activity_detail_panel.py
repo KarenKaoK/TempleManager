@@ -1,3 +1,5 @@
+from PyQt5.QtCore import Qt
+
 from app.widgets.activity_detail_panel import ActivityDetailPanel
 
 
@@ -23,6 +25,20 @@ def test_signup_stats_include_paid_and_unpaid_amounts(qtbot):
     assert panel.stat_donation._value_label.text() == "50"
     assert panel.stat_paid_amount._value_label.text() == "400"
     assert panel.stat_unpaid_amount._value_label.text() == "200"
+
+
+def test_signup_detail_table_header_is_visible_and_labeled(qtbot):
+    panel = ActivityDetailPanel(controller=FakeController())
+    qtbot.addWidget(panel)
+
+    header = panel.tbl_signups.horizontalHeader()
+
+    assert header.isHidden() is False
+    assert header.height() >= 34 or header.minimumHeight() >= 34
+    assert panel.tbl_signups.horizontalScrollBarPolicy() == Qt.ScrollBarAsNeeded
+    assert [panel.tbl_signups.horizontalHeaderItem(i).text() for i in range(panel.tbl_signups.columnCount())] == [
+        "勾選", "收據號", "姓名", "電話", "報名項目", "金額"
+    ]
 
 
 def test_clear_signup_tab_resets_paid_and_unpaid_amounts(qtbot):

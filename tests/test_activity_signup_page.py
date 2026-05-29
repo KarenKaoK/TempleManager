@@ -80,6 +80,13 @@ def test_signup_detail_first_header_is_paid_text(qtbot, monkeypatch):
     page = ActivitySignupPage(controller=mock_controller)
     qtbot.addWidget(page)
 
+    header = page.tbl_signup_detail.horizontalHeader()
+    margins = page.tbl_signup_detail.viewportMargins()
+
+    assert header.isHidden() is False
+    assert header.minimumHeight() >= 30
+    assert margins.top() >= header.minimumHeight()
+    assert margins.bottom() > 0
     assert page.tbl_signup_detail.horizontalHeaderItem(0).text() == "已繳費"
 
 

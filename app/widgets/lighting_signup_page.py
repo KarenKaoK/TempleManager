@@ -3,10 +3,11 @@ from datetime import date
 from PyQt5.QtCore import Qt, QEvent, pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QLineEdit, QSplitter, QMessageBox, QDialog, QComboBox
+    QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QLineEdit, QSplitter, QMessageBox, QDialog
 )
 
 from app.dialogs.lighting_household_signup_dialog import LightingHouseholdSignupDialog
+from app.dialogs.payment_method_dialog import PaymentMethodDialog
 from app.utils.print_helper import PrintHelper
 from app.utils.date_utils import ad_to_roc_string
 
@@ -274,27 +275,9 @@ class LightingSignupPage(QWidget):
 
         right_btn_row = QHBoxLayout()
         self.btn_clear_selection_rows = QPushButton("清除")
-        self.edt_payment_handler = QLineEdit()
-        self.edt_payment_handler.setPlaceholderText("經手人（必填）")
-        if self.operator_name:
-            self.edt_payment_handler.setText(self.operator_name)
-        self._apply_payment_handler_permissions()
         self.btn_pay = QPushButton("按此繳費")
         right_btn_row.addWidget(self.btn_clear_selection_rows)
         right_btn_row.addWidget(self.btn_pay)
-        self.cmb_payment_method = QComboBox()
-        self.cmb_payment_method.addItem("現金", "cash")
-        self.cmb_payment_method.addItem("轉帳", "transfer")
-        self.edt_transfer_last5 = QLineEdit()
-        self.edt_transfer_last5.setPlaceholderText("轉帳末5碼")
-        self.edt_transfer_last5.setFixedWidth(120)
-        self.edt_transfer_last5.setVisible(False)
-        self.cmb_payment_method.currentIndexChanged.connect(self._sync_transfer_last5_visible)
-        right_btn_row.addWidget(QLabel("付款方式"))
-        right_btn_row.addWidget(self.cmb_payment_method)
-        right_btn_row.addWidget(self.edt_transfer_last5)
-        right_btn_row.addWidget(QLabel("經手人"))
-        right_btn_row.addWidget(self.edt_payment_handler, 1)
         right_layout.addLayout(right_btn_row)
 
         body_splitter.addWidget(left_wrap)
@@ -376,26 +359,7 @@ class LightingSignupPage(QWidget):
         return (self.user_role or "").strip() in {"管理員", "管理者", "會計", "會計人員"}
 
     def _apply_payment_handler_permissions(self):
-        editable = self._can_edit_payment_handler()
-        self.edt_payment_handler.setReadOnly(not editable)
-        if editable:
-            self.edt_payment_handler.setToolTip("")
-        else:
-            self.edt_payment_handler.setToolTip("僅管理員與會計可修改經手人")
-
-    def _sync_transfer_last5_visible(self):
-        is_transfer = self.cmb_payment_method.currentData() == "transfer"
-        self.edt_transfer_last5.setVisible(is_transfer)
-        if not is_transfer:
-            self.edt_transfer_last5.clear()
-
-    def _collect_payment_fields(self):
-        method = self.cmb_payment_method.currentData() or "cash"
-        transfer_last5 = (self.edt_transfer_last5.text() or "").strip()
-        if method == "transfer" and not transfer_last5:
-            QMessageBox.warning(self, "錯誤", "轉帳付款必須填寫末5碼。")
-            return None
-        return {"payment_method": method, "transfer_last5": transfer_last5 if method == "transfer" else ""}
+        return
 
     def _search_people(self):
         keyword = (self.edt_people_search.text() or "").strip()
@@ -835,23 +799,42 @@ class LightingSignupPage(QWidget):
                     ids.append(sid)
         return ids
 
+    def _selected_signup_total_amount(self, signup_ids):
+        selected = {str(x) for x in (signup_ids or [])}
+        total = 0
+        for r in range(self.tbl_signups.rowCount()):
+            item = self.tbl_signups.item(r, 0)
+            amount_item = self.tbl_signups.item(r, 6)
+            sid = str(item.data(Qt.UserRole) if item else "").strip()
+            if sid in selected:
+                try:
+                    total += int((amount_item.text() if amount_item else "0") or 0)
+                except ValueError:
+                    total += 0
+        return total
+
     def _on_mark_paid(self):
         signup_ids = self._selected_signup_ids()
         if not signup_ids:
             QMessageBox.warning(self, "錯誤", "請先勾選要繳費的報名名單。")
             return
-        handler = (self.edt_payment_handler.text() or "").strip()
-        if not handler:
-            QMessageBox.warning(self, "錯誤", "經手人為必填。")
+        dlg = PaymentMethodDialog(
+            self,
+            title="安燈繳費",
+            selected_count=len(signup_ids),
+            total_amount=self._selected_signup_total_amount(signup_ids),
+            handler=self.operator_name,
+            can_edit_handler=False,
+        )
+        if dlg.exec_() != QDialog.Accepted:
             return
-        payment_fields = self._collect_payment_fields()
-        if payment_fields is None:
-            return
+        payment_fields = dlg.get_payload()
         result = self.controller.mark_lighting_signups_paid(
             self.year_spin.value(),
             signup_ids,
-            handler=handler,
-            **payment_fields,
+            handler=payment_fields.get("handler", ""),
+            payment_method=payment_fields.get("payment_method", "cash"),
+            transfer_last5=payment_fields.get("transfer_last5", ""),
         )
         QMessageBox.information(
             self,
