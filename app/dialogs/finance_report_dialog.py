@@ -123,9 +123,9 @@ class FinanceReportPage(QWidget):
         root.addWidget(self.total_net_label)
 
         root.addWidget(QLabel("細項"))
-        self.detail_table = QTableWidget(0, 9)
+        self.detail_table = QTableWidget(0, 11)
         self.detail_table.setHorizontalHeaderLabels(
-            ["日期", "類型", "單號", "項目代號", "項目名稱", "對象", "金額", "經手人", "摘要"]
+            ["日期", "類型", "單號", "項目代號", "項目名稱", "對象", "金額", "付款方式", "轉帳末5碼", "經手人", "摘要"]
         )
         self.detail_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.detail_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -283,6 +283,8 @@ class FinanceReportPage(QWidget):
                 str(row.get("category_name") or ""),
                 str(row.get("payer_name") or ""),
                 str(row.get("amount") or 0),
+                "轉帳" if str(row.get("payment_method") or "").strip().lower() == "transfer" else "現金",
+                str(row.get("transfer_last5") or ""),
                 str(row.get("handler") or ""),
                 str(row.get("note") or ""),
             ]
@@ -342,7 +344,7 @@ class FinanceReportPage(QWidget):
 
                 w.writerow([])
                 w.writerow(["細項"])
-                detail_headers = ["日期", "類型", "單號", "項目代號", "項目名稱", "對象", "金額", "經手人", "摘要"]
+                detail_headers = ["日期", "類型", "單號", "項目代號", "項目名稱", "對象", "金額", "付款方式", "轉帳末5碼", "經手人", "摘要"]
                 w.writerow(detail_headers)
                 for row_data in all_details:
                     tx_type_text = "收入" if row_data.get("type") == "income" else "支出"
@@ -355,6 +357,8 @@ class FinanceReportPage(QWidget):
                             str(row_data.get("category_name") or ""),
                             str(row_data.get("payer_name") or ""),
                             str(row_data.get("amount") or 0),
+                            "轉帳" if str(row_data.get("payment_method") or "").strip().lower() == "transfer" else "現金",
+                            str(row_data.get("transfer_last5") or ""),
                             str(row_data.get("handler") or ""),
                             str(row_data.get("note") or ""),
                         ]

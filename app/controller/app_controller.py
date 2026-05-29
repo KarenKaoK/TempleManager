@@ -39,6 +39,8 @@ class AppController:
     LIGHTING_INCOME_ITEM_ID = "91"
     ACTIVITY_REFUND_EXPENSE_ITEM_ID = "90R"
     LIGHTING_REFUND_EXPENSE_ITEM_ID = "91R"
+    PAYMENT_METHOD_CASH = "cash"
+    PAYMENT_METHOD_TRANSFER = "transfer"
     SYSTEM_LIGHTING_ITEMS = (
         ("L01", "太歲燈", 500, "TAI_SUI", 1),
         ("L02", "光明燈", 500, "BRIGHT", 2),
@@ -59,6 +61,7 @@ class AppController:
         self._ensure_backup_schema()
         self._ensure_lighting_schema()
         self._ensure_lighting_signup_schema()
+        self._ensure_transactions_payment_schema()
         self._ensure_system_income_items()
         self._ensure_system_expense_items()
         self._ensure_runtime_indexes()
@@ -338,6 +341,8 @@ class AppController:
             f"信眾ID {self._fmt_log_val(d.get('payer_person_id'))}",
             f"經手人 {self._fmt_log_val(d.get('handler'))}",
             f"收據 {self._fmt_log_val(d.get('receipt_number'))}",
+            f"付款方式 {self._fmt_log_val(self._payment_method_label(d.get('payment_method')))}",
+            f"轉帳末5碼 {self._fmt_log_val(d.get('transfer_last5'))}",
             f"備註 {self._fmt_log_val(d.get('note'))}",
             f"來源類型 {self._fmt_log_val(d.get('source_type'))}",
             f"來源ID {self._fmt_log_val(d.get('source_id'))}",
@@ -356,6 +361,8 @@ class AppController:
             ("payer_name", "對象"),
             ("handler", "經手人"),
             ("receipt_number", "收據"),
+            ("payment_method", "付款方式"),
+            ("transfer_last5", "轉帳末5碼"),
             ("note", "備註"),
             ("source_type", "來源類型"),
             ("source_id", "來源ID"),
@@ -545,6 +552,48 @@ class AppController:
             (table,),
         ).fetchone()
         return bool(row)
+
+    def _ensure_transactions_payment_schema(self) -> None:
+        if not self._table_exists("transactions"):
+            return
+        cols = self._table_columns("transactions")
+        cur = self.conn.cursor()
+        changed = False
+        if "payment_method" not in cols:
+            cur.execute("ALTER TABLE transactions ADD COLUMN payment_method TEXT DEFAULT 'cash'")
+            changed = True
+        if "transfer_last5" not in cols:
+            cur.execute("ALTER TABLE transactions ADD COLUMN transfer_last5 TEXT")
+            changed = True
+        if changed:
+            self.conn.commit()
+
+    def _normalize_payment_fields(self, data: Dict[str, Any], *, require_transfer_tail: bool = True) -> Tuple[str, str]:
+        raw_method = str((data or {}).get("payment_method") or self.PAYMENT_METHOD_CASH).strip().lower()
+        method_aliases = {
+            "cash": self.PAYMENT_METHOD_CASH,
+            "現金": self.PAYMENT_METHOD_CASH,
+            "transfer": self.PAYMENT_METHOD_TRANSFER,
+            "bank_transfer": self.PAYMENT_METHOD_TRANSFER,
+            "轉帳": self.PAYMENT_METHOD_TRANSFER,
+        }
+        method = method_aliases.get(raw_method)
+        if method not in {self.PAYMENT_METHOD_CASH, self.PAYMENT_METHOD_TRANSFER}:
+            raise ValueError("付款方式必須為現金或轉帳")
+
+        transfer_last5 = str((data or {}).get("transfer_last5") or "").strip()
+        if method == self.PAYMENT_METHOD_TRANSFER:
+            if require_transfer_tail and not transfer_last5:
+                raise ValueError("轉帳付款必須填寫末5碼")
+            return method, transfer_last5
+        return method, ""
+
+    @classmethod
+    def _payment_method_label(cls, value: Any) -> str:
+        method = str(value or cls.PAYMENT_METHOD_CASH).strip().lower()
+        if method == cls.PAYMENT_METHOD_TRANSFER:
+            return "轉帳"
+        return "現金"
 
     @staticmethod
     def _parse_ymd_to_date(text: Optional[str]) -> Optional[date]:
@@ -1511,7 +1560,18 @@ class AppController:
             ),
         )
 
-    def mark_lighting_signups_paid(self, signup_year: int, signup_ids: List[str], handler: str = "") -> Dict[str, Any]:
+    def mark_lighting_signups_paid(
+        self,
+        signup_year: int,
+        signup_ids: List[str],
+        handler: str = "",
+        payment_method: str = "cash",
+        transfer_last5: str = "",
+    ) -> Dict[str, Any]:
+        payment_method, transfer_last5 = self._normalize_payment_fields(
+            {"payment_method": payment_method, "transfer_last5": transfer_last5}
+        )
+        self._ensure_transactions_payment_schema()
         normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
         if not normalized_ids:
             return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
@@ -1580,13 +1640,15 @@ class AppController:
                     INSERT INTO transactions (
                         date, type, category_id, category_name, amount,
                         payer_person_id, payer_name, handler, receipt_number, note,
+                        payment_method, transfer_last5,
                         source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today, category_id, category_name, int(row.get("total_amount") or 0),
                         str(row.get("person_id") or ""), str(row.get("person_name") or ""),
                         handler_text, receipt, note,
+                        payment_method, transfer_last5,
                         "LIGHTING_SIGNUP", str(row.get("signup_id") or ""), adjustment_kind, None, 1,
                     ),
                 )
@@ -1741,8 +1803,9 @@ class AppController:
                     INSERT INTO transactions (
                         date, type, category_id, category_name, amount,
                         payer_person_id, payer_name, handler, receipt_number, note,
+                        payment_method, transfer_last5,
                         source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today,
@@ -1754,6 +1817,8 @@ class AppController:
                         handler_text,
                         receipt_number,
                         f"[{int(signup_year) - 1911}年安燈差額補繳]",
+                        self.PAYMENT_METHOD_CASH,
+                        "",
                         "LIGHTING_SIGNUP",
                         signup_id,
                         "SUPPLEMENT",
@@ -1775,8 +1840,9 @@ class AppController:
                     INSERT INTO transactions (
                         date, type, category_id, category_name, amount,
                         payer_person_id, payer_name, handler, receipt_number, note,
+                        payment_method, transfer_last5,
                         source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-                    ) VALUES (?, 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today,
@@ -1788,6 +1854,8 @@ class AppController:
                         handler_text,
                         None,
                         f"[{int(signup_year) - 1911}年安燈差額退費]",
+                        self.PAYMENT_METHOD_CASH,
+                        "",
                         "LIGHTING_SIGNUP",
                         signup_id,
                         "REFUND",
@@ -5142,8 +5210,19 @@ class AppController:
         row = cur.execute("SELECT * FROM expense_items WHERE id = ? LIMIT 1", (self.ACTIVITY_REFUND_EXPENSE_ITEM_ID,)).fetchone()
         return dict(row) if row else None
 
-    def mark_activity_signups_paid(self, activity_id: str, signup_ids: List[str], handler: str = "") -> Dict[str, Any]:
+    def mark_activity_signups_paid(
+        self,
+        activity_id: str,
+        signup_ids: List[str],
+        handler: str = "",
+        payment_method: str = "cash",
+        transfer_last5: str = "",
+    ) -> Dict[str, Any]:
         aid = (activity_id or "").strip()
+        payment_method, transfer_last5 = self._normalize_payment_fields(
+            {"payment_method": payment_method, "transfer_last5": transfer_last5}
+        )
+        self._ensure_transactions_payment_schema()
         normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
         if not aid:
             self._log_activity_system_event("活動報名繳費失敗（原因：activity_id 為空）", level="WARN")
@@ -5240,8 +5319,9 @@ class AppController:
                     INSERT INTO transactions (
                         date, type, category_id, category_name, amount,
                         payer_person_id, payer_name, handler, receipt_number, note,
+                        payment_method, transfer_last5,
                         source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today,
@@ -5253,6 +5333,8 @@ class AppController:
                         handler_text,
                         receipt,
                         note,
+                        payment_method,
+                        transfer_last5,
                         "ACTIVITY_SIGNUP",
                         str(row.get("signup_id") or ""),
                         adjustment_kind,
@@ -5435,8 +5517,9 @@ class AppController:
                     INSERT INTO transactions (
                         date, type, category_id, category_name, amount,
                         payer_person_id, payer_name, handler, receipt_number, note,
+                        payment_method, transfer_last5,
                         source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today,
@@ -5448,6 +5531,8 @@ class AppController:
                         handler_text,
                         receipt_number,
                         f"[{activity_label}差額補繳]",
+                        self.PAYMENT_METHOD_CASH,
+                        "",
                         "ACTIVITY_SIGNUP",
                         sid,
                         "SUPPLEMENT",
@@ -5469,8 +5554,9 @@ class AppController:
                     INSERT INTO transactions (
                         date, type, category_id, category_name, amount,
                         payer_person_id, payer_name, handler, receipt_number, note,
+                        payment_method, transfer_last5,
                         source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-                    ) VALUES (?, 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today,
@@ -5482,6 +5568,8 @@ class AppController:
                         handler_text,
                         None,
                         f"[{activity_label}差額退費]",
+                        self.PAYMENT_METHOD_CASH,
+                        "",
                         "ACTIVITY_SIGNUP",
                         sid,
                         "REFUND",
@@ -6323,14 +6411,21 @@ class AppController:
         if data.get("type") == "income" and not data.get("payer_person_id"):
              self._log_finance_system_event("新增收入資料警示（payer_person_id 未提供）", level="WARN")
 
+        self._ensure_transactions_payment_schema()
+        payment_method, transfer_last5 = self._normalize_payment_fields(data)
+        data = dict(data or {})
+        data["payment_method"] = payment_method
+        data["transfer_last5"] = transfer_last5
+
         cursor = self.conn.cursor()
         try:
             cursor.execute("""
             INSERT INTO transactions (
                 date, type, category_id, category_name, amount, 
                 payer_person_id, payer_name, handler, receipt_number, note,
+                payment_method, transfer_last5,
                 source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.get("date"),
             data.get("type"),
@@ -6342,6 +6437,8 @@ class AppController:
             data.get("handler"),
             data.get("receipt_number"),
             data.get("note"),
+            data.get("payment_method"),
+            data.get("transfer_last5"),
             data.get("source_type"),
             data.get("source_id"),
             data.get("adjustment_kind"),
@@ -6645,6 +6742,7 @@ class AppController:
 
     def update_transaction(self, transaction_id, data):
         """更新交易紀錄"""
+        self._ensure_transactions_payment_schema()
         cursor = self.conn.cursor()
         before = cursor.execute("SELECT * FROM transactions WHERE id=?", (transaction_id,)).fetchone()
         if not before:
@@ -6657,6 +6755,10 @@ class AppController:
             )
             raise ValueError("作廢單據不可修改")
         before_payload = dict(before)
+        payment_method, transfer_last5 = self._normalize_payment_fields(data)
+        data = dict(data or {})
+        data["payment_method"] = payment_method
+        data["transfer_last5"] = transfer_last5
         
         # 這裡只允許更新部分欄位，確保資料一致性
         # 注意：如果 user 修改了日期，receipt_number 是否要重算？
@@ -6666,7 +6768,8 @@ class AppController:
             cursor.execute("""
             UPDATE transactions
             SET date=?, category_id=?, category_name=?, amount=?, 
-                payer_person_id=?, payer_name=?, handler=?, note=?
+                payer_person_id=?, payer_name=?, handler=?, note=?,
+                payment_method=?, transfer_last5=?
             WHERE id=?
         """, (
             data.get("date"),
@@ -6677,6 +6780,8 @@ class AppController:
             data.get("payer_name"),
             data.get("handler"),
             data.get("note"),
+            data.get("payment_method"),
+            data.get("transfer_last5"),
             transaction_id
         ))
             self.conn.commit()

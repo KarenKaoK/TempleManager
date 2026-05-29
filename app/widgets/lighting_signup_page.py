@@ -3,7 +3,7 @@ from datetime import date
 from PyQt5.QtCore import Qt, QEvent, pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QLineEdit, QSplitter, QMessageBox, QDialog
+    QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QLineEdit, QSplitter, QMessageBox, QDialog, QComboBox
 )
 
 from app.dialogs.lighting_household_signup_dialog import LightingHouseholdSignupDialog
@@ -282,6 +282,17 @@ class LightingSignupPage(QWidget):
         self.btn_pay = QPushButton("按此繳費")
         right_btn_row.addWidget(self.btn_clear_selection_rows)
         right_btn_row.addWidget(self.btn_pay)
+        self.cmb_payment_method = QComboBox()
+        self.cmb_payment_method.addItem("現金", "cash")
+        self.cmb_payment_method.addItem("轉帳", "transfer")
+        self.edt_transfer_last5 = QLineEdit()
+        self.edt_transfer_last5.setPlaceholderText("轉帳末5碼")
+        self.edt_transfer_last5.setFixedWidth(120)
+        self.edt_transfer_last5.setVisible(False)
+        self.cmb_payment_method.currentIndexChanged.connect(self._sync_transfer_last5_visible)
+        right_btn_row.addWidget(QLabel("付款方式"))
+        right_btn_row.addWidget(self.cmb_payment_method)
+        right_btn_row.addWidget(self.edt_transfer_last5)
         right_btn_row.addWidget(QLabel("經手人"))
         right_btn_row.addWidget(self.edt_payment_handler, 1)
         right_layout.addLayout(right_btn_row)
@@ -371,6 +382,20 @@ class LightingSignupPage(QWidget):
             self.edt_payment_handler.setToolTip("")
         else:
             self.edt_payment_handler.setToolTip("僅管理員與會計可修改經手人")
+
+    def _sync_transfer_last5_visible(self):
+        is_transfer = self.cmb_payment_method.currentData() == "transfer"
+        self.edt_transfer_last5.setVisible(is_transfer)
+        if not is_transfer:
+            self.edt_transfer_last5.clear()
+
+    def _collect_payment_fields(self):
+        method = self.cmb_payment_method.currentData() or "cash"
+        transfer_last5 = (self.edt_transfer_last5.text() or "").strip()
+        if method == "transfer" and not transfer_last5:
+            QMessageBox.warning(self, "錯誤", "轉帳付款必須填寫末5碼。")
+            return None
+        return {"payment_method": method, "transfer_last5": transfer_last5 if method == "transfer" else ""}
 
     def _search_people(self):
         keyword = (self.edt_people_search.text() or "").strip()
@@ -819,7 +844,15 @@ class LightingSignupPage(QWidget):
         if not handler:
             QMessageBox.warning(self, "錯誤", "經手人為必填。")
             return
-        result = self.controller.mark_lighting_signups_paid(self.year_spin.value(), signup_ids, handler=handler)
+        payment_fields = self._collect_payment_fields()
+        if payment_fields is None:
+            return
+        result = self.controller.mark_lighting_signups_paid(
+            self.year_spin.value(),
+            signup_ids,
+            handler=handler,
+            **payment_fields,
+        )
         QMessageBox.information(
             self,
             "繳費完成",

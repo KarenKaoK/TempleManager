@@ -169,6 +169,27 @@ def test_mark_lighting_paid_writes_data_log_with_person(controller_with_lighting
     assert f"收據 {receipt}" in msg
 
 
+def test_mark_lighting_paid_stores_transfer_payment_fields(controller_with_lighting_log_db):
+    c = controller_with_lighting_log_db
+    sid = c.upsert_lighting_signup(2026, "P1", ["L01"], note="轉帳付款測試")
+
+    result = c.mark_lighting_signups_paid(
+        2026,
+        [sid],
+        handler="櫃台A",
+        payment_method="transfer",
+        transfer_last5="TX123",
+    )
+
+    assert result["paid_count"] == 1
+    row = c.conn.cursor().execute(
+        "SELECT payment_method, transfer_last5 FROM transactions WHERE source_id = ? ORDER BY id DESC LIMIT 1",
+        (sid,),
+    ).fetchone()
+    assert row["payment_method"] == "transfer"
+    assert row["transfer_last5"] == "TX123"
+
+
 def test_mark_lighting_paid_empty_handler_writes_system_log(controller_with_lighting_log_db, monkeypatch):
     system_calls = []
 

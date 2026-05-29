@@ -92,6 +92,7 @@ def test_mark_paid_enabled_by_selected_unpaid_rows(qtbot, monkeypatch):
 
     page = ActivitySignupPage(controller=mock_controller)
     qtbot.addWidget(page)
+    page.signup_group.setEnabled(True)
 
     page.activity_data = {"id": "A001"}
     page._signup_rows_all = [
@@ -105,10 +106,6 @@ def test_mark_paid_enabled_by_selected_unpaid_rows(qtbot, monkeypatch):
         },
     ]
     page._apply_signup_detail_filter()
-    page.edt_signup_payment_handler.setText("經手人A")
-    assert (page.edt_signup_payment_handler.text() or "").strip() == "經手人A"
-    assert page._can_edit_signup_payment_handler() is False or page.edt_signup_payment_handler.isReadOnly() is False
-
     sel = page.tbl_signup_detail.selectionModel()
     idx_paid = page.tbl_signup_detail.model().index(1, 0)
     idx_unpaid = page.tbl_signup_detail.model().index(0, 0)
@@ -116,9 +113,9 @@ def test_mark_paid_enabled_by_selected_unpaid_rows(qtbot, monkeypatch):
     # 先選未繳費列 -> 可繳費
     sel.select(idx_unpaid, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
     page._sync_mark_paid_enabled()
-    assert bool((page.edt_signup_payment_handler.text() or "").strip()) is True
     assert "S1" in page._get_selected_unpaid_signup_ids()
     assert bool(page._get_selected_unpaid_signup_ids()) is True
+    assert page.btn_signup_mark_paid.isEnabled()
 
     # 模擬 Ctrl 多選再加選已繳費列 -> 仍可繳費（已繳費列會被過濾）
     sel.select(idx_paid, QItemSelectionModel.Select | QItemSelectionModel.Rows)
@@ -127,3 +124,17 @@ def test_mark_paid_enabled_by_selected_unpaid_rows(qtbot, monkeypatch):
     assert "S1" in selected_unpaid
     assert "S2" not in selected_unpaid
     assert bool(selected_unpaid) is True
+
+
+def test_signup_page_removes_payment_clear_button(qtbot, monkeypatch):
+    monkeypatch.setattr(activity_signup_page_module, "ActivityPersonPanel", FakePersonPanel)
+    monkeypatch.setattr(activity_signup_page_module, "ActivityPlanPanel", FakePlanPanel)
+
+    mock_controller = MagicMock()
+    mock_controller.list_activities_for_signup.return_value = []
+
+    page = ActivitySignupPage(controller=mock_controller)
+    qtbot.addWidget(page)
+
+    assert not hasattr(page, "btn_signup_pay_clear")
+    assert all(b.text() != "清除" for b in page.signup_group.findChildren(QPushButton))

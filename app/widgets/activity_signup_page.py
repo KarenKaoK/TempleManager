@@ -2,12 +2,13 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSplitter, QGroupBox, QSizePolicy,
     QLineEdit, QMessageBox, QDialog,
-    QScrollArea, QGridLayout, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QStyle
+    QScrollArea, QGridLayout, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QStyle, QComboBox
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 
 from app.dialogs.activity_household_signup_dialog import ActivityHouseholdSignupDialog
 from app.dialogs.activity_signup_edit_dialog import ActivitySignupEditDialog
+from app.dialogs.payment_method_dialog import PaymentMethodDialog
 from app.widgets.activity_plan_panel import ActivityPlanPanel  # backward-compat for tests
 from app.widgets.activity_person_panel import ActivityPersonPanel
 from app.utils.id_utils import (
@@ -568,22 +569,10 @@ class ActivitySignupPage(QWidget):
         action_row.addWidget(self.btn_signup_delete)
         action_row.addSpacing(8)
 
-        self.btn_signup_pay_clear = QPushButton("清除")
         self.btn_signup_mark_paid = QPushButton("按此繳費")
-        self.lbl_signup_payment_handler = QLabel("經手人")
-        self.edt_signup_payment_handler = QLineEdit()
-        self.edt_signup_payment_handler.setPlaceholderText("經手人（必填）")
-        if self.operator_name:
-            self.edt_signup_payment_handler.setText(self.operator_name)
-        self._apply_signup_payment_handler_permissions()
         self.btn_signup_mark_paid.setEnabled(False)
-        self.btn_signup_pay_clear.clicked.connect(self._clear_signup_payment_checks)
         self.btn_signup_mark_paid.clicked.connect(self._on_mark_signup_paid)
-        self.edt_signup_payment_handler.textChanged.connect(self._sync_mark_paid_enabled)
-        action_row.addWidget(self.btn_signup_pay_clear)
         action_row.addWidget(self.btn_signup_mark_paid)
-        action_row.addWidget(self.lbl_signup_payment_handler)
-        action_row.addWidget(self.edt_signup_payment_handler, 1)
         right_layout.addLayout(action_row)
 
         splitter.addWidget(right_container)
@@ -605,12 +594,6 @@ class ActivitySignupPage(QWidget):
 
     def set_default_payment_handler(self, username: str):
         self.operator_name = (username or "").strip()
-        if not hasattr(self, "edt_signup_payment_handler"):
-            return
-        if (self.edt_signup_payment_handler.text() or "").strip():
-            return
-        if self.operator_name:
-            self.edt_signup_payment_handler.setText(self.operator_name)
 
     def set_current_user_role(self, role: str):
         self.user_role = (role or "").strip()
@@ -620,14 +603,7 @@ class ActivitySignupPage(QWidget):
         return (self.user_role or "").strip() in {"管理員", "管理者", "會計", "會計人員"}
 
     def _apply_signup_payment_handler_permissions(self):
-        if not hasattr(self, "edt_signup_payment_handler"):
-            return
-        editable = self._can_edit_signup_payment_handler()
-        self.edt_signup_payment_handler.setReadOnly(not editable)
-        if editable:
-            self.edt_signup_payment_handler.setToolTip("")
-        else:
-            self.edt_signup_payment_handler.setToolTip("僅管理員與會計可修改經手人")
+        return
 
     def _reserve_signup_table_bottom_space(self, *_args):
         """
@@ -803,16 +779,18 @@ class ActivitySignupPage(QWidget):
                 ids.append(sid)
         return ids
 
-    def _clear_signup_payment_checks(self):
-        if hasattr(self, "tbl_signup_detail"):
-            self.tbl_signup_detail.clearSelection()
-        self._sync_mark_paid_enabled()
-
     def _sync_mark_paid_enabled(self, *_args):
-        handler_ok = bool((self.edt_signup_payment_handler.text() or "").strip()) if hasattr(self, "edt_signup_payment_handler") else False
         has_selected = bool(self._get_selected_unpaid_signup_ids()) if hasattr(self, "tbl_signup_detail") else False
         if hasattr(self, "btn_signup_mark_paid"):
-            self.btn_signup_mark_paid.setEnabled(handler_ok and has_selected)
+            self.btn_signup_mark_paid.setEnabled(has_selected)
+
+    def _selected_unpaid_total_amount(self, signup_ids):
+        selected = {str(x) for x in (signup_ids or [])}
+        total = 0
+        for row in self._signup_rows_all or []:
+            if str((row or {}).get("signup_id") or "") in selected:
+                total += int((row or {}).get("total_amount") or 0)
+        return total
 
     def _on_mark_signup_paid(self):
         if not self.activity_data or not self.activity_data.get("id"):
@@ -822,15 +800,24 @@ class ActivitySignupPage(QWidget):
         if not signup_ids:
             QMessageBox.information(self, "請先選擇", "請先選擇要繳費的未繳費報名明細。")
             return
-        handler = (self.edt_signup_payment_handler.text() or "").strip()
-        if not handler:
-            QMessageBox.information(self, "欄位不足", "請先輸入經手人。")
+        dlg = PaymentMethodDialog(
+            self,
+            title="活動繳費",
+            selected_count=len(signup_ids),
+            total_amount=self._selected_unpaid_total_amount(signup_ids),
+            handler=self.operator_name,
+            can_edit_handler=False,
+        )
+        if dlg.exec_() != QDialog.Accepted:
             return
+        payment_fields = dlg.get_payload()
         try:
             result = self.controller.mark_activity_signups_paid(
                 str(self.activity_data.get("id") or ""),
                 signup_ids,
-                handler=handler,
+                handler=payment_fields.get("handler", ""),
+                payment_method=payment_fields.get("payment_method", "cash"),
+                transfer_last5=payment_fields.get("transfer_last5", ""),
             )
         except Exception as e:
             QMessageBox.warning(self, "繳費失敗", str(e))

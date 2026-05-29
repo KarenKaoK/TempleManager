@@ -356,6 +356,8 @@ def create_transactions_table(db_name=DB_NAME):
         payer_name TEXT, -- 冗餘儲存姓名(Snapshot)
         handler TEXT, -- 經手人
         receipt_number TEXT, -- 收據號碼
+        payment_method TEXT DEFAULT 'cash', -- cash / transfer
+        transfer_last5 TEXT, -- 轉帳末5碼
         note TEXT,
         is_voided INTEGER DEFAULT 0, -- 作廢標記 (0=正常, 1=作廢)
         source_type TEXT, -- 來源類型：LIGHTING_SIGNUP / ACTIVITY_SIGNUP / MANUAL

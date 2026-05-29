@@ -155,14 +155,22 @@ def test_system_income_items_upserted_on_startup(controller_with_payment_db):
 
 def test_mark_activity_paid_maps_category_and_note(controller_with_payment_db):
     c = controller_with_payment_db
-    result = c.mark_activity_signups_paid("A1", ["S1"], handler="櫃台A")
+    result = c.mark_activity_signups_paid(
+        "A1",
+        ["S1"],
+        handler="櫃台A",
+        payment_method="transfer",
+        transfer_last5="9988X",
+    )
     assert result["paid_count"] == 1
 
     row = c.conn.cursor().execute(
-        "SELECT category_id, category_name, note FROM transactions ORDER BY id DESC LIMIT 1"
+        "SELECT category_id, category_name, note, payment_method, transfer_last5 FROM transactions ORDER BY id DESC LIMIT 1"
     ).fetchone()
     assert row["category_id"] == "90"
     assert row["category_name"] == "活動收入"
+    assert row["payment_method"] == "transfer"
+    assert row["transfer_last5"] == "9988X"
     assert "115/02/28" in row["note"]
     assert "虎爺聖誕" in row["note"]
     assert "雙虎祝壽×2" in row["note"]
