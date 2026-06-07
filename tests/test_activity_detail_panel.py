@@ -1,4 +1,5 @@
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QPushButton
 
 from app.widgets.activity_detail_panel import ActivityDetailPanel
 
@@ -39,6 +40,16 @@ def test_signup_detail_table_header_is_visible_and_labeled(qtbot):
     assert [panel.tbl_signups.horizontalHeaderItem(i).text() for i in range(panel.tbl_signups.columnCount())] == [
         "勾選", "收據號", "姓名", "電話", "報名項目", "金額"
     ]
+
+
+def test_activity_management_signup_stats_has_no_mark_paid_button(qtbot):
+    panel = ActivityDetailPanel(controller=FakeController())
+    qtbot.addWidget(panel)
+
+    button_texts = [button.text() for button in panel.tab_signup.findChildren(QPushButton)]
+
+    assert "按此繳費" not in button_texts
+    assert not hasattr(panel, "btn_mark_paid")
 
 
 def test_clear_signup_tab_resets_paid_and_unpaid_amounts(qtbot):

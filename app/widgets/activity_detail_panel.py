@@ -20,7 +20,6 @@ from app.utils.date_utils import (
 )
 from app.utils.print_helper import PrintHelper
 from app.dialogs.activity_edit_dialog import ActivityEditDialog
-from app.dialogs.payment_method_dialog import PaymentMethodDialog
 from app.dialogs.plan_edit_dialog import PlanEditDialog
 
 
@@ -561,14 +560,6 @@ class ActivityDetailPanel(QWidget):
         row_btn_1.addWidget(self.btn_print_signup_list)
         g1.addLayout(row_btn_1)
 
-        payment_row = QHBoxLayout()
-        payment_row.addStretch(1)
-        self.btn_mark_paid = QPushButton("按此繳費")
-        self.btn_mark_paid.clicked.connect(self._on_mark_signup_paid)
-        payment_row.addWidget(self.btn_mark_paid)
-        g1.addLayout(payment_row)
-        self._sync_mark_paid_enabled()
-
         layout.addWidget(grp_detail, 1)
 
 
@@ -871,89 +862,9 @@ class ActivityDetailPanel(QWidget):
             ]
         self._signup_rows_filtered = rows
         self._render_signup_detail_table(rows)
-        self._sync_mark_paid_enabled()
 
     def _on_signup_search_changed(self, _text):
         self._apply_signup_filter()
-
-    def _sync_mark_paid_enabled(self):
-        if hasattr(self, "btn_mark_paid"):
-            self.btn_mark_paid.setEnabled(True)
-
-    def _checked_signup_total_amount(self, signup_ids):
-        selected = {str(x) for x in (signup_ids or [])}
-        total = 0
-        for row in self._signup_rows or []:
-            if str((row or {}).get("signup_id") or "") in selected:
-                total += int((row or {}).get("total_amount") or 0)
-        return total
-
-    def _get_checked_signup_ids(self) -> List[str]:
-        ids = set()
-        for row in range(self.tbl_signups.rowCount()):
-            it = self.tbl_signups.item(row, 0)
-            if not it:
-                continue
-            if int(it.data(Qt.UserRole + 1) or 0) == 1:
-                continue
-            if it.checkState() != Qt.Checked:
-                continue
-            sid = str(it.data(Qt.UserRole) or "").strip()
-            if sid:
-                ids.add(sid)
-        return sorted(ids)
-
-    def _checked_signup_names(self, signup_ids):
-        selected = {str(x) for x in (signup_ids or [])}
-        names = []
-        for row in range(self.tbl_signups.rowCount()):
-            id_item = self.tbl_signups.item(row, 0)
-            name_item = self.tbl_signups.item(row, 2)
-            sid = str(id_item.data(Qt.UserRole) if id_item else "").strip()
-            if sid in selected:
-                name = str(name_item.text() if name_item else "").strip()
-                names.append(name or sid)
-        return names
-
-    def _on_mark_signup_paid(self):
-        if not self._current_activity_id:
-            QMessageBox.information(self, "請先選擇活動", "請先選擇活動再進行繳費。")
-            return
-        signup_ids = self._get_checked_signup_ids()
-        if not signup_ids:
-            QMessageBox.information(self, "請先選擇", "請先勾選未繳費名單，再執行繳費。")
-            return
-        signup_names = self._checked_signup_names(signup_ids)
-        dlg = PaymentMethodDialog(
-            self,
-            title="活動繳費",
-            selected_count=len(signup_ids),
-            total_amount=self._checked_signup_total_amount(signup_ids),
-            handler=self._default_payment_handler,
-            can_edit_handler=False,
-        )
-        if dlg.exec_() != QDialog.Accepted:
-            return
-        payment_fields = dlg.get_payload()
-        try:
-            result = self.controller.mark_activity_signups_paid(
-                self._current_activity_id,
-                signup_ids,
-                handler=payment_fields.get("handler", ""),
-                payment_method=payment_fields.get("payment_method", "cash"),
-                transfer_last5=payment_fields.get("transfer_last5", ""),
-            )
-        except Exception as e:
-            QMessageBox.warning(self, "繳費失敗", str(e))
-            return
-        self._reload_signup_tab()
-        paid_count = int(result.get("paid_count", 0) or 0)
-        skipped_count = int(result.get("skipped_count", 0) or 0)
-        paid_names_text = "、".join(signup_names[:paid_count] or signup_names)
-        msg = [f"姓名 {paid_names_text} 繳費成功。" if paid_names_text else f"完成繳費：{paid_count} 筆"]
-        if skipped_count > 0:
-            msg.append(f"略過已繳費：{skipped_count} 筆")
-        QMessageBox.information(self, "繳費完成", "\n".join(msg))
 
     def _open_wenshu_dialog(self):
         dlg = WenshuPrintDialog(self.controller, self._signup_rows or [], self)
@@ -1216,7 +1127,6 @@ class ActivityDetailPanel(QWidget):
         self._set_stat_value(self.stat_unpaid_amount, str(unpaid_total))
 
         self._apply_signup_filter()
-        self._sync_mark_paid_enabled()
 
     def load_activity(self, activity_id: str):
 
