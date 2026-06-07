@@ -106,7 +106,7 @@ def _write_finance_csv(
 ) -> None:
     """寫入與 FinanceReportDialog.export_csv 相同的 CSV 格式。"""
     summary_headers = ["期間", "收入筆數", "收入總額", "支出筆數", "支出總額", "淨額"]
-    detail_headers = ["日期", "類型", "單號", "項目代號", "項目名稱", "對象", "金額", "經手人", "摘要"]
+    detail_headers = ["日期", "類型", "單號", "項目代號", "項目名稱", "對象", "金額", "付款方式", "轉帳末5碼", "經手人", "摘要"]
 
     total_net = 0
     for row in summary_rows:
@@ -147,6 +147,8 @@ def _write_finance_csv(
                 str(row_data.get("category_name") or ""),
                 str(row_data.get("payer_name") or ""),
                 str(row_data.get("amount") or 0),
+                "轉帳" if str(row_data.get("payment_method") or "").strip().lower() == "transfer" else "現金",
+                str(row_data.get("transfer_last5") or ""),
                 str(row_data.get("handler") or ""),
                 str(row_data.get("note") or ""),
             ])

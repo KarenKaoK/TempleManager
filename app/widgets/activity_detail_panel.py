@@ -20,6 +20,7 @@ from app.utils.date_utils import (
 )
 from app.utils.print_helper import PrintHelper
 from app.dialogs.activity_edit_dialog import ActivityEditDialog
+from app.dialogs.payment_method_dialog import PaymentMethodDialog
 from app.dialogs.plan_edit_dialog import PlanEditDialog
 
 
@@ -476,10 +477,14 @@ class ActivityDetailPanel(QWidget):
         self.stat_signup_cnt = self._make_stat_card("報名人數", "0")
         self.stat_total = self._make_stat_card("預估總收入", "0")
         self.stat_donation = self._make_stat_card("其中隨喜", "0")
+        self.stat_paid_amount = self._make_stat_card("已繳費金額", "0")
+        self.stat_unpaid_amount = self._make_stat_card("未繳費金額", "0")
 
         stats.addWidget(self.stat_signup_cnt, 0, 0)
         stats.addWidget(self.stat_total, 0, 1)
         stats.addWidget(self.stat_donation, 0, 2)
+        stats.addWidget(self.stat_paid_amount, 0, 3)
+        stats.addWidget(self.stat_unpaid_amount, 0, 4)
 
         layout.addLayout(stats)
 
@@ -509,17 +514,38 @@ class ActivityDetailPanel(QWidget):
         g1.addLayout(search_row)
 
         self.tbl_signups = QTableWidget(0, 6)
-        self.tbl_signups.setHorizontalHeaderLabels(["繳費", "收據號", "姓名", "電話", "方案", "金額"])
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
-        self.tbl_signups.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.tbl_signups.setObjectName("activitySignupDetailTable")
+        self.tbl_signups.setHorizontalHeaderLabels(["勾選", "收據號", "姓名", "電話", "報名項目", "金額"])
+        signup_header = self.tbl_signups.horizontalHeader()
+        signup_header.setVisible(True)
+        signup_header.setFixedHeight(34)
+        signup_header.setMinimumSectionSize(64)
+        signup_header.setStretchLastSection(False)
+        signup_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        signup_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        signup_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        signup_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        signup_header.setSectionResizeMode(4, QHeaderView.Stretch)
+        signup_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.tbl_signups.verticalHeader().setVisible(False)
+        self.tbl_signups.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tbl_signups.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tbl_signups.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.tbl_signups.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl_signups.setSelectionMode(QTableWidget.MultiSelection)
         self.tbl_signups.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_signups.setAlternatingRowColors(True)
+        self.tbl_signups.setStyleSheet("""
+            QTableWidget#activitySignupDetailTable QHeaderView::section {
+                background: #F7EFE6;
+                color: #2B2B2B;
+                font-weight: 700;
+                padding: 6px 8px;
+                border: 0;
+                border-right: 1px solid #E1D5C8;
+                border-bottom: 1px solid #D6C8BA;
+            }
+        """)
         g1.addWidget(self.tbl_signups, 1)
 
         row_btn_1 = QHBoxLayout()
@@ -534,6 +560,14 @@ class ActivityDetailPanel(QWidget):
         row_btn_1.addStretch(1)
         row_btn_1.addWidget(self.btn_print_signup_list)
         g1.addLayout(row_btn_1)
+
+        payment_row = QHBoxLayout()
+        payment_row.addStretch(1)
+        self.btn_mark_paid = QPushButton("按此繳費")
+        self.btn_mark_paid.clicked.connect(self._on_mark_signup_paid)
+        payment_row.addWidget(self.btn_mark_paid)
+        g1.addLayout(payment_row)
+        self._sync_mark_paid_enabled()
 
         layout.addWidget(grp_detail, 1)
 
@@ -589,22 +623,10 @@ class ActivityDetailPanel(QWidget):
         return (self._current_user_role or "").strip() in {"管理員", "管理者", "會計", "會計人員"}
 
     def _apply_payment_handler_editable_state(self):
-        if not hasattr(self, "edt_payment_handler"):
-            return
-        editable = self._can_edit_payment_handler()
-        self.edt_payment_handler.setReadOnly(not editable)
-        if editable:
-            self.edt_payment_handler.setToolTip("")
-        else:
-            self.edt_payment_handler.setToolTip("僅管理員與會計可修改經手人")
+        return
 
     def _apply_default_payment_handler_if_needed(self):
-        if not hasattr(self, "edt_payment_handler"):
-            return
-        if (self.edt_payment_handler.text() or "").strip():
-            return
-        if self._default_payment_handler:
-            self.edt_payment_handler.setText(self._default_payment_handler)
+        return
 
 
     def _render_signup_stats(self):
@@ -730,6 +752,8 @@ class ActivityDetailPanel(QWidget):
         self._set_stat_value(self.stat_signup_cnt, "0")
         self._set_stat_value(self.stat_total, "0")
         self._set_stat_value(self.stat_donation, "0")
+        self._set_stat_value(self.stat_paid_amount, "0")
+        self._set_stat_value(self.stat_unpaid_amount, "0")
 
         self.tbl_signups.setRowCount(0)
 
@@ -824,7 +848,7 @@ class ActivityDetailPanel(QWidget):
         if not rows:
             QMessageBox.information(self, "列印名單", "沒有可列印內容")
             return
-        PrintHelper.print_table_report("報名名單（明細）", ["繳費", "姓名", "電話", "方案", "金額"], rows, landscape=True)
+        PrintHelper.print_table_report("報名名單（明細）", ["已繳費", "姓名", "電話", "方案", "金額"], rows, landscape=True)
 
     def _on_show_all_signups(self):
         self._signup_filter_mode = "all"
@@ -853,9 +877,16 @@ class ActivityDetailPanel(QWidget):
         self._apply_signup_filter()
 
     def _sync_mark_paid_enabled(self):
-        has_handler = bool((self.edt_payment_handler.text() or "").strip()) if hasattr(self, "edt_payment_handler") else False
         if hasattr(self, "btn_mark_paid"):
-            self.btn_mark_paid.setEnabled(has_handler)
+            self.btn_mark_paid.setEnabled(True)
+
+    def _checked_signup_total_amount(self, signup_ids):
+        selected = {str(x) for x in (signup_ids or [])}
+        total = 0
+        for row in self._signup_rows or []:
+            if str((row or {}).get("signup_id") or "") in selected:
+                total += int((row or {}).get("total_amount") or 0)
+        return total
 
     def _get_checked_signup_ids(self) -> List[str]:
         ids = set()
@@ -872,23 +903,45 @@ class ActivityDetailPanel(QWidget):
                 ids.add(sid)
         return sorted(ids)
 
+    def _checked_signup_names(self, signup_ids):
+        selected = {str(x) for x in (signup_ids or [])}
+        names = []
+        for row in range(self.tbl_signups.rowCount()):
+            id_item = self.tbl_signups.item(row, 0)
+            name_item = self.tbl_signups.item(row, 2)
+            sid = str(id_item.data(Qt.UserRole) if id_item else "").strip()
+            if sid in selected:
+                name = str(name_item.text() if name_item else "").strip()
+                names.append(name or sid)
+        return names
+
     def _on_mark_signup_paid(self):
         if not self._current_activity_id:
             QMessageBox.information(self, "請先選擇活動", "請先選擇活動再進行繳費。")
-            return
-        handler = (self.edt_payment_handler.text() or "").strip()
-        if not handler:
-            QMessageBox.information(self, "欄位不足", "請先輸入經手人，再進行繳費。")
             return
         signup_ids = self._get_checked_signup_ids()
         if not signup_ids:
             QMessageBox.information(self, "請先選擇", "請先勾選未繳費名單，再執行繳費。")
             return
+        signup_names = self._checked_signup_names(signup_ids)
+        dlg = PaymentMethodDialog(
+            self,
+            title="活動繳費",
+            selected_count=len(signup_ids),
+            total_amount=self._checked_signup_total_amount(signup_ids),
+            handler=self._default_payment_handler,
+            can_edit_handler=False,
+        )
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        payment_fields = dlg.get_payload()
         try:
             result = self.controller.mark_activity_signups_paid(
                 self._current_activity_id,
                 signup_ids,
-                handler=handler,
+                handler=payment_fields.get("handler", ""),
+                payment_method=payment_fields.get("payment_method", "cash"),
+                transfer_last5=payment_fields.get("transfer_last5", ""),
             )
         except Exception as e:
             QMessageBox.warning(self, "繳費失敗", str(e))
@@ -896,12 +949,10 @@ class ActivityDetailPanel(QWidget):
         self._reload_signup_tab()
         paid_count = int(result.get("paid_count", 0) or 0)
         skipped_count = int(result.get("skipped_count", 0) or 0)
-        msg = [f"完成繳費：{paid_count} 筆"]
+        paid_names_text = "、".join(signup_names[:paid_count] or signup_names)
+        msg = [f"姓名 {paid_names_text} 繳費成功。" if paid_names_text else f"完成繳費：{paid_count} 筆"]
         if skipped_count > 0:
             msg.append(f"略過已繳費：{skipped_count} 筆")
-        receipts = result.get("receipt_numbers") or []
-        if receipts:
-            msg.append("收據號碼：" + "、".join(str(x) for x in receipts[:10]))
         QMessageBox.information(self, "繳費完成", "\n".join(msg))
 
     def _open_wenshu_dialog(self):
@@ -1155,10 +1206,14 @@ class ActivityDetailPanel(QWidget):
         signup_cnt = len(self._signup_rows)
         total = sum(int(r.get("total_amount", 0) or 0) for r in self._signup_rows)
         donation_total = sum(int(r.get("donation_amount", 0) or 0) for r in self._signup_rows)
+        paid_total = sum(int(r.get("total_amount", 0) or 0) for r in self._signup_rows if int(r.get("is_paid", 0) or 0) == 1)
+        unpaid_total = sum(int(r.get("total_amount", 0) or 0) for r in self._signup_rows if int(r.get("is_paid", 0) or 0) != 1)
 
         self._set_stat_value(self.stat_signup_cnt, str(signup_cnt))
         self._set_stat_value(self.stat_total, str(total))
         self._set_stat_value(self.stat_donation, str(donation_total))
+        self._set_stat_value(self.stat_paid_amount, str(paid_total))
+        self._set_stat_value(self.stat_unpaid_amount, str(unpaid_total))
 
         self._apply_signup_filter()
         self._sync_mark_paid_enabled()

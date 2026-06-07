@@ -392,6 +392,15 @@ class TransactionTab(QWidget):
         
         # 金額
         self.amount_input = QLineEdit()
+
+        self.payment_method_combo = QComboBox()
+        style_combo_with_dividers(self.payment_method_combo)
+        self.payment_method_combo.addItem("現金", "cash")
+        self.payment_method_combo.addItem("轉帳", "transfer")
+        self.transfer_last5_input = QLineEdit()
+        self.transfer_last5_input.setPlaceholderText("轉帳末5碼")
+        self.transfer_last5_input.setVisible(False)
+        self.payment_method_combo.currentIndexChanged.connect(self._sync_transfer_last5_visible)
         
         # 摘要
         self.note_input = QLineEdit()
@@ -401,6 +410,8 @@ class TransactionTab(QWidget):
         form_layout.addRow("經手人:", self.handler_input)
         form_layout.addRow("項目:", self.category_combo)
         form_layout.addRow("金額:", self.amount_input)
+        form_layout.addRow("付款方式:", self.payment_method_combo)
+        form_layout.addRow("轉帳末5碼:", self.transfer_last5_input)
         form_layout.addRow("摘要:", self.note_input)
         
         left_layout.addLayout(form_layout)
@@ -515,7 +526,7 @@ class TransactionTab(QWidget):
         self.btn_del_row.clicked.connect(self._delete_selected_row)
 
         self.table = QTableWidget()
-        cols = ["日期", "單號", "項目", "對象", "金額", "經手人", "作廢", "類型", "摘要"]
+        cols = ["日期", "單號", "項目", "對象", "金額", "付款方式", "轉帳末5碼", "經手人", "作廢", "類型", "摘要"]
         self.table.setColumnCount(len(cols))
         self.table.setHorizontalHeaderLabels(cols)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
@@ -528,10 +539,12 @@ class TransactionTab(QWidget):
         self.table.setColumnWidth(2, 180)  # 項目
         self.table.setColumnWidth(3, 180)  # 對象
         self.table.setColumnWidth(4, 110)  # 金額
-        self.table.setColumnWidth(5, 120)  # 經手人
-        self.table.setColumnWidth(6, 70)   # 作廢
-        self.table.setColumnWidth(7, 100)  # 類型
-        self.table.setColumnWidth(8, 320)  # 摘要
+        self.table.setColumnWidth(5, 100)  # 付款方式
+        self.table.setColumnWidth(6, 120)  # 轉帳末5碼
+        self.table.setColumnWidth(7, 120)  # 經手人
+        self.table.setColumnWidth(8, 70)   # 作廢
+        self.table.setColumnWidth(9, 100)  # 類型
+        self.table.setColumnWidth(10, 320) # 摘要
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setStyleSheet(
@@ -585,6 +598,32 @@ class TransactionTab(QWidget):
         btn_box.insertWidget(0, self.cancel_edit_btn)
         self._apply_role_scope_permissions()
         self._sync_row_action_buttons()
+        self._sync_transfer_last5_visible()
+
+    @staticmethod
+    def _payment_method_label(value):
+        return "轉帳" if str(value or "").strip().lower() == "transfer" else "現金"
+
+    def _sync_transfer_last5_visible(self):
+        is_transfer = self.payment_method_combo.currentData() == "transfer"
+        self.transfer_last5_input.setVisible(is_transfer)
+        if not is_transfer:
+            self.transfer_last5_input.clear()
+
+    def _set_payment_fields(self, payment_method, transfer_last5):
+        method = "transfer" if str(payment_method or "").strip().lower() == "transfer" else "cash"
+        idx = self.payment_method_combo.findData(method)
+        self.payment_method_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.transfer_last5_input.setText(str(transfer_last5 or "").strip() if method == "transfer" else "")
+        self._sync_transfer_last5_visible()
+
+    def _collect_payment_fields(self):
+        method = self.payment_method_combo.currentData() or "cash"
+        transfer_last5 = (self.transfer_last5_input.text() or "").strip()
+        if method == "transfer" and not transfer_last5:
+            QMessageBox.warning(self, "欄位不足", "轉帳付款必須填寫末5碼")
+            return None
+        return {"payment_method": method, "transfer_last5": transfer_last5 if method == "transfer" else ""}
 
     def _is_income_limited_scope(self):
         return self.t_type == "income" and (not can_view_income_all_dates(self.user_role))
@@ -837,10 +876,12 @@ class TransactionTab(QWidget):
             self.table.setItem(i, 2, QTableWidgetItem(f"{row['category_name']}"))
             self.table.setItem(i, 3, QTableWidgetItem(row['payer_name']))
             self.table.setItem(i, 4, QTableWidgetItem(str(row['amount'])))
-            self.table.setItem(i, 5, QTableWidgetItem(row['handler']))
-            self.table.setItem(i, 6, QTableWidgetItem("作廢" if int((row or {}).get("is_voided") or 0) == 1 else ""))
-            self.table.setItem(i, 7, QTableWidgetItem(self._format_adjustment_kind_label(row)))
-            self.table.setItem(i, 8, QTableWidgetItem(row['note']))
+            self.table.setItem(i, 5, QTableWidgetItem(self._payment_method_label(row.get("payment_method"))))
+            self.table.setItem(i, 6, QTableWidgetItem(str(row.get("transfer_last5") or "")))
+            self.table.setItem(i, 7, QTableWidgetItem(row['handler']))
+            self.table.setItem(i, 8, QTableWidgetItem("作廢" if int((row or {}).get("is_voided") or 0) == 1 else ""))
+            self.table.setItem(i, 9, QTableWidgetItem(self._format_adjustment_kind_label(row)))
+            self.table.setItem(i, 10, QTableWidgetItem(row['note']))
             
             # 將整筆資料存入第一欄的 UserRole，供修改/刪除/列印使用
             self.table.item(i, 0).setData(Qt.UserRole, row)
@@ -1256,6 +1297,7 @@ class TransactionTab(QWidget):
         self.handler_input.setText(data['handler'] or "")
         self.amount_input.setText(str(data['amount']))
         self.note_input.setText(data['note'] or "")
+        self._set_payment_fields(data.get("payment_method"), data.get("transfer_last5"))
         
         # 項目 Selection
         # 比較 category_id
@@ -1300,6 +1342,7 @@ class TransactionTab(QWidget):
         self.note_input.clear()
         self.receipt_input.setPlaceholderText("系統自動產生")
         self.receipt_input.setText("")
+        self._set_payment_fields("cash", "")
         # 日期、經手人 通常保留比較好用
         
         if self.t_type == "income":
@@ -1319,6 +1362,7 @@ class TransactionTab(QWidget):
         self.note_input.clear()
         self.receipt_input.setText("")
         self.receipt_input.setPlaceholderText("系統自動產生")
+        self._set_payment_fields("cash", "")
         # 同步清空搜尋欄，避免殘留上一筆搜尋條件
         if hasattr(self, "list_search_input"):
             self.list_search_input.clear()
@@ -1370,6 +1414,10 @@ class TransactionTab(QWidget):
         if not amount_str.isdigit():
             QMessageBox.warning(self, "錯誤", "金額必須為數字")
             return
+
+        payment_fields = self._collect_payment_fields()
+        if payment_fields is None:
+            return
         
         try:
             # 判斷是新增還是更新
@@ -1394,7 +1442,8 @@ class TransactionTab(QWidget):
                     "payer_person_id": payer_person_id,
                     "payer_name": payer_name,
                     "handler": handler,
-                    "note": note
+                    "note": note,
+                    **payment_fields,
                 }
                 self.controller.update_transaction(self.editing_transaction_id, payload)
 
@@ -1435,7 +1484,8 @@ class TransactionTab(QWidget):
                     "address": payer_address,
                     "handler": handler,
                     "receipt_number": receipt_num,
-                    "note": note
+                    "note": note,
+                    **payment_fields,
                 }
                 self.controller.add_transaction(payload)
                 QMessageBox.information(self, "成功", "資料已儲存")
