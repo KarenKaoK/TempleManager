@@ -54,7 +54,7 @@ class PaymentMethodDialog(QDialog):
         self.receipt_method_combo.addItem("紙本收據", "PAPER")
         self.receipt_method_combo.setMinimumWidth(180)
         self.paper_receipt_number_input = QLineEdit()
-        self.paper_receipt_number_input.setPlaceholderText("紙本收據號")
+        self.paper_receipt_number_input.setPlaceholderText("紙本收據號（可事後補）")
         self.paper_receipt_number_input.setVisible(False)
         self.receipt_method_combo.currentIndexChanged.connect(self._sync_paper_receipt_field)
         self.paper_receipt_number_label = QLabel("紙本收據號")
@@ -107,9 +107,6 @@ class PaymentMethodDialog(QDialog):
 
         receipt_method = self.receipt_method_combo.currentData() or "ELECTRONIC"
         paper_receipt_number = (self.paper_receipt_number_input.text() or "").strip()
-        if receipt_method == "PAPER" and not paper_receipt_number:
-            QMessageBox.information(self, "欄位不足", "紙本收據必須填寫紙本收據號。")
-            return
 
         self._payload = {
             "handler": handler,

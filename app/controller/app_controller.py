@@ -633,8 +633,6 @@ class AppController:
         if method not in {self.RECEIPT_METHOD_ELECTRONIC, self.RECEIPT_METHOD_PAPER}:
             raise ValueError("收據型態必須為電子收據或紙本收據")
         paper_no = str((data or {}).get("paper_receipt_number") or "").strip()
-        if method == self.RECEIPT_METHOD_PAPER and not paper_no:
-            raise ValueError("紙本收據必須填寫紙本收據號")
         return method, paper_no if method == self.RECEIPT_METHOD_PAPER else ""
 
     @classmethod

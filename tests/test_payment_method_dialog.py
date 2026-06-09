@@ -64,17 +64,21 @@ def test_payment_dialog_accepts_transfer_payload(qtbot):
     }
 
 
-def test_payment_dialog_requires_paper_receipt_number(qtbot):
+def test_payment_dialog_accepts_empty_paper_receipt_number(qtbot):
     dlg = PaymentMethodDialog(handler="王小明(admin)", can_edit_handler=False)
     qtbot.addWidget(dlg)
     dlg.receipt_method_combo.setCurrentIndex(dlg.receipt_method_combo.findData("PAPER"))
 
-    with patch("app.dialogs.payment_method_dialog.QMessageBox.information") as mock_info:
-        dlg._accept_if_valid()
+    dlg._accept_if_valid()
 
-    mock_info.assert_called_once()
-    assert dlg.result() == 0
-    assert dlg.get_payload() == {}
+    assert dlg.result() == QDialog.Accepted
+    assert dlg.get_payload() == {
+        "handler": "王小明(admin)",
+        "payment_method": "cash",
+        "transfer_last5": "",
+        "receipt_method": "PAPER",
+        "paper_receipt_number": "",
+    }
 
 
 def test_payment_dialog_accepts_paper_receipt_payload(qtbot):
