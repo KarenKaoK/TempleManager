@@ -554,7 +554,7 @@ class TransactionTab(QWidget):
         self.table.setColumnWidth(7, 120)  # 經手人
         self.table.setColumnWidth(8, 70)   # 作廢
         self.table.setColumnWidth(9, 100)  # 類型
-        self.table.setColumnWidth(10, 320) # 摘要
+        self.table.setColumnWidth(10, 520) # 摘要
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setStyleSheet(
@@ -903,7 +903,9 @@ class TransactionTab(QWidget):
             self.table.setItem(i, 7, QTableWidgetItem(row['handler']))
             self.table.setItem(i, 8, QTableWidgetItem("作廢" if int((row or {}).get("is_voided") or 0) == 1 else ""))
             self.table.setItem(i, 9, QTableWidgetItem(self._format_adjustment_kind_label(row)))
-            self.table.setItem(i, 10, QTableWidgetItem(row['note']))
+            note_item = QTableWidgetItem(row['note'])
+            note_item.setToolTip(str(row.get("note") or ""))
+            self.table.setItem(i, 10, note_item)
             
             # 將整筆資料存入第一欄的 UserRole，供修改/刪除/列印使用
             self.table.item(i, 0).setData(Qt.UserRole, row)
