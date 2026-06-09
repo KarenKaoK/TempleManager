@@ -320,12 +320,12 @@ class TransactionTab(QWidget):
         self.list_search_input.returnPressed.connect(self.apply_list_search)
         self.btn_list_search = QPushButton("搜尋")
         self.btn_list_search.clicked.connect(self.apply_list_search)
-        self.btn_list_clear = QPushButton("清除")
+        self.btn_list_clear = QPushButton("清除篩選")
         self.btn_list_clear.clicked.connect(self.clear_list_search)
-        self.btn_void_only = QPushButton("作廢單據")
+        self.btn_void_only = QPushButton("只看作廢")
         self.btn_void_only.setCheckable(True)
         self.btn_void_only.toggled.connect(self.toggle_void_only)
-        self.btn_paper_receipt_only = QPushButton("紙本收據")
+        self.btn_paper_receipt_only = QPushButton("只看紙本")
         self.btn_paper_receipt_only.setCheckable(True)
         self.btn_paper_receipt_only.toggled.connect(self.toggle_paper_receipt_only)
         if self.t_type != "income":
@@ -818,16 +818,25 @@ class TransactionTab(QWidget):
 
     def clear_list_search(self):
         self.list_search_input.clear()
+        if hasattr(self, "btn_void_only"):
+            self.btn_void_only.blockSignals(True)
+            self.btn_void_only.setChecked(False)
+            self.btn_void_only.blockSignals(False)
+        if hasattr(self, "btn_paper_receipt_only"):
+            self.btn_paper_receipt_only.blockSignals(True)
+            self.btn_paper_receipt_only.setChecked(False)
+            self.btn_paper_receipt_only.blockSignals(False)
+
+        self.void_only_mode = False
+        self.paper_receipt_only_mode = False
         self.refresh_list()
 
     def toggle_void_only(self, checked):
         self.void_only_mode = bool(checked)
-        self.btn_void_only.setText("顯示全部" if checked else "作廢單據")
         self.refresh_list()
 
     def toggle_paper_receipt_only(self, checked):
         self.paper_receipt_only_mode = bool(checked)
-        self.btn_paper_receipt_only.setText("顯示全部" if checked else "紙本收據")
         self.refresh_list()
 
     def refresh_list(self):
