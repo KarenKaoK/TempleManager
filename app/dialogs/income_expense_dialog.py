@@ -2,7 +2,7 @@ import calendar
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
     QComboBox, QDateEdit, QTabWidget, QWidget, QMessageBox, QFormLayout,
-    QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QFrame, QListView, QAbstractSpinBox
+    QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QFrame, QListView, QAbstractSpinBox, QInputDialog
 )
 from PyQt5.QtCore import QDate, Qt, pyqtSignal
 from PyQt5.QtGui import QColor
@@ -274,6 +274,7 @@ class TransactionTab(QWidget):
         self.selected_person_id = None
         self.show_all_mode = False
         self.void_only_mode = False
+        self.paper_receipt_only_mode = False
         
         self.init_ui()
         self.load_initial_data()
@@ -324,6 +325,11 @@ class TransactionTab(QWidget):
         self.btn_void_only = QPushButton("作廢單據")
         self.btn_void_only.setCheckable(True)
         self.btn_void_only.toggled.connect(self.toggle_void_only)
+        self.btn_paper_receipt_only = QPushButton("紙本收據")
+        self.btn_paper_receipt_only.setCheckable(True)
+        self.btn_paper_receipt_only.toggled.connect(self.toggle_paper_receipt_only)
+        if self.t_type != "income":
+            self.btn_paper_receipt_only.setVisible(False)
         
         # 排序
         # self.sort_combo = QComboBox()
@@ -502,6 +508,7 @@ class TransactionTab(QWidget):
         action_row.addWidget(self.btn_list_search)
         action_row.addWidget(self.btn_list_clear)
         action_row.addWidget(self.btn_void_only)
+        action_row.addWidget(self.btn_paper_receipt_only)
         action_row.addStretch()
 
         self.btn_edit_row = QPushButton("修改資料")
@@ -516,11 +523,14 @@ class TransactionTab(QWidget):
         )
         self.btn_print_row = None
         self.btn_void_row = None
+        self.btn_edit_paper_receipt_row = None
         if self.t_type == "income":
             self.btn_print_row = QPushButton("補印收據")
             self.btn_print_row.clicked.connect(self._print_selected_row)
             self.btn_void_row = QPushButton("作廢")
             self.btn_void_row.clicked.connect(self._void_selected_row)
+            self.btn_edit_paper_receipt_row = QPushButton("補紙本收據號")
+            self.btn_edit_paper_receipt_row.clicked.connect(self._edit_paper_receipt_number)
 
         self.btn_edit_row.clicked.connect(self._edit_selected_row)
         self.btn_del_row.clicked.connect(self._delete_selected_row)
@@ -569,6 +579,8 @@ class TransactionTab(QWidget):
             bottom_action_row.addWidget(self.btn_print_row)
         if self.btn_void_row is not None:
             bottom_action_row.addWidget(self.btn_void_row)
+        if self.btn_edit_paper_receipt_row is not None:
+            bottom_action_row.addWidget(self.btn_edit_paper_receipt_row)
         bottom_action_row.addWidget(self.btn_edit_row)
         bottom_action_row.addWidget(self.btn_del_row)
         
@@ -813,9 +825,15 @@ class TransactionTab(QWidget):
         self.btn_void_only.setText("顯示全部" if checked else "作廢單據")
         self.refresh_list()
 
+    def toggle_paper_receipt_only(self, checked):
+        self.paper_receipt_only_mode = bool(checked)
+        self.btn_paper_receipt_only.setText("顯示全部" if checked else "紙本收據")
+        self.refresh_list()
+
     def refresh_list(self):
         self._reload_category_items(keep_selection=True)
         keyword = self.list_search_input.text().strip() if hasattr(self, "list_search_input") else None
+        receipt_filter = "paper" if self.paper_receipt_only_mode else "all"
         if self._is_income_limited_scope():
             curr = QDate.currentDate()
             prev = curr.addMonths(-1)
@@ -827,6 +845,7 @@ class TransactionTab(QWidget):
                 end_date=None,
                 keyword=keyword,
                 voided_filter="only" if self.void_only_mode else "all",
+                receipt_filter=receipt_filter,
             )
             start_dt = date(prev.year(), prev.month(), 1)
             end_dt = date(curr.year(), curr.month(), curr.day())
@@ -842,6 +861,7 @@ class TransactionTab(QWidget):
                 end_date=None,
                 keyword=keyword,
                 voided_filter="only",
+                receipt_filter=receipt_filter,
             )
         elif self.show_all_mode:
             data = self.controller.get_transactions(
@@ -849,6 +869,7 @@ class TransactionTab(QWidget):
                 start_date=None,
                 end_date=None,
                 keyword=keyword,
+                receipt_filter=receipt_filter,
             )
         else:
             year = self.year_combo.currentData()
@@ -867,6 +888,7 @@ class TransactionTab(QWidget):
                 start_date,
                 end_date,
                 keyword=keyword,
+                receipt_filter=receipt_filter,
             )
         
         self.table.setRowCount(len(data))
@@ -1071,6 +1093,15 @@ class TransactionTab(QWidget):
             return False
         return True
 
+    def _can_edit_paper_receipt_number(self, data):
+        if self.t_type != "income" or not data:
+            return False
+        if int((data or {}).get("is_voided") or 0) == 1:
+            return False
+        if not self._has_income_row_write_permission():
+            return False
+        return str((data or {}).get("receipt_method") or "").strip().upper() == "PAPER"
+
     def _show_system_income_lock_message(self):
         QMessageBox.information(
             self,
@@ -1101,6 +1132,14 @@ class TransactionTab(QWidget):
             self.btn_del_row.setToolTip("")
         if self.btn_print_row is not None:
             self.btn_print_row.setEnabled(has_row)
+        if self.btn_edit_paper_receipt_row is not None:
+            self.btn_edit_paper_receipt_row.setEnabled(has_row and self._can_edit_paper_receipt_number(data))
+            if has_row and int((data or {}).get("is_voided") or 0) == 1:
+                self.btn_edit_paper_receipt_row.setToolTip("作廢單據不可修改紙本收據號。")
+            elif has_row and str((data or {}).get("receipt_method") or "").strip().upper() != "PAPER":
+                self.btn_edit_paper_receipt_row.setToolTip("僅紙本收據交易可補紙本收據號。")
+            else:
+                self.btn_edit_paper_receipt_row.setToolTip("")
 
     def _edit_selected_row(self):
         data = self._get_selected_row_data()
@@ -1178,6 +1217,35 @@ class TransactionTab(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "作廢失敗", str(e))
 
+    def _edit_paper_receipt_number(self):
+        data = self._get_selected_row_data()
+        if not data:
+            QMessageBox.warning(self, "提示", "請先選取一筆資料")
+            return
+        if not self._can_edit_paper_receipt_number(data):
+            QMessageBox.information(self, "限制", "僅紙本收據交易可補紙本收據號。")
+            return
+        current_no = str((data or {}).get("paper_receipt_number") or "").strip()
+        value, ok = QInputDialog.getText(
+            self,
+            "補紙本收據號",
+            "紙本收據號：",
+            QLineEdit.Normal,
+            current_no,
+        )
+        if not ok:
+            return
+        paper_no = (value or "").strip()
+        if not paper_no:
+            QMessageBox.information(self, "欄位不足", "請輸入紙本收據號。")
+            return
+        try:
+            self.controller.update_transaction_paper_receipt_number(data["id"], paper_no)
+            QMessageBox.information(self, "完成", "紙本收據號已更新。")
+            self.refresh_list()
+        except Exception as e:
+            QMessageBox.warning(self, "更新失敗", str(e))
+
     def show_context_menu(self, pos):
         item = self.table.itemAt(pos)
         if not item:
@@ -1224,6 +1292,10 @@ class TransactionTab(QWidget):
             void_action.triggered.connect(lambda: self._void_selected_row())
             void_action.setEnabled(self._can_void_data(data))
             menu.addAction(void_action)
+            paper_action = QAction("補紙本收據號", self)
+            paper_action.triggered.connect(lambda: self._edit_paper_receipt_number())
+            paper_action.setEnabled(self._can_edit_paper_receipt_number(data))
+            menu.addAction(paper_action)
             menu.addSeparator()
 
         edit_action = QAction("修改資料", self)

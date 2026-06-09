@@ -176,6 +176,41 @@ def test_mark_activity_paid_maps_category_and_note(controller_with_payment_db):
     assert "雙虎祝壽×2" in row["note"]
 
 
+def test_mark_activity_paid_records_paper_receipt(controller_with_payment_db):
+    c = controller_with_payment_db
+    result = c.mark_activity_signups_paid(
+        "A1",
+        ["S1"],
+        handler="櫃台A",
+        receipt_method="PAPER",
+        paper_receipt_number="PAPER-001",
+    )
+    assert result["paid_count"] == 1
+
+    cur = c.conn.cursor()
+    tx = cur.execute(
+        """
+        SELECT receipt_method, paper_receipt_number, note
+        FROM transactions
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    signup = cur.execute(
+        """
+        SELECT receipt_method, paper_receipt_number
+        FROM activity_signups
+        WHERE id = 'S1'
+        """
+    ).fetchone()
+
+    assert tx["receipt_method"] == "PAPER"
+    assert tx["paper_receipt_number"] == "PAPER-001"
+    assert "紙本收據號：PAPER-001" in tx["note"]
+    assert signup["receipt_method"] == "PAPER"
+    assert signup["paper_receipt_number"] == "PAPER-001"
+
+
 def test_create_activity_signup_log_contains_person_name(controller_with_payment_db, monkeypatch):
     c = controller_with_payment_db
     logs = []

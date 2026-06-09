@@ -19,7 +19,13 @@ class _FakePaymentDialog:
         return QDialog.Accepted
 
     def get_payload(self):
-        return {"handler": "王小明(admin)", "payment_method": "cash", "transfer_last5": ""}
+        return {
+            "handler": "王小明(admin)",
+            "payment_method": "cash",
+            "transfer_last5": "",
+            "receipt_method": "ELECTRONIC",
+            "paper_receipt_number": "",
+        }
 
 
 class FakePersonPanel(QWidget):

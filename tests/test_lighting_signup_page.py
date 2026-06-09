@@ -20,6 +20,8 @@ class _FakePaymentDialog:
             "handler": "王小明(admin)",
             "payment_method": "transfer",
             "transfer_last5": "T1234",
+            "receipt_method": "ELECTRONIC",
+            "paper_receipt_number": "",
         }
 
 
@@ -44,13 +46,24 @@ class _FakeLightingController:
     def get_lighting_signup_item_totals(self, signup_year, keyword=""):
         return []
 
-    def mark_lighting_signups_paid(self, signup_year, signup_ids, handler="", payment_method="cash", transfer_last5=""):
+    def mark_lighting_signups_paid(
+        self,
+        signup_year,
+        signup_ids,
+        handler="",
+        payment_method="cash",
+        transfer_last5="",
+        receipt_method="ELECTRONIC",
+        paper_receipt_number="",
+    ):
         self.last_payment_call = {
             "signup_year": signup_year,
             "signup_ids": signup_ids,
             "handler": handler,
             "payment_method": payment_method,
             "transfer_last5": transfer_last5,
+            "receipt_method": receipt_method,
+            "paper_receipt_number": paper_receipt_number,
         }
         return {"paid_count": 1, "skipped_count": 0}
 
@@ -108,6 +121,8 @@ def test_lighting_payment_uses_dialog_and_fixed_handler(qtbot, monkeypatch):
         "handler": "王小明(admin)",
         "payment_method": "transfer",
         "transfer_last5": "T1234",
+        "receipt_method": "ELECTRONIC",
+        "paper_receipt_number": "",
     }
     assert messages[-1] == ("繳費完成", "姓名 王小明 繳費完成。")
 

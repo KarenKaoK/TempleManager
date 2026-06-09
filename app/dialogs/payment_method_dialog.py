@@ -47,10 +47,20 @@ class PaymentMethodDialog(QDialog):
         self.transfer_last5_input.setVisible(False)
         self.method_combo.currentIndexChanged.connect(self._sync_transfer_field)
 
+        self.receipt_method_combo = QComboBox()
+        self.receipt_method_combo.addItem("電子收據", "ELECTRONIC")
+        self.receipt_method_combo.addItem("紙本收據", "PAPER")
+        self.paper_receipt_number_input = QLineEdit()
+        self.paper_receipt_number_input.setPlaceholderText("紙本收據號")
+        self.paper_receipt_number_input.setVisible(False)
+        self.receipt_method_combo.currentIndexChanged.connect(self._sync_paper_receipt_field)
+
         form.addRow("本次繳費", self.summary_label)
         form.addRow("經手人", self.handler_input)
         form.addRow("付款方式", self.method_combo)
         form.addRow("轉帳末5碼", self.transfer_last5_input)
+        form.addRow("收據型態", self.receipt_method_combo)
+        form.addRow("紙本收據號", self.paper_receipt_number_input)
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -70,6 +80,12 @@ class PaymentMethodDialog(QDialog):
         if not is_transfer:
             self.transfer_last5_input.clear()
 
+    def _sync_paper_receipt_field(self):
+        is_paper = self.receipt_method_combo.currentData() == "PAPER"
+        self.paper_receipt_number_input.setVisible(is_paper)
+        if not is_paper:
+            self.paper_receipt_number_input.clear()
+
     def _accept_if_valid(self):
         handler = (self.handler_input.text() or "").strip()
         if not handler:
@@ -82,10 +98,18 @@ class PaymentMethodDialog(QDialog):
             QMessageBox.information(self, "欄位不足", "轉帳付款必須填寫末5碼。")
             return
 
+        receipt_method = self.receipt_method_combo.currentData() or "ELECTRONIC"
+        paper_receipt_number = (self.paper_receipt_number_input.text() or "").strip()
+        if receipt_method == "PAPER" and not paper_receipt_number:
+            QMessageBox.information(self, "欄位不足", "紙本收據必須填寫紙本收據號。")
+            return
+
         self._payload = {
             "handler": handler,
             "payment_method": method,
             "transfer_last5": transfer_last5 if method == "transfer" else "",
+            "receipt_method": receipt_method,
+            "paper_receipt_number": paper_receipt_number if receipt_method == "PAPER" else "",
         }
         self.accept()
 

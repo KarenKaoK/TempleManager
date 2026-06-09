@@ -318,6 +318,8 @@ def create_activity_signups_table(db_name=DB_NAME):
     paid_at TEXT,
     payment_txn_id INTEGER,
     payment_receipt_number TEXT,
+    receipt_method TEXT DEFAULT 'ELECTRONIC',
+    paper_receipt_number TEXT,
 
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -358,6 +360,8 @@ def create_transactions_table(db_name=DB_NAME):
         receipt_number TEXT, -- 收據號碼
         payment_method TEXT DEFAULT 'cash', -- cash / transfer
         transfer_last5 TEXT, -- 轉帳末5碼
+        receipt_method TEXT DEFAULT 'ELECTRONIC', -- ELECTRONIC / PAPER
+        paper_receipt_number TEXT, -- 紙本收據號
         note TEXT,
         is_voided INTEGER DEFAULT 0, -- 作廢標記 (0=正常, 1=作廢)
         source_type TEXT, -- 來源類型：LIGHTING_SIGNUP / ACTIVITY_SIGNUP / MANUAL
@@ -422,6 +426,8 @@ def create_lighting_signup_tables(db_name=DB_NAME):
         paid_at TEXT,
         payment_txn_id INTEGER,
         payment_receipt_number TEXT,
+        receipt_method TEXT DEFAULT 'ELECTRONIC',
+        paper_receipt_number TEXT,
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT DEFAULT (datetime('now', 'localtime'))
     )
