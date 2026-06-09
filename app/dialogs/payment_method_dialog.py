@@ -46,21 +46,26 @@ class PaymentMethodDialog(QDialog):
         self.transfer_last5_input.setPlaceholderText("轉帳末5碼")
         self.transfer_last5_input.setVisible(False)
         self.method_combo.currentIndexChanged.connect(self._sync_transfer_field)
+        self.transfer_last5_label = QLabel("轉帳末5碼")
+        self.transfer_last5_label.setVisible(False)
 
         self.receipt_method_combo = QComboBox()
         self.receipt_method_combo.addItem("電子收據", "ELECTRONIC")
         self.receipt_method_combo.addItem("紙本收據", "PAPER")
+        self.receipt_method_combo.setMinimumWidth(180)
         self.paper_receipt_number_input = QLineEdit()
         self.paper_receipt_number_input.setPlaceholderText("紙本收據號")
         self.paper_receipt_number_input.setVisible(False)
         self.receipt_method_combo.currentIndexChanged.connect(self._sync_paper_receipt_field)
+        self.paper_receipt_number_label = QLabel("紙本收據號")
+        self.paper_receipt_number_label.setVisible(False)
 
         form.addRow("本次繳費", self.summary_label)
         form.addRow("經手人", self.handler_input)
         form.addRow("付款方式", self.method_combo)
-        form.addRow("轉帳末5碼", self.transfer_last5_input)
+        form.addRow(self.transfer_last5_label, self.transfer_last5_input)
         form.addRow("收據型態", self.receipt_method_combo)
-        form.addRow("紙本收據號", self.paper_receipt_number_input)
+        form.addRow(self.paper_receipt_number_label, self.paper_receipt_number_input)
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -76,12 +81,14 @@ class PaymentMethodDialog(QDialog):
 
     def _sync_transfer_field(self):
         is_transfer = self.method_combo.currentData() == "transfer"
+        self.transfer_last5_label.setVisible(is_transfer)
         self.transfer_last5_input.setVisible(is_transfer)
         if not is_transfer:
             self.transfer_last5_input.clear()
 
     def _sync_paper_receipt_field(self):
         is_paper = self.receipt_method_combo.currentData() == "PAPER"
+        self.paper_receipt_number_label.setVisible(is_paper)
         self.paper_receipt_number_input.setVisible(is_paper)
         if not is_paper:
             self.paper_receipt_number_input.clear()
