@@ -142,3 +142,24 @@ def test_get_transactions_supports_phone_keyword_and_voided_filter(tmp_path):
     assert any(str(r.get("receipt_number") or "") == "R100" for r in by_phone)
     only_voided = controller.get_transactions("income", voided_filter="only")
     assert all(int((r.get("is_voided") or 0)) == 1 for r in only_voided)
+
+
+def test_get_transactions_supports_paper_receipt_filter(tmp_path):
+    db = tmp_path / "finance_paper.db"
+    conn = sqlite3.connect(db)
+    _seed_transactions(conn)
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT, phone_mobile TEXT, phone_home TEXT, address TEXT)")
+    conn.close()
+
+    controller = AppController(db_path=str(db))
+    cur = controller.conn.cursor()
+    cur.execute(
+        "UPDATE transactions SET receipt_method = 'PAPER', paper_receipt_number = 'P001' WHERE receipt_number = 'R2'"
+    )
+    controller.conn.commit()
+
+    rows = controller.get_transactions("income", receipt_filter="paper")
+
+    assert [r["receipt_number"] for r in rows] == ["R2"]
+    assert rows[0]["paper_receipt_number"] == "P001"

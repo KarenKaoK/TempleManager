@@ -1037,8 +1037,18 @@ class PrintHelper:
         # 1. 標題: 感謝狀 (10%)
         draw_v_text("感謝狀", 10, Y_TITLE, FONT_TITLE, spacing=1.1, bold=True)
         
+        raw_note = str(data.get('note', '') or '')
+        paper_receipt_number = str(data.get('paper_receipt_number', '') or '').strip()
+        if not paper_receipt_number and raw_note:
+            match = re.search(r"紙本收據號：([^｜\n\r]+)", raw_note)
+            if match:
+                paper_receipt_number = match.group(1).strip()
+
+        summary_text = raw_note or data.get('category_name', '')
+        if summary_text:
+            summary_text = re.sub(r"(?:\s*｜\s*)?紙本收據號：[^｜\n\r]+", "", summary_text).strip()
+
         # --- 感謝狀右上角摘要 ---
-        summary_text = data.get('note', '') or data.get('category_name', '')
         if summary_text:
             painter.save()
             set_font(12, bold=True)
@@ -1144,12 +1154,38 @@ class PrintHelper:
         # B. 無效聲明 (原橫式已移除)
         
         # C. 收據編號 No. (右下, 紅色)
+        receipt_text = f"No. {data.get('receipt_number', '')}"
         set_font(16, bold=True)
         painter.setPen(Qt.red)
         # 在 copy title 上方，靠右（再上移，避免與報稅框重疊）
         rect_no = QRectF(content_rect.right() - (50 * unit), content_rect.bottom() - (12.2 * unit),
                          45 * unit, 6 * unit)
-        painter.drawText(rect_no, Qt.AlignRight | Qt.AlignVCenter, f"No. {data.get('receipt_number', '')}")
+        painter.drawText(rect_no, Qt.AlignRight | Qt.AlignVCenter, receipt_text)
+
+        if paper_receipt_number:
+            paper_receipt_text = f"No. {paper_receipt_number}"
+            painter.setPen(Qt.black)
+            fm_paper_no = painter.fontMetrics()
+            paper_no_w = fm_paper_no.horizontalAdvance(paper_receipt_text)
+            paper_no_x = rect_no.right() - paper_no_w
+
+            rect_paper_no = QRectF(
+                paper_no_x,
+                rect_no.top() - (3.9 * unit),
+                paper_no_w,
+                6 * unit,
+            )
+            painter.drawText(rect_paper_no, Qt.AlignLeft | Qt.AlignVCenter, paper_receipt_text)
+
+            set_font(10, bold=True)
+            rect_paper_label = QRectF(
+                paper_no_x,
+                rect_paper_no.top() - (1.9 * unit),
+                paper_no_w,
+                3.5 * unit,
+            )
+            painter.drawText(rect_paper_label, Qt.AlignLeft | Qt.AlignVCenter, "紙本收據")
+            painter.setPen(Qt.red)
         painter.setPen(Qt.black)
 
         if show_tax_id:

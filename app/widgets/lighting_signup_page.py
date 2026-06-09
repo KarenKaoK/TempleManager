@@ -922,6 +922,8 @@ class LightingSignupPage(QWidget):
             handler=payment_fields.get("handler", ""),
             payment_method=payment_fields.get("payment_method", "cash"),
             transfer_last5=payment_fields.get("transfer_last5", ""),
+            receipt_method=payment_fields.get("receipt_method", "ELECTRONIC"),
+            paper_receipt_number=payment_fields.get("paper_receipt_number", ""),
         )
         paid_count = int(result.get("paid_count") or 0)
         skipped_count = int(result.get("skipped_count") or 0)

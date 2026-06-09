@@ -866,6 +866,8 @@ class ActivitySignupPage(QWidget):
                 handler=payment_fields.get("handler", ""),
                 payment_method=payment_fields.get("payment_method", "cash"),
                 transfer_last5=payment_fields.get("transfer_last5", ""),
+                receipt_method=payment_fields.get("receipt_method", "ELECTRONIC"),
+                paper_receipt_number=payment_fields.get("paper_receipt_number", ""),
             )
         except Exception as e:
             QMessageBox.warning(self, "繳費失敗", str(e))

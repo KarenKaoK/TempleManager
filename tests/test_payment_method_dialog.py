@@ -28,6 +28,8 @@ def test_payment_dialog_accepts_cash_payload(qtbot):
         "handler": "王小明(admin)",
         "payment_method": "cash",
         "transfer_last5": "",
+        "receipt_method": "ELECTRONIC",
+        "paper_receipt_number": "",
     }
 
 
@@ -57,4 +59,41 @@ def test_payment_dialog_accepts_transfer_payload(qtbot):
         "handler": "王小明(admin)",
         "payment_method": "transfer",
         "transfer_last5": "A1234",
+        "receipt_method": "ELECTRONIC",
+        "paper_receipt_number": "",
+    }
+
+
+def test_payment_dialog_accepts_empty_paper_receipt_number(qtbot):
+    dlg = PaymentMethodDialog(handler="王小明(admin)", can_edit_handler=False)
+    qtbot.addWidget(dlg)
+    dlg.receipt_method_combo.setCurrentIndex(dlg.receipt_method_combo.findData("PAPER"))
+
+    dlg._accept_if_valid()
+
+    assert dlg.result() == QDialog.Accepted
+    assert dlg.get_payload() == {
+        "handler": "王小明(admin)",
+        "payment_method": "cash",
+        "transfer_last5": "",
+        "receipt_method": "PAPER",
+        "paper_receipt_number": "",
+    }
+
+
+def test_payment_dialog_accepts_paper_receipt_payload(qtbot):
+    dlg = PaymentMethodDialog(handler="王小明(admin)", can_edit_handler=False)
+    qtbot.addWidget(dlg)
+    dlg.receipt_method_combo.setCurrentIndex(dlg.receipt_method_combo.findData("PAPER"))
+    dlg.paper_receipt_number_input.setText("P123456")
+
+    dlg._accept_if_valid()
+
+    assert dlg.result() == QDialog.Accepted
+    assert dlg.get_payload() == {
+        "handler": "王小明(admin)",
+        "payment_method": "cash",
+        "transfer_last5": "",
+        "receipt_method": "PAPER",
+        "paper_receipt_number": "P123456",
     }

@@ -41,6 +41,8 @@ class AppController:
     LIGHTING_REFUND_EXPENSE_ITEM_ID = "91R"
     PAYMENT_METHOD_CASH = "cash"
     PAYMENT_METHOD_TRANSFER = "transfer"
+    RECEIPT_METHOD_ELECTRONIC = "ELECTRONIC"
+    RECEIPT_METHOD_PAPER = "PAPER"
     SYSTEM_LIGHTING_ITEMS = (
         ("L01", "太歲燈", 500, "TAI_SUI", 1),
         ("L02", "光明燈", 500, "BRIGHT", 2),
@@ -62,6 +64,7 @@ class AppController:
         self._ensure_lighting_schema()
         self._ensure_lighting_signup_schema()
         self._ensure_transactions_payment_schema()
+        self._ensure_business_receipt_schema()
         self._ensure_system_income_items()
         self._ensure_system_expense_items()
         self._ensure_runtime_indexes()
@@ -343,6 +346,8 @@ class AppController:
             f"收據 {self._fmt_log_val(d.get('receipt_number'))}",
             f"付款方式 {self._fmt_log_val(self._payment_method_label(d.get('payment_method')))}",
             f"轉帳末5碼 {self._fmt_log_val(d.get('transfer_last5'))}",
+            f"收據型態 {self._fmt_log_val(self._receipt_method_label(d.get('receipt_method')))}",
+            f"紙本收據 {self._fmt_log_val(d.get('paper_receipt_number'))}",
             f"備註 {self._fmt_log_val(d.get('note'))}",
             f"來源類型 {self._fmt_log_val(d.get('source_type'))}",
             f"來源ID {self._fmt_log_val(d.get('source_id'))}",
@@ -363,6 +368,8 @@ class AppController:
             ("receipt_number", "收據"),
             ("payment_method", "付款方式"),
             ("transfer_last5", "轉帳末5碼"),
+            ("receipt_method", "收據型態"),
+            ("paper_receipt_number", "紙本收據"),
             ("note", "備註"),
             ("source_type", "來源類型"),
             ("source_id", "來源ID"),
@@ -568,6 +575,22 @@ class AppController:
         if changed:
             self.conn.commit()
 
+    def _ensure_business_receipt_schema(self) -> None:
+        cur = self.conn.cursor()
+        changed = False
+        for table in ("transactions", "activity_signups", "lighting_signups"):
+            if not self._table_exists(table):
+                continue
+            cols = self._table_columns(table)
+            if "receipt_method" not in cols:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN receipt_method TEXT DEFAULT 'ELECTRONIC'")
+                changed = True
+            if "paper_receipt_number" not in cols:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN paper_receipt_number TEXT")
+                changed = True
+        if changed:
+            self.conn.commit()
+
     def _normalize_payment_fields(self, data: Dict[str, Any], *, require_transfer_tail: bool = True) -> Tuple[str, str]:
         raw_method = str((data or {}).get("payment_method") or self.PAYMENT_METHOD_CASH).strip().lower()
         method_aliases = {
@@ -594,6 +617,42 @@ class AppController:
         if method == cls.PAYMENT_METHOD_TRANSFER:
             return "轉帳"
         return "現金"
+
+    def _normalize_receipt_fields(self, data: Dict[str, Any]) -> Tuple[str, str]:
+        raw_method = str((data or {}).get("receipt_method") or self.RECEIPT_METHOD_ELECTRONIC).strip().upper()
+        aliases = {
+            "ELECTRONIC": self.RECEIPT_METHOD_ELECTRONIC,
+            "SYSTEM": self.RECEIPT_METHOD_ELECTRONIC,
+            "電子": self.RECEIPT_METHOD_ELECTRONIC,
+            "電子收據": self.RECEIPT_METHOD_ELECTRONIC,
+            "PAPER": self.RECEIPT_METHOD_PAPER,
+            "紙本": self.RECEIPT_METHOD_PAPER,
+            "紙本收據": self.RECEIPT_METHOD_PAPER,
+        }
+        method = aliases.get(raw_method)
+        if method not in {self.RECEIPT_METHOD_ELECTRONIC, self.RECEIPT_METHOD_PAPER}:
+            raise ValueError("收據型態必須為電子收據或紙本收據")
+        paper_no = str((data or {}).get("paper_receipt_number") or "").strip()
+        return method, paper_no if method == self.RECEIPT_METHOD_PAPER else ""
+
+    @classmethod
+    def _receipt_method_label(cls, value: Any) -> str:
+        method = str(value or cls.RECEIPT_METHOD_ELECTRONIC).strip().upper()
+        if method == cls.RECEIPT_METHOD_PAPER:
+            return "紙本收據"
+        return "電子收據"
+
+    @staticmethod
+    def _append_paper_receipt_note(note: str, paper_receipt_number: str) -> str:
+        base = str(note or "").strip()
+        paper_no = str(paper_receipt_number or "").strip()
+        if not paper_no:
+            return base
+        marker = "紙本收據號："
+        segment = f"{marker}{paper_no}"
+        if marker in base:
+            return re.sub(r"紙本收據號：[^｜]*", segment, base)
+        return f"{base}｜{segment}" if base else segment
 
     @staticmethod
     def _parse_ymd_to_date(text: Optional[str]) -> Optional[date]:
@@ -874,6 +933,7 @@ class AppController:
         return
 
     def list_lighting_signups(self, signup_year: int, keyword: str = "", unpaid_only: bool = False) -> List[Dict[str, Any]]:
+        self._ensure_business_receipt_schema()
         year_value = int(signup_year)
         kw = (keyword or "").strip()
         cur = self.conn.cursor()
@@ -890,6 +950,8 @@ class AppController:
                 COALESCE(s.is_paid, 0) AS is_paid,
                 s.paid_at,
                 s.payment_receipt_number,
+                COALESCE(s.receipt_method, 'ELECTRONIC') AS receipt_method,
+                COALESCE(s.paper_receipt_number, '') AS paper_receipt_number,
                 GROUP_CONCAT(i.lighting_item_name, '、') AS lighting_summary
             FROM lighting_signups s
             JOIN people p ON p.id = s.person_id
@@ -1561,11 +1623,17 @@ class AppController:
         handler: str = "",
         payment_method: str = "cash",
         transfer_last5: str = "",
+        receipt_method: str = "ELECTRONIC",
+        paper_receipt_number: str = "",
     ) -> Dict[str, Any]:
         payment_method, transfer_last5 = self._normalize_payment_fields(
             {"payment_method": payment_method, "transfer_last5": transfer_last5}
         )
         self._ensure_transactions_payment_schema()
+        self._ensure_business_receipt_schema()
+        receipt_method, paper_receipt_number = self._normalize_receipt_fields(
+            {"receipt_method": receipt_method, "paper_receipt_number": paper_receipt_number}
+        )
         normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
         if not normalized_ids:
             return {"paid_count": 0, "skipped_count": 0, "receipt_numbers": []}
@@ -1629,34 +1697,46 @@ class AppController:
                 adjustment_kind = "SUPPLEMENT" if signup_kind == "APPEND" else "PRIMARY"
                 receipt = self.generate_receipt_number(today)
                 note = f"[{signup_year - 1911}年安燈] {str(row.get('lighting_summary') or '').strip()}".strip()
+                note = self._append_paper_receipt_note(note, paper_receipt_number)
                 cur.execute(
                     """
                     INSERT INTO transactions (
                         date, type, category_id, category_name, amount,
                         payer_person_id, payer_name, handler, receipt_number, note,
-                        payment_method, transfer_last5,
+                        payment_method, transfer_last5, receipt_method, paper_receipt_number,
                         source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today, category_id, category_name, int(row.get("total_amount") or 0),
                         str(row.get("person_id") or ""), str(row.get("person_name") or ""),
                         handler_text, receipt, note,
-                        payment_method, transfer_last5,
+                        payment_method, transfer_last5, receipt_method, paper_receipt_number,
                         "LIGHTING_SIGNUP", str(row.get("signup_id") or ""), adjustment_kind, None, 1,
                     ),
                 )
                 txn_id = cur.lastrowid
                 cur.execute(
-                    "UPDATE lighting_signups SET is_paid = 1, paid_at = ?, payment_txn_id = ?, payment_receipt_number = ?, updated_at = ? WHERE id = ?",
-                    (now, int(txn_id or 0), receipt, now, str(row.get("signup_id") or "")),
+                    """
+                    UPDATE lighting_signups
+                    SET is_paid = 1,
+                        paid_at = ?,
+                        payment_txn_id = ?,
+                        payment_receipt_number = ?,
+                        receipt_method = ?,
+                        paper_receipt_number = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, int(txn_id or 0), receipt, receipt_method, paper_receipt_number, now, str(row.get("signup_id") or "")),
                 )
                 paid_count += 1
                 receipts.append(receipt)
                 paid_details.append(
                     f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, "
                     f"signup_id {str(row.get('signup_id') or '-')}, kind {signup_kind}, "
-                    f"金額 {int(row.get('total_amount') or 0)}, 收據 {receipt}）"
+                    f"金額 {int(row.get('total_amount') or 0)}, 收據 {receipt}，"
+                    f"收據型態 {self._receipt_method_label(receipt_method)}，紙本收據 {paper_receipt_number or '-'}）"
                 )
             cur.execute("COMMIT;")
         except Exception as e:
@@ -5112,6 +5192,7 @@ class AppController:
 
 
     def get_activity_signups(self, activity_id):
+        self._ensure_business_receipt_schema()
         sql = """
         SELECT
             s.id AS signup_id,
@@ -5129,6 +5210,8 @@ class AppController:
             COALESCE(s.is_paid, 0) AS is_paid,
             s.paid_at,
             s.payment_receipt_number,
+            COALESCE(s.receipt_method, 'ELECTRONIC') AS receipt_method,
+            COALESCE(s.paper_receipt_number, '') AS paper_receipt_number,
             GROUP_CONCAT(
                 CASE
                     WHEN ap.price_type = 'FREE'
@@ -5211,12 +5294,18 @@ class AppController:
         handler: str = "",
         payment_method: str = "cash",
         transfer_last5: str = "",
+        receipt_method: str = "ELECTRONIC",
+        paper_receipt_number: str = "",
     ) -> Dict[str, Any]:
         aid = (activity_id or "").strip()
         payment_method, transfer_last5 = self._normalize_payment_fields(
             {"payment_method": payment_method, "transfer_last5": transfer_last5}
         )
         self._ensure_transactions_payment_schema()
+        self._ensure_business_receipt_schema()
+        receipt_method, paper_receipt_number = self._normalize_receipt_fields(
+            {"receipt_method": receipt_method, "paper_receipt_number": paper_receipt_number}
+        )
         normalized_ids = [str(x).strip() for x in (signup_ids or []) if str(x).strip()]
         if not aid:
             self._log_activity_system_event("活動報名繳費失敗（原因：activity_id 為空）", level="WARN")
@@ -5308,14 +5397,15 @@ class AppController:
                 activity_end_date = ad_to_roc_string(str(row.get("activity_end_date") or "").strip(), separator="/")
                 activity_label = f"{activity_end_date} {activity_name}".strip() if activity_end_date else activity_name
                 note = f"[{activity_label}] {plan_summary}".strip() if plan_summary else f"[{activity_label}]"
+                note = self._append_paper_receipt_note(note, paper_receipt_number)
                 cur.execute(
                     """
                     INSERT INTO transactions (
                         date, type, category_id, category_name, amount,
                         payer_person_id, payer_name, handler, receipt_number, note,
-                        payment_method, transfer_last5,
+                        payment_method, transfer_last5, receipt_method, paper_receipt_number,
                         source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, 'income', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         today,
@@ -5329,6 +5419,8 @@ class AppController:
                         note,
                         payment_method,
                         transfer_last5,
+                        receipt_method,
+                        paper_receipt_number,
                         "ACTIVITY_SIGNUP",
                         str(row.get("signup_id") or ""),
                         adjustment_kind,
@@ -5344,17 +5436,20 @@ class AppController:
                         paid_at = ?,
                         payment_txn_id = ?,
                         payment_receipt_number = ?,
+                        receipt_method = ?,
+                        paper_receipt_number = ?,
                         updated_at = ?
                     WHERE id = ?
                     """,
-                    (now, int(txn_id or 0), receipt, now, str(row.get("signup_id") or "")),
+                    (now, int(txn_id or 0), receipt, receipt_method, paper_receipt_number, now, str(row.get("signup_id") or "")),
                 )
                 paid_count += 1
                 receipt_numbers.append(receipt)
                 paid_details.append(
                     f"{str(row.get('person_name') or '-')}（person_id {str(row.get('person_id') or '-')}, "
                     f"signup_id {str(row.get('signup_id') or '-')}, kind {signup_kind}, "
-                    f"金額 {int(row.get('total_amount') or 0)}, 收據 {receipt}）"
+                    f"金額 {int(row.get('total_amount') or 0)}, 收據 {receipt}，"
+                    f"收據型態 {self._receipt_method_label(receipt_method)}，紙本收據 {paper_receipt_number or '-'}）"
                 )
 
             cur.execute("COMMIT;")
@@ -6406,10 +6501,16 @@ class AppController:
              self._log_finance_system_event("新增收入資料警示（payer_person_id 未提供）", level="WARN")
 
         self._ensure_transactions_payment_schema()
+        self._ensure_business_receipt_schema()
         payment_method, transfer_last5 = self._normalize_payment_fields(data)
+        receipt_method, paper_receipt_number = self._normalize_receipt_fields(data)
         data = dict(data or {})
         data["payment_method"] = payment_method
         data["transfer_last5"] = transfer_last5
+        data["receipt_method"] = receipt_method
+        data["paper_receipt_number"] = paper_receipt_number
+        if receipt_method == self.RECEIPT_METHOD_PAPER:
+            data["note"] = self._append_paper_receipt_note(data.get("note"), paper_receipt_number)
 
         cursor = self.conn.cursor()
         try:
@@ -6417,9 +6518,9 @@ class AppController:
             INSERT INTO transactions (
                 date, type, category_id, category_name, amount, 
                 payer_person_id, payer_name, handler, receipt_number, note,
-                payment_method, transfer_last5,
+                payment_method, transfer_last5, receipt_method, paper_receipt_number,
                 source_type, source_id, adjustment_kind, adjusts_txn_id, is_system_generated
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.get("date"),
             data.get("type"),
@@ -6433,6 +6534,8 @@ class AppController:
             data.get("note"),
             data.get("payment_method"),
             data.get("transfer_last5"),
+            data.get("receipt_method"),
+            data.get("paper_receipt_number"),
             data.get("source_type"),
             data.get("source_id"),
             data.get("adjustment_kind"),
@@ -6450,8 +6553,9 @@ class AppController:
         self._log_transaction_change(f"{action_prefix}.CREATE", tx_id, data=data, before=None)
         return tx_id
     
-    def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None, voided_filter="all"):
+    def get_transactions(self, transaction_type=None, start_date=None, end_date=None, keyword=None, voided_filter="all", receipt_filter="all"):
         cursor = self.conn.cursor()
+        self._ensure_business_receipt_schema()
         query = """
             SELECT t.*, p.phone_mobile, p.address
             FROM transactions t
@@ -6486,6 +6590,12 @@ class AppController:
             params.extend([kw, kw, kw, kw, kw])
 
         cols = self._table_columns("transactions") if self._table_exists("transactions") else []
+        if "receipt_method" in cols:
+            receipt_mode = str(receipt_filter or "all").strip().lower()
+            if receipt_mode == "paper":
+                query += " AND COALESCE(t.receipt_method, 'ELECTRONIC') = 'PAPER'"
+            elif receipt_mode == "electronic":
+                query += " AND COALESCE(t.receipt_method, 'ELECTRONIC') = 'ELECTRONIC'"
         if "is_voided" in cols:
             mode = str(voided_filter or "all").strip().lower()
             if mode == "exclude":
@@ -6497,6 +6607,56 @@ class AppController:
         
         cursor.execute(query, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
+
+    def update_transaction_paper_receipt_number(self, transaction_id, paper_receipt_number: str) -> bool:
+        self._ensure_business_receipt_schema()
+        paper_no = str(paper_receipt_number or "").strip()
+        if not paper_no:
+            raise ValueError("紙本收據號不可空白")
+        cur = self.conn.cursor()
+        row = cur.execute(
+            "SELECT * FROM transactions WHERE id=? AND (is_deleted=0 OR is_deleted IS NULL)",
+            (transaction_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("交易不存在或已刪除")
+        tx = dict(row)
+        if int(tx.get("is_voided") or 0) == 1:
+            raise ValueError("作廢單據不可修改紙本收據號")
+        if str(tx.get("type") or "").strip().lower() != "income":
+            raise ValueError("僅收入資料可補紙本收據號")
+        if str(tx.get("receipt_method") or self.RECEIPT_METHOD_ELECTRONIC).strip().upper() != self.RECEIPT_METHOD_PAPER:
+            raise ValueError("僅紙本收據交易可補紙本收據號")
+
+        note = self._append_paper_receipt_note(str(tx.get("note") or ""), paper_no)
+        source_type = str(tx.get("source_type") or "").strip().upper()
+        source_id = str(tx.get("source_id") or "").strip()
+        try:
+            cur.execute("BEGIN;")
+            cur.execute(
+                "UPDATE transactions SET paper_receipt_number=?, note=? WHERE id=?",
+                (paper_no, note, transaction_id),
+            )
+            if source_type == "ACTIVITY_SIGNUP" and source_id and self._table_exists("activity_signups"):
+                cur.execute(
+                    "UPDATE activity_signups SET paper_receipt_number=?, updated_at=? WHERE id=?",
+                    (paper_no, self._now(), source_id),
+                )
+            elif source_type == "LIGHTING_SIGNUP" and source_id and self._table_exists("lighting_signups"):
+                cur.execute(
+                    "UPDATE lighting_signups SET paper_receipt_number=?, updated_at=? WHERE id=?",
+                    (paper_no, self._now(), source_id),
+                )
+            cur.execute("COMMIT;")
+        except Exception:
+            cur.execute("ROLLBACK;")
+            raise
+
+        after = dict(tx)
+        after["paper_receipt_number"] = paper_no
+        after["note"] = note
+        self._log_transaction_change("INCOME.UPDATE", transaction_id, data=after, before=tx)
+        return True
 
     def list_transactions_by_source(self, source_type: str, source_id: str) -> List[Dict[str, Any]]:
         """
