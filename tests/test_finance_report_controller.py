@@ -148,6 +148,8 @@ def test_get_transactions_supports_paper_receipt_filter(tmp_path):
     db = tmp_path / "finance_paper.db"
     conn = sqlite3.connect(db)
     _seed_transactions(conn)
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT, phone_mobile TEXT, phone_home TEXT, address TEXT)")
     conn.close()
 
     controller = AppController(db_path=str(db))
