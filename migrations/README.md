@@ -11,11 +11,22 @@ Schema additions:
 ```text
 activity_signups
 + prayer TEXT
++ receipt_method TEXT DEFAULT 'ELECTRONIC'
++ paper_receipt_number TEXT
+
+lighting_signups
++ receipt_method TEXT DEFAULT 'ELECTRONIC'
++ paper_receipt_number TEXT
 
 transactions
 + payment_method TEXT DEFAULT 'cash'
 + transfer_last5 TEXT
++ receipt_method TEXT DEFAULT 'ELECTRONIC'
++ paper_receipt_number TEXT
 ```
+
+For rows created before these columns existed, payment method defaults to `cash`, receipt method
+defaults to `ELECTRONIC`, and transfer/paper receipt details default to `NULL`.
 
 Worker log DB and mailer outbox DB are not part of this migration.
 
@@ -25,8 +36,11 @@ Before creating a backup or modifying the requested target, the migration compar
 table and column with a temporary database initialized from the current application schema.
 
 The migration stops with exit code `1` if any table or column exists only in the source. All
-source-only entries are included in the error output. Target-only tables and columns are allowed
-because they represent additions in the current schema.
+source-only entries are included in the error output.
+
+Target-only tables and columns must be explicitly allowed by the selected migration version.
+Unexpected additions stop the migration so that later application schema changes cannot silently
+change the behavior of an existing migration version.
 
 No target, backup, or report files are created or changed when this preflight fails.
 

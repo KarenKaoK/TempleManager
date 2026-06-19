@@ -2,6 +2,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+import migrations.engine as migration_engine
 
 from migrations.engine import MigrationOptions, run_migration
 from migrations.schema_inventory import diff_inventories, inventory_database
@@ -271,9 +272,19 @@ def test_schema_inventory_reports_current_added_columns(tmp_path):
     initialize_database(str(target))
     diff = diff_inventories(inventory_database(str(source)), inventory_database(str(target)))
 
-    assert diff["column_diffs"]["activity_signups"]["added_in_target"] == ["prayer"]
+    assert diff["column_diffs"]["activity_signups"]["added_in_target"] == [
+        "paper_receipt_number",
+        "prayer",
+        "receipt_method",
+    ]
+    assert diff["column_diffs"]["lighting_signups"]["added_in_target"] == [
+        "paper_receipt_number",
+        "receipt_method",
+    ]
     assert diff["column_diffs"]["transactions"]["added_in_target"] == [
+        "paper_receipt_number",
         "payment_method",
+        "receipt_method",
         "transfer_last5",
     ]
 
@@ -304,13 +315,27 @@ def test_main_to_current_migration_copies_data_and_defaults(tmp_path):
     conn.row_factory = sqlite3.Row
     try:
         tx = conn.execute(
-            "SELECT payment_method, transfer_last5 FROM transactions WHERE id = 1"
+            """
+            SELECT payment_method, transfer_last5, receipt_method, paper_receipt_number
+            FROM transactions
+            WHERE id = 1
+            """
         ).fetchone()
         assert tx["payment_method"] == "cash"
         assert tx["transfer_last5"] is None
+        assert tx["receipt_method"] == "ELECTRONIC"
+        assert tx["paper_receipt_number"] is None
 
-        signup = conn.execute("SELECT prayer FROM activity_signups WHERE id = 'S1'").fetchone()
+        signup = conn.execute(
+            """
+            SELECT prayer, receipt_method, paper_receipt_number
+            FROM activity_signups
+            WHERE id = 'S1'
+            """
+        ).fetchone()
         assert signup["prayer"] is None
+        assert signup["receipt_method"] == "ELECTRONIC"
+        assert signup["paper_receipt_number"] is None
 
         assert conn.execute("SELECT COUNT(*) FROM activity_signups").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 1
@@ -377,9 +402,53 @@ def test_migration_rejects_source_only_schema_before_target_or_backup_changes(tm
         )
 
     error_message = str(exc_info.value)
-    assert "Migration preflight rejected source-only schema entries" in error_message
-    assert "table: legacy_notes" in error_message
-    assert "column: people.legacy_code" in error_message
+    assert "Migration preflight rejected incompatible schema entries" in error_message
+    assert "source-only table: legacy_notes" in error_message
+    assert "source-only column: people.legacy_code" in error_message
     assert target.read_bytes() == original_target_content
+    assert not backup_dir.exists()
+    assert not report_dir.exists()
+
+
+def test_migration_rejects_unexpected_target_only_column_before_backup(
+    tmp_path,
+    monkeypatch,
+):
+    source = tmp_path / "old.db"
+    target = tmp_path / "new.db"
+    backup_dir = tmp_path / "backups"
+    report_dir = tmp_path / "reports"
+    _create_old_main_schema_db(source)
+
+    original_initialize_database = migration_engine.initialize_database
+
+    def initialize_with_unexpected_column(db_path):
+        original_initialize_database(db_path)
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("ALTER TABLE transactions ADD COLUMN currency TEXT")
+            conn.commit()
+        finally:
+            conn.close()
+
+    monkeypatch.setattr(
+        migration_engine,
+        "initialize_database",
+        initialize_with_unexpected_column,
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        run_migration(
+            MigrationOptions(
+                source=str(source),
+                target=str(target),
+                version="v20260608_main_to_current",
+                backup_dir=str(backup_dir),
+                report_dir=str(report_dir),
+            )
+        )
+
+    assert "unexpected target-only column: transactions.currency" in str(exc_info.value)
+    assert not target.exists()
     assert not backup_dir.exists()
     assert not report_dir.exists()

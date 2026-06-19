@@ -29,6 +29,8 @@ class MigrationSpec:
     tables: list[str] | None = None
     column_defaults: dict[str, dict[str, Any]] = field(default_factory=dict)
     validators: list[Validator] = field(default_factory=list)
+    allowed_target_only_tables: set[str] = field(default_factory=set)
+    allowed_target_only_columns: dict[str, set[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -142,7 +144,10 @@ def copy_table(
     return len(payload)
 
 
-def validate_source_data_coverage(source_db: str) -> None:
+def validate_schema_compatibility(
+    source_db: str,
+    spec: MigrationSpec,
+) -> None:
     with tempfile.TemporaryDirectory(prefix="temple_migration_preflight_") as temp_dir:
         reference_target = str(Path(temp_dir) / "current_schema.db")
         initialize_database(reference_target)
@@ -151,20 +156,33 @@ def validate_source_data_coverage(source_db: str) -> None:
             inventory_database(reference_target),
         )
 
-    source_only_entries = [
-        f"table: {table_name}"
+    incompatible_entries = [
+        f"source-only table: {table_name}"
         for table_name in schema_diff["tables_only_in_source"]
     ]
     for table_name, column_diff in schema_diff["column_diffs"].items():
-        source_only_entries.extend(
-            f"column: {table_name}.{column_name}"
+        incompatible_entries.extend(
+            f"source-only column: {table_name}.{column_name}"
             for column_name in column_diff["missing_in_target"]
         )
 
-    if source_only_entries:
-        details = "\n".join(f"- {entry}" for entry in source_only_entries)
+    incompatible_entries.extend(
+        f"unexpected target-only table: {table_name}"
+        for table_name in schema_diff["tables_only_in_target"]
+        if table_name not in spec.allowed_target_only_tables
+    )
+    for table_name, column_diff in schema_diff["column_diffs"].items():
+        allowed_columns = spec.allowed_target_only_columns.get(table_name, set())
+        incompatible_entries.extend(
+            f"unexpected target-only column: {table_name}.{column_name}"
+            for column_name in column_diff["added_in_target"]
+            if column_name not in allowed_columns
+        )
+
+    if incompatible_entries:
+        details = "\n".join(f"- {entry}" for entry in incompatible_entries)
         raise ValueError(
-            "Migration preflight rejected source-only schema entries:\n"
+            "Migration preflight rejected incompatible schema entries:\n"
             f"{details}"
         )
 
@@ -175,7 +193,7 @@ def run_migration(options: MigrationOptions) -> dict[str, Any]:
         raise FileNotFoundError(f"Source DB not found: {source}")
 
     spec = load_migration_spec(options.version)
-    validate_source_data_coverage(options.source)
+    validate_schema_compatibility(options.source, spec)
     backup_path = backup_source_db(options.source, options.backup_dir)
 
     if options.dry_run:
