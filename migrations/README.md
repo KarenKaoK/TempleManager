@@ -44,6 +44,26 @@ change the behavior of an existing migration version.
 
 No target, backup, or report files are created or changed when this preflight fails.
 
+## Validation
+
+After copying and committing data, every migration runs mandatory validation:
+
+- SQLite `PRAGMA integrity_check`
+- SQLite `PRAGMA foreign_key_check`
+- source and target row counts for every copied table
+- primary key set equality for every copied table
+- exact equality of every source column value, matched by primary key
+- target `NOT NULL` columns
+- transaction totals grouped by type
+- signup payment transaction references
+- migration-version-specific defaults for newly added columns
+
+Validation reports include counts and at most 20 primary-key samples. Existing field values are not
+included, avoiding unnecessary personal or financial data in reports.
+
+If validation fails, the target is retained for investigation, `success` is `false`, and the CLI
+returns exit code `2`. The target must not be used by the application.
+
 ## Dry run
 
 ```bash

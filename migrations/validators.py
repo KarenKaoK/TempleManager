@@ -6,6 +6,9 @@ from typing import Any
 from migrations.schema_inventory import quote_identifier, table_columns
 
 
+MAX_VALIDATION_SAMPLES = 20
+
+
 def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -37,6 +40,167 @@ def validate_row_counts(
                     "table": table,
                     "source": source_count,
                     "target": target_count,
+                }
+            )
+    return issues
+
+
+def validate_database_integrity(
+    target_conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    try:
+        rows = target_conn.execute("PRAGMA integrity_check").fetchall()
+    except sqlite3.DatabaseError as exc:
+        return [{"type": "integrity_check_error", "error": str(exc)}]
+
+    messages = [str(row[0]) for row in rows]
+    if messages == ["ok"]:
+        return []
+    return [
+        {
+            "type": "integrity_check_failed",
+            "message_count": len(messages),
+            "messages": messages[:MAX_VALIDATION_SAMPLES],
+        }
+    ]
+
+
+def validate_foreign_keys(
+    target_conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    try:
+        rows = target_conn.execute("PRAGMA foreign_key_check").fetchall()
+    except sqlite3.DatabaseError as exc:
+        return [{"type": "foreign_key_check_error", "error": str(exc)}]
+
+    if not rows:
+        return []
+    samples = [
+        {
+            "table": row[0],
+            "rowid": row[1],
+            "parent": row[2],
+            "foreign_key_index": row[3],
+        }
+        for row in rows[:MAX_VALIDATION_SAMPLES]
+    ]
+    return [
+        {
+            "type": "foreign_key_violations",
+            "violation_count": len(rows),
+            "samples": samples,
+        }
+    ]
+
+
+def _display_primary_key(key: tuple[Any, ...]) -> Any:
+    if len(key) == 1:
+        return key[0]
+    return list(key)
+
+
+def validate_source_rows_preserved(
+    source_conn: sqlite3.Connection,
+    target_conn: sqlite3.Connection,
+    tables: list[str],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for table_name in tables:
+        if not table_exists(source_conn, table_name) or not table_exists(target_conn, table_name):
+            continue
+
+        source_column_info = table_columns(source_conn, table_name)
+        source_columns = [column.name for column in source_column_info]
+        target_columns = {
+            column.name for column in table_columns(target_conn, table_name)
+        }
+        missing_target_columns = [
+            column for column in source_columns if column not in target_columns
+        ]
+        if missing_target_columns:
+            issues.append(
+                {
+                    "type": "row_comparison_missing_target_columns",
+                    "table": table_name,
+                    "columns": missing_target_columns,
+                }
+            )
+            continue
+
+        primary_key_columns = [
+            column.name for column in source_column_info if column.primary_key
+        ]
+        if not primary_key_columns:
+            issues.append(
+                {
+                    "type": "row_comparison_missing_primary_key",
+                    "table": table_name,
+                }
+            )
+            continue
+
+        selected_columns = ", ".join(
+            quote_identifier(column) for column in source_columns
+        )
+        quoted_table = quote_identifier(table_name)
+        source_rows = source_conn.execute(
+            f"SELECT {selected_columns} FROM {quoted_table}"
+        ).fetchall()
+        target_rows = target_conn.execute(
+            f"SELECT {selected_columns} FROM {quoted_table}"
+        ).fetchall()
+
+        def index_rows(rows):
+            return {
+                tuple(row[column] for column in primary_key_columns):
+                tuple(row[column] for column in source_columns)
+                for row in rows
+            }
+
+        source_by_key = index_rows(source_rows)
+        target_by_key = index_rows(target_rows)
+        source_keys = set(source_by_key)
+        target_keys = set(target_by_key)
+        missing_keys = sorted(source_keys - target_keys, key=repr)
+        unexpected_keys = sorted(target_keys - source_keys, key=repr)
+        if missing_keys or unexpected_keys:
+            issues.append(
+                {
+                    "type": "primary_key_mismatch",
+                    "table": table_name,
+                    "primary_key_columns": primary_key_columns,
+                    "missing_count": len(missing_keys),
+                    "unexpected_count": len(unexpected_keys),
+                    "missing_samples": [
+                        _display_primary_key(key)
+                        for key in missing_keys[:MAX_VALIDATION_SAMPLES]
+                    ],
+                    "unexpected_samples": [
+                        _display_primary_key(key)
+                        for key in unexpected_keys[:MAX_VALIDATION_SAMPLES]
+                    ],
+                }
+            )
+
+        mismatched_keys = sorted(
+            (
+                key
+                for key in source_keys & target_keys
+                if source_by_key[key] != target_by_key[key]
+            ),
+            key=repr,
+        )
+        if mismatched_keys:
+            issues.append(
+                {
+                    "type": "row_data_mismatch",
+                    "table": table_name,
+                    "primary_key_columns": primary_key_columns,
+                    "mismatch_count": len(mismatched_keys),
+                    "samples": [
+                        _display_primary_key(key)
+                        for key in mismatched_keys[:MAX_VALIDATION_SAMPLES]
+                    ],
                 }
             )
     return issues
@@ -128,6 +292,9 @@ def run_common_validations(
     tables: list[str],
 ) -> list[dict[str, Any]]:
     issues = []
+    issues.extend(validate_database_integrity(target_conn))
+    issues.extend(validate_foreign_keys(target_conn))
+    issues.extend(validate_source_rows_preserved(source_conn, target_conn, tables))
     issues.extend(validate_row_counts(source_conn, target_conn, tables))
     issues.extend(validate_required_columns(target_conn, tables))
     issues.extend(validate_transaction_totals(source_conn, target_conn))
