@@ -5,7 +5,8 @@ import pytest
 import migrations.engine as migration_engine
 
 from migrations.engine import MigrationOptions, run_migration
-from migrations.schema_inventory import diff_inventories, inventory_database
+from migrations.schema_inventory import diff_inventories, inventory_database, list_user_tables
+from migrations.validators import run_common_validations
 
 
 def _create_old_main_schema_db(db_path: Path):
@@ -452,3 +453,64 @@ def test_migration_rejects_unexpected_target_only_column_before_backup(
     assert not target.exists()
     assert not backup_dir.exists()
     assert not report_dir.exists()
+
+
+def test_common_validations_detect_row_primary_key_and_foreign_key_changes(tmp_path):
+    source = tmp_path / "old.db"
+    target = tmp_path / "new.db"
+    _create_old_main_schema_db(source)
+
+    report = run_migration(
+        MigrationOptions(
+            source=str(source),
+            target=str(target),
+            version="v20260608_main_to_current",
+            backup_dir=str(tmp_path / "backups"),
+            report_dir=str(tmp_path / "reports"),
+        )
+    )
+    assert report["success"] is True
+
+    target_conn = sqlite3.connect(target)
+    try:
+        target_conn.execute(
+            "UPDATE people SET name = ? WHERE id = ?",
+            ("被修改的姓名", "P1"),
+        )
+        target_conn.execute(
+            "UPDATE expense_items SET id = ? WHERE id = ?",
+            ("CHANGED", "E01"),
+        )
+        target_conn.execute(
+            "UPDATE activity_signups SET person_id = ? WHERE id = ?",
+            ("MISSING_PERSON", "S1"),
+        )
+        target_conn.commit()
+    finally:
+        target_conn.close()
+
+    source_conn = sqlite3.connect(source)
+    target_conn = sqlite3.connect(target)
+    source_conn.row_factory = sqlite3.Row
+    target_conn.row_factory = sqlite3.Row
+    try:
+        issues = run_common_validations(
+            source_conn,
+            target_conn,
+            list_user_tables(source_conn),
+        )
+    finally:
+        target_conn.close()
+        source_conn.close()
+
+    issue_types = {issue["type"] for issue in issues}
+    assert "row_data_mismatch" in issue_types
+    assert "primary_key_mismatch" in issue_types
+    assert "foreign_key_violations" in issue_types
+
+    row_issue = next(
+        issue
+        for issue in issues
+        if issue["type"] == "row_data_mismatch" and issue["table"] == "people"
+    )
+    assert row_issue["samples"] == ["P1"]
