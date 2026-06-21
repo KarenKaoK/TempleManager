@@ -155,17 +155,86 @@ def test_system_income_items_upserted_on_startup(controller_with_payment_db):
 
 def test_mark_activity_paid_maps_category_and_note(controller_with_payment_db):
     c = controller_with_payment_db
-    result = c.mark_activity_signups_paid("A1", ["S1"], handler="櫃台A")
+    result = c.mark_activity_signups_paid(
+        "A1",
+        ["S1"],
+        handler="櫃台A",
+        payment_method="transfer",
+        transfer_last5="9988X",
+    )
     assert result["paid_count"] == 1
 
     row = c.conn.cursor().execute(
-        "SELECT category_id, category_name, note FROM transactions ORDER BY id DESC LIMIT 1"
+        "SELECT category_id, category_name, note, payment_method, transfer_last5 FROM transactions ORDER BY id DESC LIMIT 1"
     ).fetchone()
     assert row["category_id"] == "90"
     assert row["category_name"] == "活動收入"
+    assert row["payment_method"] == "transfer"
+    assert row["transfer_last5"] == "9988X"
     assert "115/02/28" in row["note"]
     assert "虎爺聖誕" in row["note"]
     assert "雙虎祝壽×2" in row["note"]
+
+
+def test_mark_activity_paid_records_paper_receipt(controller_with_payment_db):
+    c = controller_with_payment_db
+    result = c.mark_activity_signups_paid(
+        "A1",
+        ["S1"],
+        handler="櫃台A",
+        receipt_method="PAPER",
+        paper_receipt_number="PAPER-001",
+    )
+    assert result["paid_count"] == 1
+
+    cur = c.conn.cursor()
+    tx = cur.execute(
+        """
+        SELECT receipt_method, paper_receipt_number, note
+        FROM transactions
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    signup = cur.execute(
+        """
+        SELECT receipt_method, paper_receipt_number
+        FROM activity_signups
+        WHERE id = 'S1'
+        """
+    ).fetchone()
+
+    assert tx["receipt_method"] == "PAPER"
+    assert tx["paper_receipt_number"] == "PAPER-001"
+    assert "紙本收據號：PAPER-001" in tx["note"]
+    assert signup["receipt_method"] == "PAPER"
+    assert signup["paper_receipt_number"] == "PAPER-001"
+
+
+def test_mark_activity_paid_allows_empty_paper_receipt_number(controller_with_payment_db):
+    c = controller_with_payment_db
+    result = c.mark_activity_signups_paid(
+        "A1",
+        ["S1"],
+        handler="櫃台A",
+        receipt_method="PAPER",
+        paper_receipt_number="",
+    )
+    assert result["paid_count"] == 1
+
+    cur = c.conn.cursor()
+    tx = cur.execute(
+        "SELECT receipt_method, paper_receipt_number, note FROM transactions ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    signup = cur.execute(
+        "SELECT receipt_method, paper_receipt_number FROM activity_signups WHERE id = 'S1'"
+    ).fetchone()
+
+    assert tx["receipt_method"] == "PAPER"
+    assert tx["paper_receipt_number"] == ""
+    assert "紙本收據號：" not in tx["note"]
+    assert signup["receipt_method"] == "PAPER"
+    assert signup["paper_receipt_number"] == ""
 
 
 def test_create_activity_signup_log_contains_person_name(controller_with_payment_db, monkeypatch):

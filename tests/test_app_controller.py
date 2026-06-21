@@ -356,6 +356,49 @@ def test_upsert_lighting_signup_and_item_totals(tmp_path):
     finally:
         controller.conn.close()
 
+
+def test_list_lighting_signups_orders_by_created_at_ascending(tmp_path):
+    controller = _new_lighting_controller(tmp_path / "lighting_signup_order.db")
+    try:
+        cur = controller.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS people (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                phone_mobile TEXT
+            )
+            """
+        )
+        cur.executemany(
+            "INSERT OR REPLACE INTO people (id, name, phone_mobile) VALUES (?, ?, ?)",
+            [
+                ("P1", "第一筆", "0911"),
+                ("P2", "第二筆", "0922"),
+                ("P3", "第三筆", "0933"),
+            ],
+        )
+        cur.executemany(
+            """
+            INSERT INTO lighting_signups
+                (id, signup_year, person_id, group_id, signup_kind, total_amount, created_at, updated_at)
+            VALUES (?, 2026, ?, ?, ?, 0, ?, ?)
+            """,
+            [
+                ("LS_NEW_APPEND", "P3", "G1", "APPEND", "2026-03-03 09:00:00", "2026-03-03 09:00:00"),
+                ("LS_OLD_APPEND", "P1", "G9", "APPEND", "2026-03-01 09:00:00", "2026-03-01 09:00:00"),
+                ("LS_MID_INITIAL", "P2", "G1", "INITIAL", "2026-03-02 09:00:00", "2026-03-02 09:00:00"),
+            ],
+        )
+        controller.conn.commit()
+
+        assert [row["signup_id"] for row in controller.list_lighting_signups(2026)] == [
+            "LS_OLD_APPEND", "LS_MID_INITIAL", "LS_NEW_APPEND"
+        ]
+    finally:
+        controller.conn.close()
+
+
 def test_list_lighting_signup_rows_by_item_for_print(tmp_path):
     controller = _new_lighting_controller(tmp_path / "lighting_signup_print_rows.db")
     try:
@@ -1541,6 +1584,85 @@ def test_mark_activity_signup_append_paid_writes_supplement_kind(tmp_path):
         tx = cur.execute("SELECT adjustment_kind FROM transactions WHERE source_id = ? ORDER BY id DESC LIMIT 1", (append_sid,)).fetchone()
         assert tx is not None
         assert str(tx["adjustment_kind"] or "") == "SUPPLEMENT"
+    finally:
+        controller.conn.close()
+
+
+def test_get_activity_signups_returns_creation_order_old_to_new(tmp_path):
+    controller = AppController(db_path=str(tmp_path / "activity_signup_order.db"))
+    try:
+        cur = controller.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS people (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                phone_mobile TEXT,
+                address TEXT,
+                birthday_ad TEXT,
+                birthday_lunar TEXT,
+                lunar_is_leap INTEGER DEFAULT 0
+            )
+            """
+        )
+        cur.execute("CREATE TABLE IF NOT EXISTS activities (id TEXT PRIMARY KEY, name TEXT, activity_end_date TEXT)")
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_signups (
+                id TEXT PRIMARY KEY,
+                activity_id TEXT,
+                person_id TEXT,
+                group_id TEXT,
+                signup_kind TEXT DEFAULT 'INITIAL',
+                prayer TEXT,
+                signup_time TEXT,
+                note TEXT,
+                total_amount INTEGER DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT,
+                is_paid INTEGER DEFAULT 0,
+                paid_at TEXT,
+                payment_txn_id INTEGER,
+                payment_receipt_number TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_plans (
+                id TEXT PRIMARY KEY,
+                activity_id TEXT,
+                name TEXT,
+                price_type TEXT,
+                fixed_price INTEGER DEFAULT 0,
+                min_price INTEGER DEFAULT 0
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_signup_plans (
+                id TEXT PRIMARY KEY,
+                signup_id TEXT,
+                plan_id TEXT,
+                qty INTEGER DEFAULT 1,
+                unit_price_snapshot INTEGER DEFAULT 0,
+                amount_override INTEGER,
+                line_total INTEGER DEFAULT 0,
+                note TEXT
+            )
+            """
+        )
+        cur.execute("INSERT INTO people (id, name, phone_mobile) VALUES ('P1','甲','0911')")
+        cur.execute("INSERT INTO people (id, name, phone_mobile) VALUES ('P2','乙','0922')")
+        cur.execute("INSERT INTO activities (id, name, activity_end_date) VALUES ('A1','法會','2026-03-01')")
+        cur.execute("INSERT INTO activity_plans (id, activity_id, name, price_type, fixed_price, min_price) VALUES ('AP1','A1','方案A','FIXED',100,0)")
+        controller.conn.commit()
+
+        sid1 = controller.create_activity_signup('A1', 'P1', [{'plan_id': 'AP1', 'qty': 1}])
+        sid2 = controller.create_activity_signup('A1', 'P2', [{'plan_id': 'AP1', 'qty': 1}])
+        rows = controller.get_activity_signups('A1')
+        assert [str(r.get("signup_id") or "") for r in rows] == [sid1, sid2]
     finally:
         controller.conn.close()
 

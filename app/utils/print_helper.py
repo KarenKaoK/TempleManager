@@ -18,7 +18,15 @@ class PrintHelper:
         return os.path.join(app_root, *parts)
 
     @staticmethod
-    def _apply_preview_toolbar(preview, do_print, show_address_toggle=False, toggle_address=None, extra_toolbar_builder=None):
+    def _apply_preview_toolbar(
+        preview,
+        do_print,
+        show_address_toggle=False,
+        toggle_address=None,
+        show_tax_toggle=False,
+        toggle_tax=None,
+        extra_toolbar_builder=None,
+    ):
         """套用統一列印工具列：自訂列印、縮放、關閉返回。"""
         try:
             toolbars = preview.findChildren(QToolBar)
@@ -103,6 +111,26 @@ class PrintHelper:
                     toolbar.insertWidget(actions[0], addr_cb)
                 else:
                     toolbar.addWidget(addr_cb)
+
+            if show_tax_toggle and callable(toggle_tax):
+                tax_cb = QCheckBox("報稅")
+                tax_cb.setChecked(False)
+                tax_cb.setFont(QFont("Arial", 12))
+                tax_cb.setStyleSheet("""
+                    QCheckBox {
+                        font-weight: bold;
+                        margin-left: 10px;
+                        color: black;
+                        background-color: #f0f0f0;
+                        padding: 5px;
+                        border-radius: 4px;
+                    }
+                """)
+                tax_cb.stateChanged.connect(toggle_tax)
+                if actions:
+                    toolbar.insertWidget(actions[0], tax_cb)
+                else:
+                    toolbar.addWidget(tax_cb)
 
             if callable(extra_toolbar_builder):
                 extra_toolbar_builder(toolbar, actions)
@@ -785,7 +813,7 @@ class PrintHelper:
         preview.resize(1000, 800)
         
         # 列印設定 (使用 dict 以便在 inner function 修改)
-        print_settings = {"show_address": True}
+        print_settings = {"show_address": True, "show_tax_id": False}
         
         # 實作自訂列印功能 (為了確保列印按鈕有效)
         def do_print():
@@ -793,11 +821,24 @@ class PrintHelper:
             if dialog.exec_() == QPrintDialog.Accepted:
                 # 使用者在系統列印視窗改了方向時，這裡再強制拉回橫式
                 PrintHelper._force_a4_landscape(printer)
-                PrintHelper._handle_print_painter(printer, data, print_settings['show_address'])
+                PrintHelper._handle_print_painter(
+                    printer,
+                    data,
+                    print_settings["show_address"],
+                    print_settings["show_tax_id"],
+                )
                 
         def toggle_address(state):
             print_settings['show_address'] = (state == Qt.Checked)
             # 修正: QPrintPreviewDialog 沒有 updatePreview，需透過其內的 QPrintPreviewWidget
+            try:
+                preview_widget = preview.findChildren(QPrintPreviewWidget)[0]
+                preview_widget.updatePreview()
+            except:
+                pass
+
+        def toggle_tax(state):
+            print_settings["show_tax_id"] = (state == Qt.Checked)
             try:
                 preview_widget = preview.findChildren(QPrintPreviewWidget)[0]
                 preview_widget.updatePreview()
@@ -809,15 +850,27 @@ class PrintHelper:
             do_print,
             show_address_toggle=True,
             toggle_address=toggle_address,
+            show_tax_toggle=True,
+            toggle_tax=toggle_tax,
         )
 
         preview.paintRequested.connect(
-            lambda p: (PrintHelper._force_a4_landscape(p), PrintHelper._handle_print_painter(p, data, print_settings['show_address']))
+            lambda p: (
+                PrintHelper._force_a4_landscape(p),
+                PrintHelper._handle_print_painter(
+                    p,
+                    data,
+                    print_settings["show_address"],
+                    print_settings["show_tax_id"],
+                ),
+            )
         )
         preview.exec_()
 
     @staticmethod
-    def _handle_print_painter(printer, data, print_address=True):
+    def _handle_print_painter(
+        printer, data, print_address=True, show_tax_id=False
+    ):
         PrintHelper._force_a4_landscape(printer)
         painter = QPainter(printer)
         
@@ -827,18 +880,34 @@ class PrintHelper:
         height = rect.height()
         
         # 左半部 (存根聯) - A5 Portrait
-        PrintHelper._draw_receipt(painter, data, QRectF(0, 0, width / 2, height), "（存根聯）", print_address)
+        PrintHelper._draw_receipt(
+            painter,
+            data,
+            QRectF(0, 0, width / 2, height),
+            "（存根聯）",
+            print_address,
+            show_tax_id,
+        )
         
         # 分隔線 (垂直中線)
         PrintHelper._draw_center_dash_line(painter, int(width / 2), int(height))
         
         # 右半部 (收執聯) - A5 Portrait
-        PrintHelper._draw_receipt(painter, data, QRectF(width / 2, 0, width / 2, height), "（收執聯）", print_address)
+        PrintHelper._draw_receipt(
+            painter,
+            data,
+            QRectF(width / 2, 0, width / 2, height),
+            "（收執聯）",
+            print_address,
+            show_tax_id,
+        )
         
         painter.end()
 
     @staticmethod
-    def _draw_receipt(painter, data, area, copy_title, print_address=True):
+    def _draw_receipt(
+        painter, data, area, copy_title, print_address=True, show_tax_id=False
+    ):
         """
         繪製單張收據 (A5 Portrait 區域)
         area: QRectF
@@ -968,8 +1037,18 @@ class PrintHelper:
         # 1. 標題: 感謝狀 (10%)
         draw_v_text("感謝狀", 10, Y_TITLE, FONT_TITLE, spacing=1.1, bold=True)
         
+        raw_note = str(data.get('note', '') or '')
+        paper_receipt_number = str(data.get('paper_receipt_number', '') or '').strip()
+        if not paper_receipt_number and raw_note:
+            match = re.search(r"紙本收據號：([^｜\n\r]+)", raw_note)
+            if match:
+                paper_receipt_number = match.group(1).strip()
+
+        summary_text = raw_note or data.get('category_name', '')
+        if summary_text:
+            summary_text = re.sub(r"(?:\s*｜\s*)?紙本收據號：[^｜\n\r]+", "", summary_text).strip()
+
         # --- 感謝狀右上角摘要 ---
-        summary_text = data.get('note', '') or data.get('category_name', '')
         if summary_text:
             painter.save()
             set_font(12, bold=True)
@@ -1075,13 +1154,92 @@ class PrintHelper:
         # B. 無效聲明 (原橫式已移除)
         
         # C. 收據編號 No. (右下, 紅色)
+        receipt_text = f"No. {data.get('receipt_number', '')}"
         set_font(16, bold=True)
         painter.setPen(Qt.red)
-        # 在 copy title 上方，靠右
-        rect_no = QRectF(content_rect.right() - (50 * unit), content_rect.bottom() - (10 * unit), 
+        # 在 copy title 上方，靠右（再上移，避免與報稅框重疊）
+        rect_no = QRectF(content_rect.right() - (50 * unit), content_rect.bottom() - (12.2 * unit),
                          45 * unit, 6 * unit)
-        painter.drawText(rect_no, Qt.AlignRight | Qt.AlignVCenter, f"No. {data.get('receipt_number', '')}")
+        painter.drawText(rect_no, Qt.AlignRight | Qt.AlignVCenter, receipt_text)
+
+        if paper_receipt_number:
+            paper_receipt_text = f"No. {paper_receipt_number}"
+            painter.setPen(Qt.black)
+            fm_paper_no = painter.fontMetrics()
+            paper_no_w = fm_paper_no.horizontalAdvance(paper_receipt_text)
+            paper_no_x = rect_no.right() - paper_no_w
+
+            rect_paper_no = QRectF(
+                paper_no_x,
+                rect_no.top() - (3.9 * unit),
+                paper_no_w,
+                6 * unit,
+            )
+            painter.drawText(rect_paper_no, Qt.AlignLeft | Qt.AlignVCenter, paper_receipt_text)
+
+            set_font(10, bold=True)
+            rect_paper_label = QRectF(
+                paper_no_x,
+                rect_paper_no.top() - (1.9 * unit),
+                paper_no_w,
+                3.5 * unit,
+            )
+            painter.drawText(rect_paper_label, Qt.AlignLeft | Qt.AlignVCenter, "紙本收據")
+            painter.setPen(Qt.red)
         painter.setPen(Qt.black)
+
+        if show_tax_id:
+            # 一格一數字 + 上方標題，整組加黑框
+            tax_id = "76767762"
+            digits = [c for c in tax_id if c.isdigit()]
+            if digits:
+                box_h = 2.2 * unit
+                box_w = 2.6 * unit
+                gap = 0.35 * unit
+                label_h = 2.2 * unit
+                inner_pad_x = 0.8 * unit
+                inner_pad_top = 0.5 * unit
+                inner_pad_bottom = 0.6 * unit
+                total_w = len(digits) * box_w + (len(digits) - 1) * gap
+                group_w = total_w + inner_pad_x * 2.0
+                group_h = label_h + box_h + inner_pad_top + inner_pad_bottom
+
+                group_x = content_rect.right() - group_w - (0.8 * unit)
+                group_y = content_rect.bottom() - group_h - (0.9 * unit)
+                group_rect = QRectF(group_x, group_y, group_w, group_h)
+
+                label_rect = QRectF(
+                    group_rect.left() + inner_pad_x,
+                    group_rect.top() + inner_pad_top,
+                    total_w,
+                    label_h,
+                )
+                digits_y = label_rect.bottom()
+                start_x = group_rect.left() + inner_pad_x
+
+                painter.save()
+                painter.setPen(QPen(Qt.black, 1.2))
+
+                # 外框（包住標題 + 8格數字）
+                painter.drawRect(group_rect)
+
+                # 標題置中，位於數字上方（字級放大，字元均勻分散）
+                set_font(9, bold=False)
+                label_text = "扣 繳 單 位 統 一 編 號"
+                painter.drawText(
+                    label_rect,
+                    Qt.AlignCenter | Qt.AlignVCenter,
+                    label_text,
+                )
+
+                # 8 格數字
+                set_font(10, bold=False)
+                for i, d in enumerate(digits):
+                    x = start_x + i * (box_w + gap)
+                    r = QRectF(x, digits_y, box_w, box_h)
+                    painter.drawRect(r)
+                    painter.drawText(r, Qt.AlignCenter, d)
+                painter.restore()
 
         painter.restore()
 

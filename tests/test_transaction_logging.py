@@ -98,6 +98,32 @@ def test_income_transaction_crud_writes_data_change_log(controller_with_tx_db, m
     assert "刪除收入資料" in delete_log.get("message", "")
 
 
+def test_add_transaction_stores_transfer_payment_fields_on_legacy_schema(controller_with_tx_db):
+    c = controller_with_tx_db
+
+    tx_id = c.add_transaction({
+        "date": "2026-02-25",
+        "type": "income",
+        "category_id": "90",
+        "category_name": "活動收入",
+        "amount": 1200,
+        "payer_person_id": "P001",
+        "payer_name": "王小明",
+        "handler": "櫃台A",
+        "receipt_number": "1150001",
+        "note": "測試收入",
+        "payment_method": "transfer",
+        "transfer_last5": "AB123",
+    })
+
+    row = c.conn.cursor().execute(
+        "SELECT payment_method, transfer_last5 FROM transactions WHERE id = ?",
+        (tx_id,),
+    ).fetchone()
+    assert row["payment_method"] == "transfer"
+    assert row["transfer_last5"] == "AB123"
+
+
 def test_expense_transaction_crud_writes_data_change_log(controller_with_tx_db, monkeypatch):
     calls = []
 

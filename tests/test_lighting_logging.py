@@ -169,6 +169,95 @@ def test_mark_lighting_paid_writes_data_log_with_person(controller_with_lighting
     assert f"收據 {receipt}" in msg
 
 
+def test_mark_lighting_paid_stores_transfer_payment_fields(controller_with_lighting_log_db):
+    c = controller_with_lighting_log_db
+    sid = c.upsert_lighting_signup(2026, "P1", ["L01"], note="轉帳付款測試")
+
+    result = c.mark_lighting_signups_paid(
+        2026,
+        [sid],
+        handler="櫃台A",
+        payment_method="transfer",
+        transfer_last5="TX123",
+    )
+
+    assert result["paid_count"] == 1
+    row = c.conn.cursor().execute(
+        "SELECT payment_method, transfer_last5 FROM transactions WHERE source_id = ? ORDER BY id DESC LIMIT 1",
+        (sid,),
+    ).fetchone()
+    assert row["payment_method"] == "transfer"
+    assert row["transfer_last5"] == "TX123"
+
+
+def test_mark_lighting_paid_records_paper_receipt(controller_with_lighting_log_db):
+    c = controller_with_lighting_log_db
+    sid = c.upsert_lighting_signup(2026, "P1", ["L01"], note="紙本收據測試")
+
+    result = c.mark_lighting_signups_paid(
+        2026,
+        [sid],
+        handler="櫃台A",
+        receipt_method="PAPER",
+        paper_receipt_number="LP-001",
+    )
+
+    assert result["paid_count"] == 1
+    cur = c.conn.cursor()
+    tx = cur.execute(
+        """
+        SELECT receipt_method, paper_receipt_number, note
+        FROM transactions
+        WHERE source_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (sid,),
+    ).fetchone()
+    signup = cur.execute(
+        """
+        SELECT receipt_method, paper_receipt_number
+        FROM lighting_signups
+        WHERE id = ?
+        """,
+        (sid,),
+    ).fetchone()
+    assert tx["receipt_method"] == "PAPER"
+    assert tx["paper_receipt_number"] == "LP-001"
+    assert "紙本收據號：LP-001" in tx["note"]
+    assert signup["receipt_method"] == "PAPER"
+    assert signup["paper_receipt_number"] == "LP-001"
+
+
+def test_mark_lighting_paid_allows_empty_paper_receipt_number(controller_with_lighting_log_db):
+    c = controller_with_lighting_log_db
+    sid = c.upsert_lighting_signup(2026, "P1", ["L01"], note="紙本收據待補")
+
+    result = c.mark_lighting_signups_paid(
+        2026,
+        [sid],
+        handler="櫃台A",
+        receipt_method="PAPER",
+        paper_receipt_number="",
+    )
+
+    assert result["paid_count"] == 1
+    cur = c.conn.cursor()
+    tx = cur.execute(
+        "SELECT receipt_method, paper_receipt_number, note FROM transactions WHERE source_id = ? ORDER BY id DESC LIMIT 1",
+        (sid,),
+    ).fetchone()
+    signup = cur.execute(
+        "SELECT receipt_method, paper_receipt_number FROM lighting_signups WHERE id = ?",
+        (sid,),
+    ).fetchone()
+    assert tx["receipt_method"] == "PAPER"
+    assert tx["paper_receipt_number"] == ""
+    assert "紙本收據號：" not in tx["note"]
+    assert signup["receipt_method"] == "PAPER"
+    assert signup["paper_receipt_number"] == ""
+
+
 def test_mark_lighting_paid_empty_handler_writes_system_log(controller_with_lighting_log_db, monkeypatch):
     system_calls = []
 

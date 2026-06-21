@@ -69,7 +69,7 @@ def test_generate_daily_report_produces_file_with_correct_format(mock_date, tmp_
     assert "期間,收入筆數,收入總額,支出筆數,支出總額,淨額" in content
     assert "本期收支結餘" in content
     assert "細項" in content
-    assert "日期,類型,單號,項目代號,項目名稱,對象,金額,經手人,摘要" in content
+    assert "日期,類型,單號,項目代號,項目名稱,對象,金額,付款方式,轉帳末5碼,經手人,摘要" in content
     # 2026-02-01 當日：2 筆收入(1000+1500=2500)、1 筆支出(300)
     assert "2026/02/01" in content
     assert "2500" in content

@@ -1,6 +1,7 @@
 import pytest
 import os
 from unittest.mock import Mock
+from PyQt5.QtCore import QRectF
 from PyQt5.QtGui import QFontDatabase
 from app.utils.print_helper import PrintHelper
 
@@ -57,3 +58,39 @@ def test_resource_path_uses_meipass_when_bundled(monkeypatch):
     monkeypatch.setattr("sys._MEIPASS", "/tmp/fake_bundle", raising=False)
     path = PrintHelper._resource_path("resources", "seal.png")
     assert os.path.normpath(path) == os.path.normpath("/tmp/fake_bundle/app/resources/seal.png")
+
+
+def test_handle_print_painter_passes_tax_flag(monkeypatch):
+    class FakePrinter:
+        def pageRect(self):
+            return QRectF(0, 0, 1000, 700)
+
+    class FakePainter:
+        def __init__(self, _printer):
+            self.ended = False
+
+        def end(self):
+            self.ended = True
+
+    called = {"draw": []}
+
+    monkeypatch.setattr("app.utils.print_helper.QPainter", FakePainter)
+    monkeypatch.setattr(PrintHelper, "_force_a4_landscape", staticmethod(lambda _p: None))
+    monkeypatch.setattr(PrintHelper, "_draw_center_dash_line", staticmethod(lambda _p, _x, _h: None))
+
+    def fake_draw_receipt(painter, data, area, copy_title, print_address=True, show_tax_id=False):
+        called["draw"].append((copy_title, print_address, show_tax_id))
+
+    monkeypatch.setattr(PrintHelper, "_draw_receipt", staticmethod(fake_draw_receipt))
+
+    PrintHelper._handle_print_painter(
+        FakePrinter(),
+        {"receipt_number": "113A0001"},
+        True,
+        True,
+    )
+
+    assert called["draw"] == [
+        ("（存根聯）", True, True),
+        ("（收執聯）", True, True),
+    ]
